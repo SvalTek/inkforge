@@ -5,6 +5,7 @@ import { uiElement } from "../engine/ui-state.ts";
 import { $all } from "../app/dom.ts";
 import { renderModals } from "./modals.ts";
 import { renderTools } from "./tools.ts";
+import { projectTitle } from "../project/project.ts";
 
 type OutputEvent = Extract<EngineEvent, { type: "output" }>;
 
@@ -27,7 +28,7 @@ export function render(app: AppContext): void {
   dom.choiceCount.textContent = choices.length ? `${choices.length} AVAILABLE` : "";
   const title = loc.title || scenario?.meta?.title || "";
   dom.storyTitle.textContent = title;
-  dom.title.textContent = scenario?.meta?.title || "";
+  dom.title.textContent = projectTitle(app.project);
   dom.runTitle.textContent = dom.title.textContent;
   dom.location.textContent = title;
   dom.eventLog.innerHTML = runtime.events

@@ -102,7 +102,7 @@ function renderElement(app: AppContext, element: ResolvedUiElement, path: string
   } else if (type === "image") {
     const image = document.createElement("img");
     const source = String(element.values.src ?? element.values.image ?? "");
-    image.src = assetUrl(app, source);
+    image.src = app.assetResolver.url(source) || "";
     image.alt = String(element.values.alt ?? element.accessibleLabel ?? "");
     node.append(image);
   } else if (type === "meter") {
@@ -127,16 +127,6 @@ function renderElement(app: AppContext, element: ResolvedUiElement, path: string
   }
 
   return node;
-}
-
-function assetUrl(app: AppContext, path: string): string {
-  const value = app.project.vfs[path];
-  if (typeof value !== "string") return path;
-  if (/^(data:|blob:)/.test(value)) return value;
-  if (path.toLowerCase().endsWith(".svg") && value.trimStart().startsWith("<svg")) {
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(value)}`;
-  }
-  return path;
 }
 
 /** Render the active authored modal into the dedicated shell overlay host. */

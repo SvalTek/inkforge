@@ -5,6 +5,7 @@ import type { ApplyUiFn, EngineRuntime, OutputFn } from "../types/engine.ts";
 import type { LuaCallback, LuaEngine } from "../types/lua.ts";
 import type { UiCommand } from "../types/ui.ts";
 import type { Vfs } from "../types/vfs.ts";
+import type { AudioManagerLike } from "../types/audio.ts";
 import { registerTool, removeTool, setToolDisabled, setToolHidden } from "../engine/tool-state.ts";
 
 /** Injected dependencies for {@link createLuaEngine}. */
@@ -15,6 +16,7 @@ export interface LuaBridgeOptions {
   canvasHost: CanvasHost;
   applyUi: ApplyUiFn;
   output: OutputFn;
+  audio: AudioManagerLike;
 }
 
 /** The live Lua engine plus the callbacks read back from its globals. */
@@ -43,7 +45,7 @@ export interface LuaBridgeResult {
  * that is absent from `vfs` throws `Script not found: <path>` before any work.
  */
 export async function createLuaEngine(options: LuaBridgeOptions): Promise<LuaBridgeResult> {
-  const { runtime, vfs, scriptPath, canvasHost, applyUi, output } = options;
+  const { runtime, vfs, scriptPath, canvasHost, applyUi, output, audio } = options;
 
   if (vfs[scriptPath] === undefined) throw new Error(`Script not found: ${scriptPath}`);
 
@@ -91,6 +93,16 @@ export async function createLuaEngine(options: LuaBridgeOptions): Promise<LuaBri
     runtime.canvasViewDirty = true;
   });
   engine.global.set("__output", (text: unknown) => output(text));
+  engine.global.set("__audio_play", (path: unknown, optionsJson: unknown) => {
+    const options = JSON.parse(String(optionsJson || "{}")) as { id?: string; loop?: boolean; volume?: number };
+    return audio.play(String(path), options);
+  });
+  engine.global.set("__audio_stop", (id: unknown) => audio.stop(String(id)));
+  engine.global.set("__audio_pause", (id: unknown) => audio.pause(String(id)));
+  engine.global.set("__audio_resume", (id: unknown) => audio.resume(String(id)));
+  engine.global.set("__audio_set_volume", (id: unknown, value: unknown) => audio.setVolume(String(id), Number(value)));
+  engine.global.set("__audio_set_loop", (id: unknown, value: unknown) => audio.setLoop(String(id), Boolean(value)));
+  engine.global.set("__audio_stop_all", () => audio.stopAll());
   engine.global.set("__state_get", (path: unknown) => runtime.state[String(path)]);
   engine.global.set("__state_set", (path: unknown, value: unknown) => {
     runtime.state[String(path)] = value;

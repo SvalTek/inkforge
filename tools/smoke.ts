@@ -1,6 +1,7 @@
 import { build } from "./build.ts";
 import { DIST } from "./paths.ts";
 import { serveStatic } from "./server.ts";
+import { unzipSync, zipSync } from "fflate";
 import type { Browser, BrowserContext, ConsoleMessage, Dialog, Page } from "playwright-core";
 
 /**
@@ -34,18 +35,14 @@ interface PlaywrightModule {
   chromium: ChromiumLauncher;
 }
 
-interface PackFileShape {
-  vfs?: Record<string, string>;
-  scenario?: string;
-  script?: string;
-  assets?: unknown[];
-}
-
 interface PackShape {
-  format?: string;
-  version?: number;
-  files: PackFileShape;
-  assets: unknown[];
+  manifest: {
+    format: string;
+    packVersion: number;
+    project: { id: string; title?: string; author?: string; version: string };
+    files: string[];
+  };
+  entries: Record<string, Uint8Array>;
 }
 
 interface CheckResult {
@@ -149,10 +146,10 @@ async function choiceLabels(page: Page): Promise<string[]> {
   return await page.locator("#heroChoices .choice").allTextContents();
 }
 
-function asVfs(files: PackFileShape): Record<string, string> {
-  const vfs = files.vfs;
-  assert(vfs && typeof vfs === "object", "pack files.vfs is missing");
-  return vfs;
+function asText(pack: PackShape, path: string): string {
+  const bytes = pack.entries[path];
+  assert(bytes, `pack entry is missing: ${path}`);
+  return new TextDecoder().decode(bytes);
 }
 
 function sortValue(value: unknown): unknown {
@@ -170,24 +167,92 @@ function deepEqual(left: unknown, right: unknown): boolean {
   return JSON.stringify(sortValue(left)) === JSON.stringify(sortValue(right));
 }
 
+function silentWav(): Uint8Array {
+  const dataLength = 8;
+  const bytes = new Uint8Array(44 + dataLength);
+  const view = new DataView(bytes.buffer);
+  const text = (offset: number, value: string): void => {
+    for (let index = 0; index < value.length; index += 1) bytes[offset + index] = value.charCodeAt(index);
+  };
+  text(0, "RIFF");
+  view.setUint32(4, 36 + dataLength, true);
+  text(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 8000, true);
+  view.setUint32(28, 8000, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  text(36, "data");
+  view.setUint32(40, dataLength, true);
+  bytes.fill(128, 44);
+  return bytes;
+}
+
 async function exportPack(page: Page): Promise<PackShape> {
   const downloadPromise = page.waitForEvent("download");
   await page.locator("#exportBtn").click();
   const download = await downloadPromise;
   const path = await download.path();
   assert(path, "export download produced no local path");
-  const raw = await Deno.readTextFile(path);
-  return JSON.parse(raw) as PackShape;
+  const archive = unzipSync(await Deno.readFile(path));
+  const manifest = JSON.parse(new TextDecoder().decode(archive["manifest.json"]));
+  return { manifest, entries: archive } as PackShape;
 }
 
-async function importPack(page: Page, pack: PackShape, storageMarker: string): Promise<void> {
+async function importPack(page: Page, pack: PackShape, storageMarker: string, storagePath: string): Promise<void> {
   const dir = await Deno.makeTempDir({ prefix: "inkforge-smoke-" });
   const filePath = `${dir}\\pack.inkforge`;
-  await Deno.writeTextFile(filePath, JSON.stringify(pack));
+  const entries = {
+    ...pack.entries,
+    "manifest.json": new TextEncoder().encode(`${JSON.stringify(pack.manifest, null, 2)}\n`),
+  };
+  await Deno.writeFile(filePath, zipSync(entries));
   await page.locator("#importFile").setInputFiles(filePath);
   await page.waitForFunction(
-    (marker: string) => (localStorage.getItem("inkforge-project-v1") ?? "").includes(marker),
-    storageMarker,
+    ({ marker, path }: { marker: string; path: string }) =>
+      new Promise<boolean>((resolve, reject) => {
+        const request = indexedDB.open("inkforge-project-library");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const all = request.result.transaction("projects", "readonly").objectStore("projects").getAll();
+          all.onsuccess = () =>
+            resolve((all.result as Array<{ vfs: Record<string, string> }>).some((project) =>
+              (project.vfs[path] ?? "").includes(marker)
+            ));
+          all.onerror = () =>
+            reject(all.error);
+        };
+      }),
+    { marker: storageMarker, path: storagePath },
+    { timeout: BOOT_TIMEOUT },
+  );
+  await page.waitForFunction(
+    (projectId: string) =>
+      document.body.dataset.projectId === projectId && document.body.dataset.projectReady === "true",
+    pack.manifest.project.id,
+    { timeout: BOOT_TIMEOUT },
+  );
+}
+
+async function waitForStoredText(page: Page, marker: string, path: string): Promise<void> {
+  await page.waitForFunction(
+    ({ needle, path }: { needle: string; path: string }) =>
+      new Promise<boolean>((resolve, reject) => {
+        const request = indexedDB.open("inkforge-project-library");
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const all = request.result.transaction("projects", "readonly").objectStore("projects").getAll();
+          all.onsuccess = () =>
+            resolve((all.result as Array<{ vfs: Record<string, string> }>).some((project) =>
+              (project.vfs[path] ?? "").includes(needle)
+            ));
+          all.onerror = () =>
+            reject(all.error);
+        };
+      }),
+    { needle: marker, path },
     { timeout: BOOT_TIMEOUT },
   );
 }
@@ -245,8 +310,10 @@ async function main(): Promise<void> {
     logs.push({ kind: "pageerror", level: "error", text: error.message });
   });
   page.on("dialog", async (dialog: Dialog) => {
-    logs.push({ kind: "console", level: "dialog", text: `${dialog.type()}: ${dialog.message()}` });
-    await dialog.dismiss();
+    const expectedDelete = dialog.message().startsWith("Delete ");
+    if (!expectedDelete) logs.push({ kind: "console", level: "dialog", text: `${dialog.type()}: ${dialog.message()}` });
+    if (expectedDelete) await dialog.accept();
+    else await dialog.dismiss();
   });
 
   try {
@@ -327,8 +394,7 @@ async function main(): Promise<void> {
       await page.locator("#code").fill(`${luaCode}\n-- smoke-edit`);
       const saved = await textOf(page, "#saved");
       assert(saved === "saved locally", `#saved=${saved}`);
-      const stored = await page.evaluate(() => localStorage.getItem("inkforge-project-v1") ?? "");
-      assert(stored.includes("smoke-edit"), "localStorage does not contain the edit");
+      await waitForStoredText(page, "smoke-edit", "scripts/main.lua");
 
       await page.locator('.file[data-file="scenario.yaml"]').first().click();
       const scenarioCode = await page.locator("#code").inputValue();
@@ -336,7 +402,7 @@ async function main(): Promise<void> {
       assert(!scenarioCode.includes("smoke-edit"), "the main.lua edit leaked into scenario.yaml");
       return `#authorView shown, #playView hidden; state.yml=YAML/lampLit:false; main.lua=LUA/require; ` +
         `gutter=${gutterLines} lines matches #code; #cursor="${cursor}"; ` +
-        `edit persisted (#saved="saved locally", localStorage contains smoke-edit); scenario.yaml intact`;
+        `edit persisted (#saved="saved locally", IndexedDB contains smoke-edit); scenario.yaml intact`;
     });
 
     await runCheck("4a. Editor tabs: opening a file appends and activates a tab", async () => {
@@ -463,27 +529,29 @@ async function main(): Promise<void> {
         step("export original pack");
         const packA = await exportPack(page);
         originalPack = packA;
-        assert(packA.format === "inkforge-pack", `format=${String(packA.format)}`);
-        assert(packA.version === 1, `version=${String(packA.version)}`);
-        assert(Array.isArray(packA.assets), "assets is not an array");
-        const vfsA = asVfs(packA.files);
+        assert(packA.manifest.format === "inkforge-pack", `format=${String(packA.manifest.format)}`);
+        assert(packA.manifest.packVersion === 2, `packVersion=${String(packA.manifest.packVersion)}`);
+        const scenarioA = asText(packA, "scenario.yaml");
         assert(
-          vfsA["scenario.yaml"].includes("startLocation: entry"),
+          scenarioA.includes("startLocation: entry"),
           "export scenario.yaml missing startLocation: entry",
         );
-        assert(packA.files.scenario === vfsA["scenario.yaml"], "files.scenario !== files.vfs[scenario.yaml]");
 
         step("modify state.yml and import");
         const modified = structuredClone(packA);
-        const modifiedVfs = asVfs(modified.files);
-        modifiedVfs["state.yml"] = modifiedVfs["state.yml"].replace("lampLit: false", "lampLit: true");
-        assert(modifiedVfs["state.yml"].includes("lampLit: true"), "failed to modify state.yml");
-        await importPack(page, modified, "lampLit: true");
+        modified.manifest.project.version = "0.1.1";
+        const modifiedState = asText(modified, "state.yml").replace("lampLit: false", "lampLit: true");
+        modified.entries["state.yml"] = new TextEncoder().encode(modifiedState);
+        assert(modifiedState.includes("lampLit: true"), "failed to modify state.yml");
+        await importPack(page, modified, "lampLit: true", "state.yml");
         await waitForTextEquals(page, "#storyTitle", "Stone Entry");
         await waitForText(page, "#heroChoices", "Take Brass Lantern");
-        const stored = await page.evaluate(() => localStorage.getItem("inkforge-project-v1") ?? "");
-        assert(stored.includes("lampLit: true"), "imported state.yml not persisted");
-
+        await waitForStoredText(page, "lampLit: true", "state.yml");
+        await page.waitForFunction(
+          () => !(document.querySelector("#heroChoices")?.textContent || "").includes("Light the lantern"),
+          undefined,
+          { timeout: BOOT_TIMEOUT },
+        );
         step("observe lampLit:true effect in Play");
         await page.locator('.nav[data-view="play"]').click();
         await clickChoice(page, "Take Brass Lantern");
@@ -496,7 +564,9 @@ async function main(): Promise<void> {
         );
 
         step("re-import original pack and control the lampLit:false action");
-        await importPack(page, packA, "lampLit: false");
+        const controlPack = structuredClone(packA);
+        controlPack.manifest.project.version = "0.1.2";
+        await importPack(page, controlPack, "lampLit: false", "state.yml");
         await waitForTextEquals(page, "#storyTitle", "Stone Entry");
         await page.locator('.nav[data-view="play"]').click();
         await clickChoice(page, "Take Brass Lantern");
@@ -508,11 +578,16 @@ async function main(): Promise<void> {
         step("re-export and compare VFS");
         await page.locator('.nav[data-view="author"]').click();
         const packC = await exportPack(page);
-        const vfsC = asVfs(packC.files);
-        assert(deepEqual(vfsC, vfsA), "re-imported VFS is not identical to the original export");
-        return `export format=inkforge-pack/version=1/assets=array; files.scenario===files.vfs[scenario.yaml]; ` +
+        const textEntriesA = Object.fromEntries(
+          packA.manifest.files.filter((path) => !path.startsWith("assets/")).map((path) => [path, asText(packA, path)]),
+        );
+        const textEntriesC = Object.fromEntries(
+          packC.manifest.files.filter((path) => !path.startsWith("assets/")).map((path) => [path, asText(packC, path)]),
+        );
+        assert(deepEqual(textEntriesC, textEntriesA), "re-imported text VFS is not identical to the original export");
+        return `export format=inkforge-pack/packVersion=2; manifest and ZIP entries validated; ` +
           `lampLit:true import took effect (action absent: [${labelsTrue.join(", ")}]); original pack re-import ` +
-          `restored identical VFS; control with lampLit:false offers action: [${labelsFalse.join(", ")}]`;
+          `newer control version restored text files; lampLit:false offers action: [${labelsFalse.join(", ")}]`;
       } catch (error) {
         throw new Error(`stage "${stage}": ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -521,8 +596,8 @@ async function main(): Promise<void> {
     await runCheck("6a. Lua-authored projected scene + world pointer coordinates", async () => {
       assert(originalPack, "original pack was not captured");
       const projected = structuredClone(originalPack);
-      const vfs = asVfs(projected.files);
-      vfs["scripts/main.lua"] = `-- projected-scene-fixture
+      projected.manifest.project.version = "0.1.3";
+      const script = `-- projected-scene-fixture
 game.canvas.create({
   id = 'projected_scene',
   viewport = {
@@ -550,10 +625,11 @@ game.canvas.create({
   },
 })
 `;
-      assert(vfs["scripts/main.lua"].includes("projected_scene"), "projected Lua fixture was not written to the VFS");
-      vfs["scenario.yaml"] += "\n# projected-scene-fixture\n";
-      projected.files.scenario = vfs["scenario.yaml"];
-      await importPack(page, projected, "projected-scene-fixture");
+      projected.entries["scripts/main.lua"] = new TextEncoder().encode(script);
+      const scenario = `${asText(projected, "scenario.yaml")}\n# projected-scene-fixture\n`;
+      projected.entries["scenario.yaml"] = new TextEncoder().encode(scenario);
+      assert(script.includes("projected_scene"), "projected Lua fixture was not written to the VFS");
+      await importPack(page, projected, "projected-scene-fixture", "scripts/main.lua");
       await page.locator('.nav[data-view="play"]').click();
       const selector = '#gameSurface canvas[data-scene="projected_scene"]';
       await waitForCanvas(page, selector);
@@ -642,16 +718,145 @@ game.canvas.create({
       return "canvas tracks the remaining viewport host at large and responsive panel sizes; flat UI bounds remain separate";
     });
 
+    await runCheck("6d. Binary audio asset preview and Lua lifecycle", async () => {
+      assert(originalPack, "original pack was not captured");
+      const audioPack = structuredClone(originalPack);
+      audioPack.manifest.project.version = "0.1.4";
+      audioPack.manifest.files.push("assets/click.wav");
+      audioPack.entries["assets/click.wav"] = silentWav();
+      const script = `local function add(id, label, callback)
+  game.ui.create({id=id, type='button', location='output', fields={{id='label', type='text', value=label}}, events={activate={callback=callback}}})
+end
+function audio_play() game.audio.play('assets/click.wav', {id='click', loop=false, volume=0.8}) end
+function audio_pause() game.audio.pause('click') end
+function audio_resume() game.audio.resume('click') end
+function audio_volume() game.audio.set_volume('click', 0.5) end
+function audio_loop() game.audio.set_loop('click', true) end
+function audio_stop() game.audio.stop('click') end
+function audio_stop_all() game.audio.stop_all() end
+add('audio_play', 'Play audio', 'audio_play')
+add('audio_pause', 'Pause audio', 'audio_pause')
+add('audio_resume', 'Resume audio', 'audio_resume')
+add('audio_volume', 'Set volume', 'audio_volume')
+add('audio_loop', 'Loop audio', 'audio_loop')
+add('audio_stop', 'Stop audio', 'audio_stop')
+add('audio_stop_all', 'Stop all', 'audio_stop_all')
+`;
+      audioPack.entries["scripts/main.lua"] = new TextEncoder().encode(script);
+      await page.evaluate(() => {
+        const trace: string[] = [];
+        const media = HTMLMediaElement.prototype;
+        const pause = media.pause;
+        const load = media.load;
+        media.play = function () {
+          trace.push("play");
+          return Promise.resolve();
+        };
+        media.pause = function () {
+          trace.push("pause");
+          return pause.call(this);
+        };
+        media.load = function () {
+          trace.push("load");
+          return load.call(this);
+        };
+        Object.defineProperty(globalThis, "__inkforgeAudioTrace", { configurable: true, value: trace });
+      });
+      await importPack(page, audioPack, "audio_play", "scripts/main.lua");
+      await page.locator('.nav[data-view="author"]').click();
+      await page.locator('.file[data-file="assets/click.wav"]').click();
+      assert(await page.locator("#assetPreview audio").count() === 1, "WAV preview controls missing");
+      await page.locator('.nav[data-view="play"]').click();
+      await waitForText(page, "#uiOutput", "Play audio");
+      await page.locator('[data-ui="audio_play"]').click();
+      await page.locator('[data-ui="audio_volume"]').click();
+      await page.locator('[data-ui="audio_loop"]').click();
+      await page.locator('[data-ui="audio_pause"]').click();
+      await page.locator('[data-ui="audio_resume"]').click();
+      await page.locator('[data-ui="audio_stop"]').click();
+      await page.locator('[data-ui="audio_stop_all"]').click();
+      const trace = await page.evaluate(() =>
+        (globalThis as typeof globalThis & { __inkforgeAudioTrace: string[] }).__inkforgeAudioTrace
+      );
+      assert(trace.includes("play"), `audio play was not bridged: ${trace.join(",")}`);
+      assert(
+        trace.filter((entry) => entry === "pause").length >= 2,
+        `audio pause/stop lifecycle missing: ${trace.join(",")}`,
+      );
+      assert(trace.includes("load"), `audio stop did not dispose the element: ${trace.join(",")}`);
+      return `WAV asset round-tripped through ZIP/IndexedDB, Author preview rendered native controls, and Lua play/pause/resume/volume/loop/stop/stop_all reached AudioManager (${
+        trace.join(",")
+      })`;
+    });
+
+    await runCheck("6e. Equal/older import is declined", async () => {
+      assert(originalPack, "original pack was not captured");
+      const oldPack = structuredClone(originalPack);
+      const temp = await Deno.makeTempDir({ prefix: "inkforge-smoke-older-" });
+      const path = `${temp}\\older.inkforge`;
+      const entries = {
+        ...oldPack.entries,
+        "manifest.json": new TextEncoder().encode(`${JSON.stringify(oldPack.manifest, null, 2)}\n`),
+      };
+      await Deno.writeFile(path, zipSync(entries));
+      await page.locator("#importFile").setInputFiles(path);
+      await waitForText(page, "#diagnostics", "already v0.1.4");
+      assert(
+        await page.locator("#title").textContent().then((value) => value?.includes("Lantern Below")),
+        "older import changed active project",
+      );
+      return "an older package was declined and the active newer project remained loaded";
+    });
+
     await runCheck("7. New project restores the starter", async () => {
       await page.locator("#newBtn").click();
       await waitForTextEquals(page, "#storyTitle", "Stone Entry");
+      await page.waitForFunction(
+        () => (document.querySelector("#title")?.textContent ?? "").includes("Copy"),
+        undefined,
+        { timeout: BOOT_TIMEOUT },
+      );
+      const projectTitle = await textOf(page, "#title");
+      assert(projectTitle.includes("Copy"), `new project did not receive a copy identity: ${projectTitle}`);
       await page.locator('.nav[data-view="author"]').click();
       const code = await page.locator("#code").inputValue();
       assert(code.includes("startLocation: entry"), "#code does not contain startLocation: entry");
-      const stored = await page.evaluate(() => localStorage.getItem("inkforge-project-v1") ?? "");
-      assert(!stored.includes("smoke-edit"), "New project did not reset the persisted project");
-      return `#newBtn restored the starter (title Stone Entry, #code has startLocation: entry); ` +
-        `prior smoke-edit cleared from localStorage`;
+      await page.locator("#loadBtn").click();
+      await page.waitForFunction(() => document.querySelectorAll("#projectList .project-card").length >= 2, undefined, {
+        timeout: BOOT_TIMEOUT,
+      });
+      const activeCard = page.locator("#projectList .project-card").filter({ hasText: "Active" });
+      assert(await activeCard.count() === 1, "project library did not mark exactly one active project");
+      assert(
+        await activeCard.textContent().then((value) => value?.includes("Updated")),
+        "project card omitted updated time",
+      );
+      await activeCard.locator("button", { hasText: "Delete" }).click();
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll<HTMLElement>("#projectList .project-card")].every((card) =>
+            !card.dataset.project?.startsWith("lantern-below-copy-")
+          ),
+        undefined,
+        { timeout: BOOT_TIMEOUT },
+      );
+      await waitForTextEquals(page, "#storyTitle", "Stone Entry");
+      assert(
+        await page.locator("#projectList .project-card").filter({ hasText: "Active" }).count() === 1,
+        "deleting active project did not select a fallback",
+      );
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await waitForTextEquals(page, "#storyTitle", "Stone Entry");
+      await page.locator("#loadBtn").click();
+      await page.waitForFunction(() => document.querySelectorAll("#projectList .project-card").length >= 1, undefined, {
+        timeout: BOOT_TIMEOUT,
+      });
+      assert(
+        await page.locator('#projectList [data-project="lantern-below"] .project-active').count() === 1,
+        "active project did not persist across reload",
+      );
+      return `#newBtn created an independent starter copy (play title Stone Entry, project "${projectTitle}", ` +
+        `#code has startLocation: entry); library showed active/updated metadata, deleted the active copy to the pinned starter, and restored it after reload`;
     });
   } finally {
     await context.close();

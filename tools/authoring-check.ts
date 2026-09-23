@@ -14,6 +14,28 @@ function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+function silentWav(): Uint8Array {
+  const bytes = new Uint8Array(52);
+  const view = new DataView(bytes.buffer);
+  const text = (offset: number, value: string): void => {
+    for (let index = 0; index < value.length; index += 1) bytes[offset + index] = value.charCodeAt(index);
+  };
+  text(0, "RIFF");
+  view.setUint32(4, 44, true);
+  text(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, 8000, true);
+  view.setUint32(28, 8000, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  text(36, "data");
+  view.setUint32(40, 8, true);
+  bytes.fill(128, 44);
+  return bytes;
+}
+
 async function launch(): Promise<Browser> {
   try {
     const module = await import("playwright-core") as unknown as ChromiumModule;
@@ -70,7 +92,50 @@ async function main(): Promise<void> {
       undefined,
       { timeout: TIMEOUT },
     );
+    await page.locator("#loadBtn").click();
+    await page.waitForFunction(() => document.querySelectorAll("#projectList .project-card").length >= 2, undefined, {
+      timeout: TIMEOUT,
+    });
+    const projectIds = await page.locator("#projectList .project-card").evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute("data-project"))
+    );
+    assert(projectIds.length >= 2, `project library did not retain the starter: ui=${projectIds.join(",")}`);
+    assert(
+      await page.locator('#projectList [data-project="renderer-stage-showcase"]').count() === 1,
+      "imported project missing from library",
+    );
+    assert(
+      await page.locator('#projectList [data-project="renderer-stage-showcase"] .project-active').count() === 1,
+      "active project marker missing",
+    );
+    assert(
+      await page.locator('#projectList [data-project="renderer-stage-showcase"]').textContent().then((value) =>
+        value?.includes("Updated")
+      ),
+      "updated time missing from project card",
+    );
+    await page.locator('#projectList [data-project="lantern-below"] button').click();
+    await waitFor(page, "#storyTitle", "Stone Entry");
+    await page.locator("#loadBtn").click();
+    await page.locator('#projectList [data-project="renderer-stage-showcase"] button:not([disabled])').first().click();
+    await waitFor(page, "#storyTitle", "The authored visual stage");
     await page.locator('.nav[data-view="author"]').click();
+    assert(await page.locator('.file[data-file="assets/map.svg"]').count() === 1, "asset missing from Author tree");
+    await page.locator('.file[data-file="assets/map.svg"]').click();
+    assert(await page.locator("#assetPreview img").count() === 1, "image asset preview missing");
+    const tempAssetDir = await Deno.makeTempDir({ prefix: "inkforge-authoring-asset-" });
+    const wavPath = `${tempAssetDir}\\click.wav`;
+    await Deno.writeFile(wavPath, silentWav());
+    await page.locator("#addFile").click();
+    await page.locator("#assetInput").setInputFiles(wavPath);
+    await page.waitForFunction(() => document.querySelector('[data-file="assets/click.wav"]') !== null, undefined, {
+      timeout: TIMEOUT,
+    });
+    await page.locator('.file[data-file="assets/click.wav"]').click();
+    assert(await page.locator("#assetPreview audio").count() === 1, "imported audio asset preview missing");
+    await page.locator("#assetInput").setInputFiles(wavPath);
+    await waitFor(page, "#diagnostics", "Asset already exists");
+    await page.locator('.file[data-file="scenario.yaml"]').click();
     assert(await page.locator('.file[data-file="modals.yml"]').count() === 1, "modals.yml missing from Author tree");
     assert(await page.locator('.file[data-file="tools.yml"]').count() === 1, "tools.yml missing from Author tree");
     await page.locator('.file[data-file="modals.yml"]').click();
@@ -84,9 +149,7 @@ async function main(): Promise<void> {
     assert(await page.locator('[data-tool="journal_tool"]').getAttribute("title") === "Journal", "hover label missing");
     assert(await page.locator('[data-tool="map_tool"] img').count() === 1, "image icon missing");
     assert(
-      await page.locator('[data-tool="map_tool"] img').getAttribute("src").then((src) =>
-        src?.startsWith("data:image/svg+xml")
-      ),
+      await page.locator('[data-tool="map_tool"] img').getAttribute("src").then((src) => src?.startsWith("blob:")),
       "SVG icon was not resolved from the VFS",
     );
     await page.locator('[data-tool="journal_tool"]').hover();

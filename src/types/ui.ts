@@ -15,7 +15,14 @@ export interface UiField {
 }
 
 /** Behaviour kind for an element activation binding. */
-export type UiActivationType = "inventory.open" | "modal.close" | "modal.page" | "command" | "instructions" | string;
+export type UiActivationType =
+  | "inventory.open"
+  | "modal.close"
+  | "modal.page"
+  | "audio.play"
+  | "command"
+  | "instructions"
+  | string;
 
 /** Activation binding attached to `element.events.activate`/`actions.activate`. */
 export interface UiActivation {
@@ -26,6 +33,10 @@ export interface UiActivation {
   page?: string;
   kicker?: string;
   title?: string;
+  asset?: string;
+  id?: string;
+  volume?: number;
+  loop?: boolean;
 }
 
 /** Declarative UI element as authored in YAML or created by Lua. */

@@ -1,16 +1,6 @@
 import type { AppContext } from "../app/context.ts";
 import { visibleTools } from "../engine/tool-state.ts";
 
-function assetUrl(app: AppContext, path: string): string {
-  const value = app.project.vfs[path];
-  if (typeof value !== "string") return path;
-  if (/^(data:|blob:)/.test(value)) return value;
-  if (path.toLowerCase().endsWith(".svg") && value.trimStart().startsWith("<svg")) {
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(value)}`;
-  }
-  return path;
-}
-
 /** Render the authorable shell-level tool rail. */
 export function renderTools(app: AppContext): void {
   const rail = app.dom.toolRail;
@@ -28,7 +18,7 @@ export function renderTools(app: AppContext): void {
       button.textContent = entry.definition.icon;
     } else if (entry.definition.icon?.image) {
       const image = document.createElement("img");
-      image.src = assetUrl(app, entry.definition.icon.image);
+      image.src = app.assetResolver.url(entry.definition.icon.image) || "";
       image.alt = "";
       button.append(image);
     } else {

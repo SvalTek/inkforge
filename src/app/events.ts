@@ -1,5 +1,6 @@
 import type { AppContext, AppView } from "./context.ts";
 import { updateCursor } from "../editor/editor.ts";
+import { assetFromBlob, assetMime } from "../project/assets.ts";
 
 /** Wire every DOM event handler to the app context. */
 export function bindEvents(app: AppContext): void {
@@ -35,6 +36,7 @@ export function bindEvents(app: AppContext): void {
     }
   };
   dom.exportBtn.onclick = () => app.exportPack();
+  dom.loadBtn.onclick = () => void app.openProjectLibrary();
   dom.importBtn.onclick = () => dom.importFile.click();
   dom.importFile.onchange = async (e) => {
     try {
@@ -45,6 +47,28 @@ export function bindEvents(app: AppContext): void {
     }
   };
   dom.newBtn.onclick = () => void app.newProject();
-  dom.addFile.onclick = () => alert("Asset import will be added with the project file picker.");
+  dom.addFile.onclick = () => dom.assetInput.click();
+  dom.assetInput.onchange = () => {
+    const files = [...(dom.assetInput.files || [])];
+    for (const file of files) {
+      const path = `assets/${file.name.replace(/[\\/]/g, "-")}`;
+      const mime = assetMime(path);
+      if (!mime) {
+        dom.diagnostics.textContent = `● Unsupported asset type: ${file.name}`;
+        dom.diagnostics.style.color = "#ee7c78";
+        continue;
+      }
+      if (app.project.assets[path]) {
+        dom.diagnostics.textContent = `● Asset already exists: ${path}`;
+        dom.diagnostics.style.color = "#ee7c78";
+        continue;
+      }
+      app.project.assets[path] = assetFromBlob(path, file, mime);
+      void app.persist();
+    }
+    dom.assetInput.value = "";
+    app.renderFileTree();
+  };
+  dom.closeProjects.onclick = () => dom.projectOverlay.classList.add("hidden");
   dom.closeInventory.onclick = () => dom.inventoryOverlay.classList.add("hidden");
 }

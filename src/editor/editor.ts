@@ -41,17 +41,31 @@ export function renderFileTree(app: AppContext): void {
     tree.append(button);
   }
 
-  const assetPaths = paths.filter((path) => path.startsWith("assets/") || path === "assets");
-  const assetCount = new Set([...assetPaths, ...app.project.assets]).size;
-  if (assetCount > 0 || app.project.assets.length > 0) {
+  const assetPaths = Object.keys(app.project.assets).sort();
+  const assetCount = assetPaths.length;
+  if (assetCount > 0) {
     const assets = document.createElement("button");
     assets.className = "file";
     assets.dataset.file = "assets";
-    assets.textContent = "▧ assets ";
+    assets.textContent = `${app.assetsExpanded ? "⌄" : "›"} assets `;
     const count = document.createElement("em");
     count.textContent = String(assetCount);
     assets.append(count);
     tree.append(assets);
+    assets.onclick = () => {
+      app.assetsExpanded = !app.assetsExpanded;
+      renderFileTree(app);
+    };
+    for (const path of app.assetsExpanded ? assetPaths : []) {
+      const asset = app.project.assets[path];
+      const button = document.createElement("button");
+      button.className = path === app.activeAsset ? "file active asset-file" : "file asset-file";
+      button.dataset.file = path;
+      button.title = `${asset.mime} · ${asset.size.toLocaleString()} bytes`;
+      button.textContent = `◈ ${path.slice("assets/".length)}`;
+      button.onclick = () => app.previewAsset(path);
+      tree.append(button);
+    }
   }
 }
 
@@ -59,9 +73,7 @@ export function renderFileTree(app: AppContext): void {
 export function syncEditor(app: AppContext): void {
   app.project = normalizeProject(app.project);
   if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.dom.code.value;
-  app.project.scenario = app.project.vfs["scenario.yaml"];
-  app.project.script = app.project.vfs["scripts/main.lua"];
-  app.persist();
+  void app.persist();
   app.lineNumbers();
   app.dom.saved.textContent = "saved locally";
 }

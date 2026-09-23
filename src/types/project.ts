@@ -1,34 +1,52 @@
 import type { Vfs } from "./vfs.ts";
 
-/**
- * Normalized in-memory project (`projectFiles` output): a VFS plus the two
- * canonical source files kept in sync with it.
- */
-export interface ProjectData {
-  vfs: Vfs;
-  assets: string[];
-  scenario: string;
-  script: string;
+export const PACK_VERSION = 2 as const;
+
+export interface ProjectIdentity {
+  id: string;
+  title?: string;
+  author?: string;
+  version: string;
 }
 
-/**
- * Loose persisted/imported project shape (localStorage `inkforge-project-v1`
- * and legacy packs). The legacy `scenario`/`script` keys stay accepted.
- */
+export interface ProjectManifest {
+  format: "inkforge-pack";
+  packVersion: typeof PACK_VERSION;
+  project: ProjectIdentity;
+  files: string[];
+}
+
+export interface ProjectAsset {
+  path: string;
+  mime: string;
+  size: number;
+  data: Blob;
+}
+
+/** The active project record stored in the IndexedDB library. */
+export interface ProjectData {
+  identity: ProjectIdentity;
+  vfs: Vfs;
+  assets: Record<string, ProjectAsset>;
+  updatedAt: number;
+  pinned?: boolean;
+}
+
+/** Loose legacy shape accepted only for the one-time localStorage migration. */
 export interface RawProjectData {
+  identity?: Partial<ProjectIdentity>;
   vfs?: Vfs;
-  assets?: string[];
+  assets?: string[] | Record<string, ProjectAsset>;
   scenario?: string;
   script?: string;
+  updatedAt?: number;
+  pinned?: boolean;
 }
 
-/** On-disk `.inkforge` export/import payload (`format` guard plus files). */
 export interface PackFile {
-  format: "inkforge-pack";
-  version: number;
-  files: ProjectData;
-  assets: string[];
+  manifest: ProjectManifest;
+  entries: Record<string, string | Blob>;
 }
 
-/** Bundled template manifest: the list of template file paths to fetch. */
+/** Bundled starter manifest file list retained as a loader convenience. */
 export type TemplateManifest = string[];

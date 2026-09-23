@@ -19,6 +19,11 @@ export async function runUiAction(app: AppContext, element: ResolvedUiElement): 
     setModalPage(app, action.page ?? "");
     return;
   }
+  if (action.type === "audio.play") {
+    app.audio.play(action.asset ?? "", { id: action.id, loop: action.loop, volume: action.volume });
+    app.render();
+    return;
+  }
   if (action.type === "command") {
     app.engine?.dispatch(action.command ?? "");
     return;

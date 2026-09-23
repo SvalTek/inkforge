@@ -1,4 +1,13 @@
-[
+{
+  "format": "inkforge-pack",
+  "packVersion": 2,
+  "project": {
+    "id": "lantern-below",
+    "title": "Lantern Below",
+    "author": "Inkforge",
+    "version": "0.1.0"
+  },
+  "files": [
   "scenario.yaml",
   "state.yml",
   "player.yml",
@@ -8,4 +17,5 @@
   "locations.yml",
   "scripts/main.lua",
   "scripts/threshold.lua"
-]
+  ]
+}

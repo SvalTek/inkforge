@@ -1,6 +1,6 @@
 # Inkforge Adventure Studio — Target Architecture
 
-Status: baseline port complete; renderer viewport-boundary correction and authored tool/modal slice verified — see section 17
+Status: project-library, asset, audio, renderer, and authored tool/modal slices implemented and verified — see sections 17–18
 Source reference: `../inkforge-local/` (READ-ONLY)
 Target: `inkforge/` (this repository)
 
@@ -146,9 +146,11 @@ declarations that must NOT be ported (see section 13).
 | `src/engine/directives.ts` | `lines()` normalizer, `itemName`, `move`, and the `execute(list, deps)` directive interpreter. | `app.js:9`, `app.js:13`, `app.js:15` |
 | `src/engine/ui-state.ts` | `applyUi`, `resolveField`, `uiFields`, `uiElement` (UI override resolution). | `app.js:14`, `app.js:18`–`app.js:20` |
 | `src/engine/engine.ts` | `createEngine`: builds the `EngineApi` facade (`check`/`move`/`execute`/`available`/`dispatch`) over `conditions.ts` and `directives.ts`. | `app.js:13`, `app.js:16`, `app.js:17` |
-| `src/project/project.ts` | `TEMPLATE_PATHS` and `normalizeProject` (VFS normalization + legacy field mirroring). | `app.js:60`–`app.js:61` |
-| `src/project/starter.ts` | `TEMPLATE_BASE` and `loadStarterProject`: fetch all `TEMPLATE_PATHS` into a VFS. | `app.js:4` (dead), `app.js:63` (live) |
-| `src/project/storage.ts` | `PROJECT_KEY`, `saveProject` / `loadSavedProject` under `inkforge-project-v1`. | `app.js:2`, `app.js:5` |
+| `src/project/project.ts` | `TEMPLATE_PATHS` and `normalizeProject` (identity, text VFS, typed assets, and legacy migration normalization). | derived |
+| `src/project/starter.ts` | `TEMPLATE_BASE` and `loadStarterProject`: fetch the bundled manifest and load text/binary entries into a pinned project. | derived |
+| `src/project/storage.ts` | IndexedDB project-library records, active-project localStorage key, and one-time v1 migration. | derived |
+| `src/project/assets.ts` | Supported asset MIME mapping, data/blob normalization, shared object-URL resolver, and URL lifecycle. | derived |
+| `src/audio/manager.ts` | HTML audio lifecycle manager for project-local audio assets. | derived |
 | `src/vfs/vfs.ts` | `resolveProjectPath`: import path resolution and root-escape protection. | `app.js:61`, `app.js:62` |
 | `src/yaml/loader.ts` | Lazy dynamic import of `yaml@2.6.0`. | `app.js:6` |
 | `src/yaml/compose.ts` | `composeScenario` plus the recursive `resolve`/`load` for `!import`/`!mixin`/`<<`. | `app.js:62`, `app.js:64`–`app.js:65` |
@@ -158,6 +160,8 @@ declarations that must NOT be ported (see section 13).
 | `src/lua/facades/output.ts` | `game.output` Lua facade. | derived from `app.js:98`–`:244` |
 | `src/lua/facades/state.ts` | `game.state` Lua facade. | derived from `app.js:98`–`:244` |
 | `src/lua/facades/ui.ts` | `game.ui` Lua facade. | derived from `app.js:98`–`:244` |
+| `src/lua/facades/tool.ts` | `game.tool` shared rail-registry facade. | derived |
+| `src/lua/facades/audio.ts` | `game.audio` project-local audio facade. | derived |
 | `src/lua/facades/canvas.ts` | Canvas callbacks, node/scene/animation handles, and `game.canvas` facade. | derived from `app.js:98`–`:244` |
 | `src/lua/facades/timer.ts` | Timer handles and `game.timer` facade. | derived from `app.js:98`–`:244` |
 | `src/lua/facades/events.ts` | Lua callback entry points for canvas and timer events. | derived from `app.js:98`–`:244` |
@@ -233,10 +237,11 @@ Additional rules:
 ```
 main.ts
   └─ app.initialise()                              [app/app.ts:51]
-       ├─ saved = loadSavedProject()               [project/storage.ts, app.js:75]
-       ├─ starter = await loadStarterProject()     [project/starter.ts, app.js:63] (fetch TEMPLATE_PATHS)
-       ├─ project = normalizeProject(saved ?? starter)   [project/project.ts, app.js:61]
-       ├─ if project.scenario contains the bundled-starter markers -> reset to starter  [app.js:75]
+       ├─ starter = await loadStarterProject()     [project/starter.ts] (fetch manifest + entries)
+       ├─ migrateLegacyProject()                   [project/storage.ts] (once, if v1 localStorage exists)
+       ├─ projects = await listProjects()          [project/storage.ts / IndexedDB]
+       ├─ seed pinned starter if absent; select active ID or pinned fallback
+       ├─ project = normalizeProject(selected)      [project/project.ts]
        ├─ current = 'scenario.yaml'; code.value = project.vfs[current]  [app.js:75]
        ├─ lineNumbers()                            [editor/editor.ts]
        └─ await start()                            [app/app.ts:66 consolidated]
@@ -492,11 +497,10 @@ string embedded in the dead `bootLua` at `app.js:78`–`app.js:95` is **dead** a
 - `TEMPLATE_PATHS` (`app.js:60`) lists the nine starter files:
   `scenario.yaml`, `state.yml`, `player.yml`, `ui.yml`, `definitions.yml`,
   `instances.yml`, `locations.yml`, `scripts/main.lua`, `scripts/threshold.lua`.
-- `normalizeProject(project)` (`src/project/project.ts`, `app.js:61`) normalizes any
-  project into a VFS:
-  - if `project.vfs` missing, seeds `{'scenario.yaml': project.scenario||'', 'scripts/main.lua': project.script||''}`;
-  - mirrors `scenario`/`script` from the VFS back to the legacy fields;
-  - ensures `assets` is an array.
+- `normalizeProject(project)` (`src/project/project.ts`) normalizes source text into
+  `project.vfs` and supported binary content into typed `project.assets` records.
+  Legacy `scenario`/`script` fields are accepted only by the one-time localStorage
+  migration; the runtime contract is `scenario.yaml` and `scripts/main.lua`.
 - All VFS keys are full relative paths with extensions. There is **no** key `'scenario'`.
 
 ### Path resolution (`resolveProjectPath`, `src/vfs/vfs.ts`, `app.js:62`)
@@ -591,23 +595,44 @@ the imported value at that position (deeply, because `resolve` recurses).
 - `openInventory(element, action)`: sets `#inventoryKicker`, `#inventoryTitle`, clears
   `#itemKicker`, removes `hidden` from `#inventoryOverlay`.
 
-### Export / import pack (`app.js:37`–`:39`)
+### Export / import pack (`src/import-export/pack.ts`)
 
-- Export: flushes editor, builds
-  `{ format: 'inkforge-pack', version: 1, files, assets: files.assets }`, downloads as
-  `adventure.inkforge` (pretty-printed JSON).
-- Import: parses JSON, requires `format === 'inkforge-pack'` (else `Invalid pack`),
-  replaces the project and its `assets`, loads the new `scenario.yaml` buffer into `#code`,
-  saves, then `switchFile("scenario.yaml")` and starts.
-- New project: re-fetches the starter, loads its `scenario.yaml` buffer into `#code`,
-  saves, switches file, starts.
+- `.inkforge` is a version-2 ZIP containing root `manifest.json`, every listed text
+  source file, and every listed supported binary asset.
+- The manifest is an object with `format: "inkforge-pack"`, `packVersion: 2`,
+  required `project.id`/semantic `project.version`, optional title/author, and a
+  complete `files` list. Paths must be safe project-relative paths and include
+  `scenario.yaml` and `scripts/main.lua`.
+- Export flushes the active editor and writes the active project identity, VFS,
+  and asset blobs. Import validates the package before storage, adds an unknown
+  ID, replaces only a matching ID with a newer semantic version, and leaves
+  equal/older versions and the active runtime unchanged.
+- `deno task pack -- <project-folder> [--out <file.inkforge>]` requires a source
+  `manifest.json` object and packs only its listed files. Supported assets are
+  images `.svg`, `.png`, `.jpg`, `.jpeg`, `.webp` and audio `.mp3`, `.ogg`, `.wav`.
 
-The contributor packer is `deno task pack -- <project-folder> [--out <file.inkforge>]`.
-The source folder must contain `manifest.json`, `scenario.yaml`, and `scripts/main.lua`.
-The manifest is an array of relative VFS paths and is the complete file list; the packer
-does not recursively include unlisted files. Listed files must be UTF-8 text because pack
-version 1 stores VFS content as strings. Without `--out`, the artifact is written beside
-the source folder using its folder name plus `.inkforge`.
+### Project library and assets
+
+- Project records live in IndexedDB database `inkforge-project-library`, object
+  store `projects`. A record contains `identity`, text `vfs`, typed asset records
+  (`path`, MIME, byte size, `Blob`), `updatedAt`, and optional `pinned` state.
+- `localStorage` stores only the active project ID and lightweight migration
+  state. `inkforge-project-v1` is migrated once, then removed. The bundled
+  Lantern Below project is seeded as a pinned record; imports do not overwrite
+  other library records.
+- The top-bar Load project flow renders an application-owned library modal with
+  title, author, semantic version, updated time, active marker, load, and delete
+  actions. The pinned starter cannot be deleted; deleting the active project
+  selects the pinned starter first, then another available record.
+- `AssetResolver` is owned by the active project. It converts stored SVG/text
+  and binary blobs to cached object URLs, reports missing assets through the
+  diagnostics path, and revokes URLs on project restart/switch. Tools, authored
+  modals, canvas image nodes, Author previews, and audio all use this resolver.
+- Author assets are listed under an expandable `assets` explorer section. Source
+  files open in the editor; assets open in a preview document. SVGs show image
+  and optional source, raster images show dimensions, and audio shows native
+  controls plus metadata. The Author `+` control imports supported local files
+  under `assets/<basename>` and rejects unsupported or duplicate paths.
 
 > The import/new-project flow contains two of the three documented consolidations in
 > section 15: the `switchFile("scenario.yaml")` correction and the
@@ -838,10 +863,10 @@ defect.
 
 ### Persistence & pack
 
-- localStorage key `inkforge-project-v1`; legacy shape compatibility (bare
-  `{scenario, script, assets}` upgraded by `normalizeProject`).
-- Export pack exactly `{ format: 'inkforge-pack', version: 1, files, assets }`, downloaded
-  as `adventure.inkforge`; import rejects `format !== 'inkforge-pack'` with `Invalid pack`.
+- IndexedDB project records and the active-project localStorage key are described
+  in section 10. `inkforge-project-v1` is read only by the one-time migration.
+- Export/import uses version-2 ZIP packages and manifest identity/version rules;
+  no unreleased JSON pack version is supported.
 
 ### Remote dependencies
 
@@ -971,12 +996,12 @@ byte-for-byte identical to `../inkforge-local/style.css` (SHA-256
   `.tab`/`.tab i` styling and basename labels and changes no CSS.
 - Each change is minimal and localized to the affected functions.
 
-### Explicitly unchanged
+### Baseline compatibility note
 
-- **Export format and flow are unchanged**: `{ format: 'inkforge-pack', version: 1, files,
-  assets }`, `adventure.inkforge`, pretty-printed JSON (`app.js:37`).
-- Import validation (`format !== 'inkforge-pack'` -> `Invalid pack`) is unchanged.
-- No other call site is modified.
+The original port's historical `switchFile("scenario.yaml")` and
+load-buffer-before-switch corrections remain required. The later project-library
+slice intentionally supersedes the original single-project JSON pack flow with
+IndexedDB records and version-2 ZIP packages.
 
 ---
 
@@ -1005,7 +1030,7 @@ fallback (`py -m http.server 4173`) and must not be modified.
 The renderer stage expansion is active. The first foundation slice and the viewport-boundary
 correction are implemented and verified on 2026-09-23 (Windows, Deno 2.9.5):
 `deno task check:renderer`, `deno task check`, focused renderer lint/format, `deno task build`,
-and `deno task smoke` pass. The smoke harness passes **14/14** assertions and reports 0 console
+and `deno task smoke` pass. The smoke harness passes **16/16** assertions and reports 0 console
 errors, 0 page errors and 0 dialogs. The projection check covers flat identity, isometric and
 oblique round trips, affine basis transforms, stable layer order, projected inverse hit-testing,
 inverse-projected pointer payloads, and a Lua-authored projected scene with mixed world/screen
@@ -1087,7 +1112,69 @@ deno task check:renderer # projection/layer math and hit-test checks
 deno task check:authoring # tool rail/modal browser contract check
 deno task serve          # serve an existing dist/ on http://localhost:4173/
 deno task dev            # build + watch + serve
-deno task smoke          # build + serve + drive Chrome, assert the seven checks
+deno task smoke          # build + serve + drive Chrome, assert the browser matrix
 ```
 
 `dist/` is generated and safe to delete and rebuild at any time.
+
+## 18. Project-library, asset, and audio slice
+
+The browser runtime now treats projects as independent durable records rather
+than one mutable scenario. `createApp().initialise()` loads the bundled manifest,
+migrates the old `inkforge-project-v1` localStorage record once, seeds the pinned
+Lantern Below record when absent, selects the active ID, and starts that record.
+Project replacement is an explicit activation boundary: pending editor content is
+flushed before load/import/export/new/delete, accepted imports are stored before
+activation, and failed validation/storage leaves the current project active.
+
+The stable source-pack contract is:
+
+```json
+{
+  "format": "inkforge-pack",
+  "packVersion": 2,
+  "project": { "id": "example", "version": "0.1.0" },
+  "files": ["scenario.yaml", "scripts/main.lua"]
+}
+```
+
+`fflate` supplies ZIP encoding/decoding in the browser and in
+`tools/package.ts`. Semantic versions decide replacement for an existing project
+ID; equal and older packages are reported and ignored. New projects are stored as
+generated-ID copies and never overwrite the starter or another record.
+
+Only the following project-local assets are durable: SVG/PNG/JPEG/WebP images and
+MP3/OGG/WAV audio. An asset record contains its relative path, MIME, size, and
+Blob. `data:` content is normalized to a Blob; `blob:` URLs are session-only.
+`AssetResolver` is recreated when the active project restarts or changes, caches
+object URLs, reports missing paths, and revokes all cached URLs. It is the only
+resolution route for rail icons, modal images, canvas image nodes, Author
+previews, and audio sources.
+
+`AudioManager` owns HTML audio elements and is recreated at the same lifecycle
+boundary. The modular Lua facade exposes:
+
+```lua
+game.audio.play(path, { id = "click", loop = false, volume = 0.8 })
+game.audio.stop(id)
+game.audio.pause(id)
+game.audio.resume(id)
+game.audio.set_volume(id, value)
+game.audio.set_loop(id, value)
+game.audio.stop_all()
+```
+
+IDs are generated for one-shot sounds when omitted, volume is clamped to `0..1`,
+and project restart/switch disposes all active sounds. YAML `audio.play` activation
+is one-shot; lifecycle-managed playback remains Lua-owned. Media load/autoplay
+failures use the diagnostics/output path. Mixers, fades, ducking, and spatial
+audio are intentionally outside this slice.
+
+Verification is internal and source-led rather than public documentation. The
+browser smoke suite covers IndexedDB seed/migration assumptions, multi-project
+load/replacement, equal/older rejection, active deletion/fallback/reload,
+version-2 ZIP round-trip, supported binary preview, canvas/project asset
+resolution, and Lua audio lifecycle. The authoring check covers project-library
+metadata, SVG/WAV previews, local asset import and duplicate rejection, the
+shared resolver in tools/modals, and tool/modal reset behavior. The current
+validated smoke result is 16/16 with zero console errors, page errors, or dialogs.

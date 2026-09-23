@@ -1,4 +1,13 @@
-[
+{
+  "format": "inkforge-pack",
+  "packVersion": 2,
+  "project": {
+    "id": "renderer-stage-showcase",
+    "title": "Renderer Stage Showcase",
+    "author": "Inkforge",
+    "version": "0.1.0"
+  },
+  "files": [
   "scenario.yaml",
   "state.yml",
   "player.yml",
@@ -10,4 +19,5 @@
   "instances.yml",
   "locations.yml",
   "scripts/main.lua"
-]
+  ]
+}

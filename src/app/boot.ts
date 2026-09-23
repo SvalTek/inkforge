@@ -2,12 +2,14 @@ import type { AppContext } from "./context.ts";
 import type { OutputFn, Scenario, UiCommand } from "../types/index.ts";
 import { InkforgeCanvasRuntime } from "../canvas/runtime.ts";
 import { createLuaEngine } from "../lua/bridge.ts";
+import type { AudioManagerLike } from "../types/audio.ts";
 
 export interface BootHooks {
   render(): void;
   applyUi(command: UiCommand): void;
   output: OutputFn;
   onError(message: string): void;
+  audio: AudioManagerLike;
 }
 
 /**
@@ -58,8 +60,7 @@ export async function bootRuntime(app: AppContext, scenario: Scenario, hooks: Bo
       runtime.ui.elements = runtime.ui.elements.filter((element) => element.id !== id);
     },
     asset: (path) => {
-      const value = app.project.vfs[path];
-      return typeof value === "string" && /^(data:|blob:)/.test(value) ? value : path;
+      return app.assetResolver.url(path);
     },
     event: (reference, event) => {
       if (typeof runtime.canvasEvent === "function") {
@@ -114,6 +115,7 @@ export async function bootRuntime(app: AppContext, scenario: Scenario, hooks: Bo
     canvasHost: canvas,
     applyUi: hooks.applyUi,
     output: hooks.output,
+    audio: hooks.audio,
   });
   app.lua = result.engine;
   runtime.lua = result.engine;

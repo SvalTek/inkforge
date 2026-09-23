@@ -9,8 +9,10 @@ export interface DomRefs {
   title: HTMLElement;
   saved: HTMLElement;
   newBtn: HTMLButtonElement;
+  loadBtn: HTMLButtonElement;
   importBtn: HTMLButtonElement;
   importFile: HTMLInputElement;
+  assetInput: HTMLInputElement;
   exportBtn: HTMLButtonElement;
 
   playView: HTMLElement;
@@ -40,10 +42,15 @@ export interface DomRefs {
   itemDescription: HTMLElement;
   itemActions: HTMLElement;
   modalHost: HTMLElement;
+  projectOverlay: HTMLElement;
+  projectList: HTMLElement;
+  closeProjects: HTMLButtonElement;
 
   authorView: HTMLElement;
   tree: HTMLElement;
   tabs: HTMLElement;
+  editorWrap: HTMLElement;
+  assetPreview: HTMLElement;
   addFile: HTMLButtonElement;
   gutter: HTMLElement;
   code: HTMLTextAreaElement;
@@ -84,8 +91,10 @@ export function queryDom(): DomRefs {
     title: get("#title"),
     saved: get("#saved"),
     newBtn: get("#newBtn"),
+    loadBtn: get("#loadBtn"),
     importBtn: get("#importBtn"),
     importFile: get("#importFile"),
+    assetInput: get("#assetInput"),
     exportBtn: get("#exportBtn"),
 
     playView: get("#playView"),
@@ -115,10 +124,15 @@ export function queryDom(): DomRefs {
     itemDescription: get("#itemDescription"),
     itemActions: get("#itemActions"),
     modalHost: get("#modalHost"),
+    projectOverlay: get("#projectOverlay"),
+    projectList: get("#projectList"),
+    closeProjects: get("#closeProjects"),
 
     authorView: get("#authorView"),
     tree: get(".tree"),
     tabs: get(".tabs"),
+    editorWrap: get(".editor-wrap"),
+    assetPreview: get("#assetPreview"),
     addFile: get("#addFile"),
     gutter: get("#gutter"),
     code: get("#code"),

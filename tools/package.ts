@@ -1,17 +1,13 @@
+import { strToU8, zipSync } from "fflate";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { assetMime } from "../src/project/assets.ts";
+import type { ProjectIdentity } from "../src/types/project.ts";
 
-interface PackProject {
-  vfs: Record<string, string>;
-  assets: string[];
-  scenario: string;
-  script: string;
-}
-
-interface PackFile {
+interface SourceManifest {
   format: "inkforge-pack";
-  version: 1;
-  files: PackProject;
-  assets: string[];
+  packVersion: 2;
+  project: ProjectIdentity;
+  files: string[];
 }
 
 interface PackageOptions {
@@ -49,6 +45,12 @@ function isInside(parent: string, candidate: string): boolean {
   return normalizedCandidate === normalizedParent || normalizedCandidate.startsWith(normalizedParent + sep);
 }
 
+function validateVersion(version: unknown): asserts version is string {
+  if (typeof version !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version)) {
+    throw new Error("manifest.json project.version must be semantic version text");
+  }
+}
+
 async function isFile(path: string): Promise<boolean> {
   try {
     return (await Deno.stat(path)).isFile;
@@ -58,41 +60,44 @@ async function isFile(path: string): Promise<boolean> {
   }
 }
 
-async function manifestFiles(root: string, excluded: string): Promise<string[]> {
-  const manifestPath = join(root, "manifest.json");
-  if (!(await isFile(manifestPath))) throw new Error("Source folder must contain manifest.json");
-  const parsed: unknown = JSON.parse(await Deno.readTextFile(manifestPath));
-  if (!Array.isArray(parsed) || !parsed.every((entry) => typeof entry === "string")) {
-    throw new Error("manifest.json must be an array of relative file paths");
+async function readManifest(root: string): Promise<SourceManifest> {
+  const path = join(root, "manifest.json");
+  if (!(await isFile(path))) throw new Error("Source folder must contain manifest.json");
+  const parsed = JSON.parse(await Deno.readTextFile(path)) as Partial<SourceManifest>;
+  if (
+    parsed.format !== "inkforge-pack" || parsed.packVersion !== 2 || typeof parsed.project?.id !== "string" ||
+    !parsed.project.id.trim() || !Array.isArray(parsed.files) ||
+    !parsed.files.every((entry) => typeof entry === "string")
+  ) {
+    throw new Error("manifest.json must be an Inkforge pack version 2 manifest");
   }
+  validateVersion(parsed.project.version);
+  return parsed as SourceManifest;
+}
+
+async function selectedFiles(root: string, manifest: SourceManifest, excluded: string): Promise<string[]> {
   const files: string[] = [];
   const seen = new Set<string>();
-  for (const entry of parsed) {
-    const path = resolve(root, entry.replace(/[\\/]/g, sep));
+  for (const entry of manifest.files) {
+    if (
+      !entry || entry === "manifest.json" || entry.startsWith("/") || entry.includes("\\") ||
+      entry.split("/").some((segment) => !segment || segment === "." || segment === "..")
+    ) throw new Error(`Manifest path is not a safe relative path: ${entry}`);
+    const normalized = entry.replace(/[\\/]/g, sep);
+    const path = resolve(root, normalized);
     if (!isInside(root, path)) throw new Error(`Manifest path escapes source folder: ${entry}`);
     if (path.toLowerCase() === resolve(excluded).toLowerCase()) continue;
     if (!(await isFile(path))) throw new Error(`Manifest file not found: ${entry}`);
     const key = relative(root, path).split(sep).join("/");
+    if (key === "manifest.json") throw new Error("manifest.json is reserved for the package manifest");
     if (seen.has(key)) throw new Error(`Duplicate manifest path: ${key}`);
+    if (key.startsWith("assets/") && !assetMime(key)) throw new Error(`Unsupported asset type: ${key}`);
     seen.add(key);
     files.push(path);
   }
+  if (!manifest.files.includes("scenario.yaml")) throw new Error("Manifest must include scenario.yaml");
+  if (!manifest.files.includes("scripts/main.lua")) throw new Error("Manifest must include scripts/main.lua");
   return files;
-}
-
-async function readVfs(root: string, files: string[]): Promise<Record<string, string>> {
-  const vfs: Record<string, string> = {};
-  for (const path of files) {
-    const key = relative(root, path).split(sep).join("/");
-    try {
-      vfs[key] = new TextDecoder("utf-8", { fatal: true }).decode(await Deno.readFile(path));
-    } catch (error) {
-      throw new Error(`Cannot package ${key} as UTF-8 text; binary assets are not supported by pack version 1.`, {
-        cause: error,
-      });
-    }
-  }
-  return vfs;
 }
 
 export async function packageFolder(options: PackageOptions): Promise<void> {
@@ -101,20 +106,18 @@ export async function packageFolder(options: PackageOptions): Promise<void> {
   if (resolve(options.output).toLowerCase() === resolve(options.folder).toLowerCase()) {
     throw new Error("Output path must be a file, not the source folder");
   }
-  const selected = await manifestFiles(options.folder, options.output);
-  const vfs = await readVfs(options.folder, selected);
-  if (!vfs["scenario.yaml"]) throw new Error("Source folder must contain scenario.yaml");
-  if (!vfs["scripts/main.lua"]) throw new Error("Source folder must contain scripts/main.lua");
-  const files: PackProject = {
-    vfs,
-    assets: [],
-    scenario: vfs["scenario.yaml"],
-    script: vfs["scripts/main.lua"],
+  const manifest = await readManifest(options.folder);
+  const selected = await selectedFiles(options.folder, manifest, options.output);
+  const archive: Record<string, Uint8Array> = {
+    "manifest.json": strToU8(`${JSON.stringify(manifest, null, 2)}\n`),
   };
-  const pack: PackFile = { format: "inkforge-pack", version: 1, files, assets: [] };
+  for (const path of selected) {
+    const key = relative(options.folder, path).split(sep).join("/");
+    archive[key] = await Deno.readFile(path);
+  }
   await Deno.mkdir(dirname(options.output), { recursive: true });
-  await Deno.writeTextFile(options.output, `${JSON.stringify(pack, null, 2)}\n`);
-  console.log(`Packed ${Object.keys(vfs).length} VFS files into ${options.output}`);
+  await Deno.writeFile(options.output, zipSync(archive));
+  console.log(`Packed ${selected.length} project files into ${options.output}`);
 }
 
 if (import.meta.main) {
