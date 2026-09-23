@@ -160,6 +160,9 @@ export function createApp(): AppContext {
     document.querySelectorAll<HTMLElement>(".nav").forEach((button) =>
       button.classList.toggle("active", button.dataset.view === view)
     );
+    // A canvas mounted while Author is visible has zero layout bounds. Redraw
+    // after revealing Play so its viewport transform and hit stack are valid.
+    if (view === "play" && app.runtime) renderDom(app);
   }
 
   function switchFile(path: string): void {

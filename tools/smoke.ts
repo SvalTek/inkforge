@@ -449,6 +449,8 @@ async function main(): Promise<void> {
       }
     });
 
+    let originalPack: PackShape | null = null;
+
     await runCheck("6. Import/export round-trip (!import, state effect, VFS identity)", async () => {
       let stage = "export original pack";
       const step = (name: string): void => {
@@ -460,6 +462,7 @@ async function main(): Promise<void> {
 
         step("export original pack");
         const packA = await exportPack(page);
+        originalPack = packA;
         assert(packA.format === "inkforge-pack", `format=${String(packA.format)}`);
         assert(packA.version === 1, `version=${String(packA.version)}`);
         assert(Array.isArray(packA.assets), "assets is not an array");
@@ -513,6 +516,59 @@ async function main(): Promise<void> {
       } catch (error) {
         throw new Error(`stage "${stage}": ${error instanceof Error ? error.message : String(error)}`);
       }
+    });
+
+    await runCheck("6a. Lua-authored projected scene + world pointer coordinates", async () => {
+      assert(originalPack, "original pack was not captured");
+      const projected = structuredClone(originalPack);
+      const vfs = asVfs(projected.files);
+      vfs["scripts/main.lua"] = `-- projected-scene-fixture
+game.canvas.create({
+  id = 'projected_scene',
+  viewport = {
+    width = 320,
+    height = 240,
+    fit = 'contain',
+    projection = { type = 'isometric', originX = 160, originY = 30, tileWidth = 48, tileHeight = 24 },
+  },
+  layers = {
+    { id = 'world', order = 0, space = 'world', sort = 'depth' },
+    { id = 'overlay', order = 10, space = 'screen' },
+  },
+  nodes = {
+    { id = 'ground', type = 'rect', x = 0, y = 0, width = 8, height = 8, fill = '#263a3c', layer = 'world' },
+    {
+      id = 'target', type = 'marker', x = 3, y = 2, radius = 12, fill = '#e7c97a', layer = 'world',
+      events = { pointer_down = function(event)
+        game.output('projected ' .. math.floor(event.worldX + 0.5) .. ',' .. math.floor(event.worldY + 0.5))
+      end },
+    },
+    { id = 'overlay', type = 'rect', x = 8, y = 8, width = 90, height = 22, fill = '#182022', layer = 'overlay', space = 'screen' },
+  },
+})
+`;
+      assert(vfs["scripts/main.lua"].includes("projected_scene"), "projected Lua fixture was not written to the VFS");
+      vfs["scenario.yaml"] += "\n# projected-scene-fixture\n";
+      projected.files.scenario = vfs["scenario.yaml"];
+      await importPack(page, projected, "projected-scene-fixture");
+      await page.locator('.nav[data-view="play"]').click();
+      const selector = '#gameSurface canvas[data-scene="projected_scene"]';
+      await waitForCanvas(page, selector);
+      const box = await page.locator(selector).boundingBox();
+      assert(box, "projected scene canvas bounding box unavailable");
+      const scale = Math.min(box.width / 320, box.height / 240);
+      const offsetX = (box.width - 320 * scale) / 2;
+      const offsetY = (box.height - 240 * scale) / 2;
+      const projectedTarget = { x: 160 + (3 - 2) * 24, y: 30 + (3 + 2) * 12 };
+      await page.locator(selector).click({
+        position: {
+          x: offsetX + projectedTarget.x * scale,
+          y: offsetY + projectedTarget.y * scale,
+        },
+      });
+      await waitForText(page, "#heroTerminal", "projected 3,2");
+      return `Lua created projected_scene with isometric world + screen layers; clicked projected marker ` +
+        `at (${projectedTarget.x},${projectedTarget.y}); callback output confirmed world coordinates 3,2`;
     });
 
     await runCheck("7. New project restores the starter", async () => {

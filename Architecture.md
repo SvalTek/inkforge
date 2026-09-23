@@ -825,7 +825,9 @@ defect.
 ### Controls
 
 - Restart (`#restart`, `#restartHero`) and Run (`#run`) call `start` (Run also shows play view);
-  `#clearEvents` clears events and renders; `showView` toggles play/author and `.nav` active state.
+  `#clearEvents` clears events and renders; `showView` toggles play/author and `.nav` active
+  state, and redraws the DOM/canvas surfaces when Play becomes visible so a canvas mounted while
+  Author was visible receives non-zero layout bounds before interaction.
 
 ---
 
@@ -968,9 +970,10 @@ fallback (`py -m http.server 4173`) and must not be modified.
 The renderer stage expansion is active. The first foundation slice is implemented and verified
 on 2026-09-23 (Windows, Deno 2.9.5): `deno task check:renderer`, `deno task check`, focused
 renderer lint/format, `deno task build`, and `deno task smoke` pass. The smoke harness passes
-**11/11** assertions and reports 0 console errors, 0 page errors and 0 dialogs. The projection
+**12/12** assertions and reports 0 console errors, 0 page errors and 0 dialogs. The projection
 check covers flat identity, isometric and oblique round trips, affine basis transforms, stable
-layer order, projected inverse hit-testing, and inverse-projected pointer payloads.
+layer order, projected inverse hit-testing, inverse-projected pointer payloads, and a Lua-authored
+projected scene with mixed world/screen layers.
 
 The four documented deviations (section 15) are the only intentional behavioral differences
 from `../inkforge-local/`: the three import/new-project consolidations plus the
