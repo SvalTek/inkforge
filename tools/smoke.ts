@@ -544,6 +544,9 @@ game.canvas.create({
       end },
     },
     { id = 'overlay', type = 'rect', x = 8, y = 8, width = 90, height = 22, fill = '#182022', layer = 'overlay', space = 'screen' },
+    { id = 'offscreen', type = 'rect', x = 50, y = 260, width = 80, height = 20, fill = '#ff0000', layer = 'overlay', space = 'screen',
+      events = { pointer_down = function() game.output('offscreen') end },
+    },
   },
 })
 `;
@@ -569,6 +572,74 @@ game.canvas.create({
       await waitForText(page, "#heroTerminal", "projected 3,2");
       return `Lua created projected_scene with isometric world + screen layers; clicked projected marker ` +
         `at (${projectedTarget.x},${projectedTarget.y}); callback output confirmed world coordinates 3,2`;
+    });
+
+    await runCheck("6b. Viewport bounds clip content and input", async () => {
+      const selector = '#gameSurface canvas[data-scene="projected_scene"]';
+      const offscreen = await page.evaluate((canvasSelector: string) => {
+        const canvas = document.querySelector<HTMLCanvasElement>(canvasSelector);
+        if (!canvas) throw new Error("projected scene canvas unavailable");
+        const bounds = canvas.getBoundingClientRect();
+        const scale = Math.min(bounds.width / 320, bounds.height / 240);
+        const offsetX = (bounds.width - 320 * scale) / 2;
+        const offsetY = (bounds.height - 240 * scale) / 2;
+        const x = offsetX + 50 * scale;
+        const y = offsetY + 270 * scale;
+        const ratioX = canvas.width / bounds.width;
+        const ratioY = canvas.height / bounds.height;
+        const pixel = canvas.getContext("2d")?.getImageData(
+          Math.round(x * ratioX),
+          Math.round(y * ratioY),
+          1,
+          1,
+        ).data;
+        return { x, y, alpha: pixel?.[3] ?? -1, red: pixel?.[0] ?? -1 };
+      }, selector);
+      assert(offscreen.alpha === 0, `content outside logical viewport was visible: ${JSON.stringify(offscreen)}`);
+      await page.locator(selector).click({ position: { x: offscreen.x, y: offscreen.y } });
+      assert(!(await textOf(page, "#heroTerminal")).includes("offscreen"), "offscreen content received pointer input");
+      return `logical viewport clipped contain letterbox content (alpha=${offscreen.alpha}, red=${offscreen.red}) ` +
+        `and rejected pointer input outside the viewport`;
+    });
+
+    await runCheck("6c. Responsive viewport fills remaining panel space", async () => {
+      const selector = '#gameSurface canvas[data-scene="projected_scene"]';
+      const measure = async () =>
+        await page.evaluate((canvasSelector: string) => {
+          const rect = (selector: string) => document.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+          const host = rect("#gameSurface"),
+            canvas = rect(canvasSelector),
+            header = rect("#surfaceHeader"),
+            hud = rect("#gameHud");
+          if (!host || !canvas || !header || !hud) throw new Error("viewport layout bounds unavailable");
+          return {
+            host: { x: host.x, y: host.y, right: host.right, bottom: host.bottom },
+            canvas: { x: canvas.x, y: canvas.y, right: canvas.right, bottom: canvas.bottom },
+            headerBottom: header.bottom,
+            hudTop: hud.top,
+          };
+        }, selector);
+      const assertLayout = (layout: Awaited<ReturnType<typeof measure>>, label: string) => {
+        const borderTolerance = 2.1;
+        assert(
+          Math.abs(layout.canvas.x - layout.host.x) <= borderTolerance &&
+            Math.abs(layout.canvas.right - layout.host.right) <= borderTolerance,
+          `${label}: canvas does not fill viewport width`,
+        );
+        assert(
+          Math.abs(layout.canvas.y - layout.host.y) <= borderTolerance &&
+            Math.abs(layout.canvas.bottom - layout.host.bottom) <= borderTolerance,
+          `${label}: canvas does not fill viewport height`,
+        );
+        assert(layout.host.y >= layout.headerBottom - 1, `${label}: viewport overlaps top UI`);
+        assert(layout.host.bottom <= layout.hudTop + 1, `${label}: viewport overlaps lower UI`);
+      };
+      assertLayout(await measure(), "large");
+      await page.setViewportSize({ width: 900, height: 900 });
+      await page.waitForTimeout(100);
+      assertLayout(await measure(), "responsive");
+      await page.setViewportSize(VIEWPORT);
+      return "canvas tracks the remaining viewport host at large and responsive panel sizes; flat UI bounds remain separate";
     });
 
     await runCheck("7. New project restores the starter", async () => {

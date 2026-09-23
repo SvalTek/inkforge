@@ -1,6 +1,6 @@
 # Inkforge Adventure Studio — Target Architecture
 
-Status: baseline port complete; renderer stage expansion in progress — see section 17
+Status: baseline port complete; renderer viewport-boundary correction verified — see section 17
 Source reference: `../inkforge-local/` (READ-ONLY)
 Target: `inkforge/` (this repository)
 
@@ -304,8 +304,10 @@ Lua calls `game.*` -> `__canvas_command` / `__timer_command` / `__output` / `__s
 
 `InkforgeCanvasRuntime` (`canvas-runtime.js:1`–`:560`) remains the rendering kernel,
 split into `src/canvas/runtime.ts`, `src/canvas/math.ts`, `src/canvas/projection.ts`,
-and `src/canvas/easings.ts`. The viewport is the fixed visual stage; there is no
-camera abstraction. Projection is the logical-coordinate-to-viewport mapping.
+and `src/canvas/easings.ts`. The right panel contains one physical viewport canvas
+between independent flat UI regions: `#surfaceHeader` above it and `#gameHud` plus
+actions below it. The viewport canvas fills only the remaining panel space; there is
+no camera abstraction. Projection is the logical-coordinate-to-viewport mapping.
 
 ### Class responsibilities
 
@@ -316,7 +318,8 @@ camera abstraction. Projection is the logical-coordinate-to-viewport mapping.
   `scene.remove`, `node.add`, `node.set`, `node.translate`, `node.remove`, `event.set`,
   `event.remove`, `animation.create`, `animation.keyframes`, `animation.control` (`:56`–`:90`).
 - Scene lifecycle: `createScene` (`:92`), `addNode` (`:109`), `removeNode` (`:122`).
-- Surfaces: `mountSurfaces` (`:131`), `bind` (`:153`).
+- Surfaces: `mountSurfaces` (`:131`), `bind` (`:153`); the host resize observer
+  redraws fitting when the responsive viewport changes size.
 - Pointer: `pointerMove` (`:164`), `pointerDown` (`:182`), `pointerUp` (`:192`), `dispatch` (`:206`).
 - Timers: `timer` (`:220`), `timerRemaining` (`:240`), `timerActive` (`:241`), `advanceTimers` (`:243`).
 - Animations: `createTween` (`:257`), `createKeyframes` (`:271`), `controlAnimation` (`:283`),
@@ -344,10 +347,15 @@ camera abstraction. Projection is the logical-coordinate-to-viewport mapping.
   node transform and child-parent matrix behavior.
 - `hitStack` is rebuilt every `drawScene`; only nodes with `events`, `interactive !== false`,
   and `opacity > 0` are pushed (`:403`–`:404`).
+- `drawScene` clips after the fit transform to the logical `{0,0,width,height}` viewport
+  rectangle. This keeps contain letterbox space and cover-cropped scene space outside the
+  drawable scene boundary even though the physical canvas fills the host.
 
 ### Matrix / hit-testing (`src/canvas/math.ts`)
 
-- `canvasPoint` (`:470`) maps client coords to virtual scene coords using `scene.view`.
+- `canvasPoint` (`:470`) maps client coords to virtual scene coords using `scene.view` and
+  returns `null` when the point is outside the logical viewport rectangle. Letterbox,
+  cropped, and captured pointer positions therefore cannot activate offscreen content.
 - `localPoint` (`:479`) maps a world point into a node's local space via inverse matrix.
 - `hit` (`:485`) walks `hitStack` back-to-front; `contains` (`:494`) does per-shape tests:
   circle (radius + padding), polygon (`polygon`, `:519`), line (`segmentDistance`, `:528`,
@@ -386,6 +394,12 @@ camera abstraction. Projection is the logical-coordinate-to-viewport mapping.
 - for each `canvas` element appends `<canvas class="game-canvas" data-scene="<id>"
   aria-label="<label>">` and binds the matching scene if present,
 - redraws.
+
+The host is the viewport region, not the whole right panel. CSS allocates its remaining
+height after the header and before the flat HUD/action region, with `min-height: 0` and
+`overflow: hidden` so flex/grid sizing cannot make the canvas escape the viewport. Each
+mounted canvas fills that host as the physical clipping surface; logical scene fitting,
+logical clipping, and pointer-boundary rejection remain runtime invariants.
 
 `ensureSurface(id, label)` / `removeSurface(id)` are runtime hooks supplied by
 `src/app/boot.ts` (the `InkforgeCanvasRuntime` hooks object it builds; originally
@@ -564,7 +578,7 @@ the imported value at that position (deeply, because `resolve` recurses).
 - Titles: `#storyTitle` = location title or scenario meta title; `#title`/`#runTitle` = meta title;
   `#location` = location title.
 - `#eventLog`: `<div class="event"><b>{type}</b>{itemId ? <br>{itemName} : ''}</div>`.
-- UI: `#surfaceHeader` sidebar buttons; `#gameHud` meters
+- UI: `#surfaceHeader` top flat sidebar buttons; `#gameHud` lower flat meters
   (`<div><span>label</span><b>v / max</b><i><em style="width:pct%"></em></i></div>`);
   `#uiOutput` output buttons/text; canvas surfaces via `runtime.canvasEngine.mountSurfaces`.
 
@@ -799,7 +813,8 @@ defect.
 
 - Math (matrices, hit tests), animation timing/easing/yoyo/repeat, timer semantics,
   draw order, DPR cap, `mountSurfaces` DOM shape, ensure/remove surface hooks.
-- The viewport is the fixed visual stage; no camera abstraction exists.
+- The right panel is separate flat top UI, one physical viewport canvas, and separate flat
+  lower UI/actions. The viewport is not the whole panel and no camera abstraction exists.
 - `CanvasViewport.projection` supports `flat` (default), `isometric`, and `oblique`.
 - `CanvasScene.layers` supports explicit layer order and optional projection-depth sorting;
   nodes may select `layer`, `space`, `z`/`elevation`, and explicit `depth`.
@@ -810,6 +825,8 @@ defect.
   mixed projected-world/VN-style screen overlay. Its output buttons use `game.ui.hide/show` to
   switch surfaces; the packed `.inkforge` artifact is the importable form of the same VFS. This is
   an architecture verification fixture, not a stable user-facing renderer manual.
+- Switching among those preview surfaces changes only the viewport canvas. Header controls,
+  lower meters, and restart/actions remain flat screen-space UI and are not projected.
 
 ### Persistence & pack
 
@@ -977,20 +994,23 @@ The original port is **complete and verified**. The target tree in this reposito
 further work. `../inkforge-local/` remains a read-only behavioral reference and a runnable
 fallback (`py -m http.server 4173`) and must not be modified.
 
-The renderer stage expansion is active. The first foundation slice is implemented and verified
-on 2026-09-23 (Windows, Deno 2.9.5): `deno task check:renderer`, `deno task check`, focused
-renderer lint/format, `deno task build`, and `deno task smoke` pass. The smoke harness passes
-**12/12** assertions and reports 0 console errors, 0 page errors and 0 dialogs. The projection
-check covers flat identity, isometric and oblique round trips, affine basis transforms, stable
-layer order, projected inverse hit-testing, inverse-projected pointer payloads, and a Lua-authored
-projected scene with mixed world/screen layers. The internal renderer showcase pack is also
-import-verified: its four output controls switch the mounted canvas surface, and its mixed-scene
-marker reports inverse-projected world coordinates.
+The renderer stage expansion is active. The first foundation slice and the viewport-boundary
+correction are implemented and verified on 2026-09-23 (Windows, Deno 2.9.5):
+`deno task check:renderer`, `deno task check`, focused renderer lint/format, `deno task build`,
+and `deno task smoke` pass. The smoke harness passes **14/14** assertions and reports 0 console
+errors, 0 page errors and 0 dialogs. The projection check covers flat identity, isometric and
+oblique round trips, affine basis transforms, stable layer order, projected inverse hit-testing,
+inverse-projected pointer payloads, and a Lua-authored projected scene with mixed world/screen
+layers. The browser smoke checks also prove logical viewport clipping, offscreen input rejection,
+and responsive canvas bounds between the flat top and lower UI regions. The internal renderer
+showcase pack is import-verified: its four output controls switch only the mounted viewport
+surface, and its mixed-scene marker reports inverse-projected world coordinates.
 
 The four documented deviations (section 15) are the only intentional behavioral differences
 from `../inkforge-local/`: the three import/new-project consolidations plus the
-user-requested dynamic editor tabs (open / activate / close). No CSS changed, so
-`dist/style.css` is still byte-for-byte identical to the original.
+user-requested dynamic editor tabs (open / activate / close). The later renderer-stage
+expansion is tracked separately from that baseline comparison; its viewport-boundary
+correction intentionally changes the stage CSS and runtime fitting/clipping behavior.
 
 Contributor commands (run from `inkforge/`):
 

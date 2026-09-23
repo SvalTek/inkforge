@@ -53,6 +53,7 @@ export class InkforgeCanvasRuntime implements CanvasHost {
   update: CanvasUpdate | null;
   frameId: number | null;
   lastFrame: number;
+  resizeObserver: ResizeObserver | null;
 
   constructor(host: HTMLElement, hooks: CanvasHooks = {}) {
     this.host = host;
@@ -64,11 +65,15 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     this.update = null;
     this.frameId = null;
     this.lastFrame = 0;
+    this.resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => this.draw()) : null;
+    this.resizeObserver?.observe(this.host);
   }
 
   destroy(): void {
     if (this.frameId !== null) cancelAnimationFrame(this.frameId);
     this.frameId = null;
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     this.scenes.clear();
     this.timers.clear();
     this.animations.clear();
@@ -522,6 +527,9 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     context.save();
     context.translate(offsetX, offsetY);
     context.scale(scaleX, scaleY);
+    context.beginPath();
+    context.rect(0, 0, virtualWidth, virtualHeight);
+    context.clip();
     if (scene.background && scene.background !== "transparent") {
       context.fillStyle = scene.background;
       context.fillRect(0, 0, virtualWidth, virtualHeight);
@@ -681,10 +689,13 @@ export class InkforgeCanvasRuntime implements CanvasHost {
   canvasPoint(scene: CanvasScene, event: PointerEvent): Point | null {
     if (!scene.view || !scene.canvas) return null;
     const bounds = scene.canvas.getBoundingClientRect();
-    return {
+    const point = {
       x: (event.clientX - bounds.left - scene.view.offsetX) / scene.view.scaleX,
       y: (event.clientY - bounds.top - scene.view.offsetY) / scene.view.scaleY,
     };
+    const width = Number(scene.viewport.width || 960);
+    const height = Number(scene.viewport.height || 720);
+    return point.x >= 0 && point.x <= width && point.y >= 0 && point.y <= height ? point : null;
   }
 
   localPoint(scene: CanvasScene, node: CanvasNode, point: Point): Point | null {
