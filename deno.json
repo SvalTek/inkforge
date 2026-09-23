@@ -1,0 +1,38 @@
+{
+  "tasks": {
+    "check": "deno check src/main.ts",
+    "check:tools": "deno check tools/build.ts tools/dev.ts tools/serve.ts tools/server.ts tools/smoke.ts",
+    "build": "deno run -A tools/build.ts",
+    "dev": "deno run -A tools/dev.ts",
+    "serve": "deno run -A tools/serve.ts",
+    "smoke": "deno run -A tools/smoke.ts",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "imports": {
+    "esbuild": "npm:esbuild@0.24.2",
+    "playwright": "npm:playwright@1.58.2",
+    "playwright-core": "npm:playwright-core@1.58.2"
+  },
+  "nodeModulesDir": "auto",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitOverride": true,
+    "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"]
+  },
+  "fmt": {
+    "lineWidth": 120,
+    "exclude": [
+      "dist",
+      "node_modules",
+      "styles",
+      "templates",
+      "index.html",
+      "*.md",
+      "Architecture.md",
+      "Plan.md",
+      "README.md"
+    ]
+  },
+  "lint": { "report": "compact", "exclude": ["dist", "node_modules"] }
+}

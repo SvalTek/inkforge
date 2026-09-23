@@ -1,0 +1,29 @@
+elements:
+  - id: pack
+    type: button
+    location: sidebar
+    fields:
+      - { id: label, type: text, value: Inventory }
+    events:
+      activate: { type: inventory.open, title: Inventory }
+  - id: health
+    type: meter
+    location: hud
+    fields:
+      - { id: label, type: text, value: Health }
+      - { id: value, type: state, path: health }
+      - { id: max, type: state, path: healthMax }
+  - id: stamina
+    type: meter
+    location: hud
+    fields:
+      - { id: label, type: text, value: Stamina }
+      - { id: value, type: state, path: stamina }
+      - { id: max, type: state, path: staminaMax }
+  - id: examine_entry
+    type: button
+    location: output
+    fields:
+      - { id: label, type: text, value: Examine the threshold }
+    events:
+      activate: { type: command, command: look }

@@ -1,0 +1,11 @@
+[
+  "scenario.yaml",
+  "state.yml",
+  "player.yml",
+  "ui.yml",
+  "definitions.yml",
+  "instances.yml",
+  "locations.yml",
+  "scripts/main.lua",
+  "scripts/threshold.lua"
+]

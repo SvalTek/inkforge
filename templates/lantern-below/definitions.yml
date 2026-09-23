@@ -1,0 +1,5 @@
+item:
+  lantern:
+    name: Brass Lantern
+    description: A hand lantern with a hooded flame.
+    aliases: [lantern]

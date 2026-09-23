@@ -1,0 +1,24 @@
+entry:
+  title: Stone Entry
+  text:
+    - "Cold air rises from the passage ahead."
+    - "A brass lantern rests beside the threshold."
+  items: [entry_lantern]
+  exits:
+    north: passage
+passage:
+  title: Narrow Passage
+  text:
+    - "The passage runs south to the stone entry."
+  exits:
+    south: entry
+  actions:
+    - id: light_lantern
+      label: Light the lantern
+      if:
+        and:
+          - { hasItem: entry_lantern }
+          - { var: lampLit, neq: true }
+      then:
+        - "The lantern catches. Warm light fills the passage."
+        - { set: { lampLit: true } }

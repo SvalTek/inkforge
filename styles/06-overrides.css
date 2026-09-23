@@ -1,0 +1,12 @@
+.ui-output{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}.ui-output button{border-color:#705734;color:#eee1d1;font:14px Georgia,serif}
+#gutter{white-space:pre}
+.story-stage{justify-self:stretch;width:100%}
+.scene-head,.hero-terminal,.ui-output,.decision{width:100%;max-width:none}
+.ui-output{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin:22px 0 0}
+.ui-output:empty{display:none}
+.ui-output button{min-height:48px;text-align:left;padding:12px 14px}
+.decision{margin-top:auto}
+.surface-head{justify-content:flex-start}
+.surface-head button:first-child{margin-left:auto}
+.game-canvas{display:block;width:100%;height:100%;position:absolute;inset:0}
+.canvas-stage:after{pointer-events:none}

@@ -1,0 +1,7 @@
+state:
+  health: 10
+  healthMax: 10
+  stamina: 6
+  staminaMax: 6
+  focus: 3
+  focusMax: 5
