@@ -1,11 +1,12 @@
 {
   "tasks": {
     "check": "deno check src/main.ts",
-    "check:tools": "deno check tools/build.ts tools/dev.ts tools/serve.ts tools/server.ts tools/smoke.ts",
+    "check:tools": "deno check tools/build.ts tools/dev.ts tools/serve.ts tools/server.ts tools/smoke.ts tools/renderer-check.ts",
     "build": "deno run -A tools/build.ts",
     "dev": "deno run -A tools/dev.ts",
     "serve": "deno run -A tools/serve.ts",
     "smoke": "deno run -A tools/smoke.ts",
+    "check:renderer": "deno run tools/renderer-check.ts",
     "fmt": "deno fmt",
     "lint": "deno lint"
   },

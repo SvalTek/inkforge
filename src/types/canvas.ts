@@ -17,6 +17,11 @@ export interface Point {
   y: number;
 }
 
+/** A logical point with optional pseudo-3D elevation. */
+export interface CanvasWorldPoint extends Point {
+  z: number;
+}
+
 /** Named easing function key (see `InkforgeCanvasRuntime.easings`). */
 export type CanvasEasingName = string;
 
@@ -44,6 +49,38 @@ export interface CanvasHitSpec {
 /** A node event binding: a callback reference string or an object wrapper. */
 export type CanvasEventBinding = string | { callback?: string };
 
+/** Coordinate space used by a node or layer. */
+export type CanvasSpace = "world" | "screen";
+
+/** Projection family and parameters used by a viewport. */
+export interface CanvasProjectionSpec {
+  type?: "flat" | "isometric" | "oblique";
+  origin?: Point;
+  originX?: number;
+  originY?: number;
+  tileWidth?: number;
+  tileHeight?: number;
+  elevation?: number;
+  skew?: number;
+}
+
+/** Runtime projection contract used by drawing and inverse hit-testing. */
+export interface CanvasProjection {
+  readonly type: "flat" | "isometric" | "oblique";
+  project(point: CanvasWorldPoint): Point;
+  unproject(point: Point, elevation?: number): CanvasWorldPoint;
+  depth(point: CanvasWorldPoint): number;
+  transform(matrix: Matrix, elevation: number): Matrix;
+}
+
+/** Composition and ordering policy for a scene layer. */
+export interface CanvasLayerSpec {
+  id: string;
+  order?: number;
+  space?: CanvasSpace;
+  sort?: "order" | "depth";
+}
+
 /** Point input accepted from Lua: `{x,y}`, `[x,y]`, or a dynamic record. */
 export type CanvasPointInput = Point | [number, number] | Record<string, unknown>;
 
@@ -68,6 +105,11 @@ export interface CanvasNode {
   originX?: number;
   originY?: number;
   parentId?: string | null;
+  layer?: string;
+  space?: CanvasSpace;
+  z?: number;
+  elevation?: number;
+  depth?: number;
   fill?: string;
   stroke?: string;
   lineWidth?: number;
@@ -103,6 +145,7 @@ export interface CanvasViewport {
   width: number;
   height: number;
   fit: "contain" | "cover" | "stretch" | string;
+  projection?: CanvasProjectionSpec;
 }
 
 /** Scene creation spec passed to `scene.create`. */
@@ -111,6 +154,7 @@ export interface CanvasSceneSpec {
   viewport?: Partial<CanvasViewport>;
   background?: string;
   accessibleLabel?: string;
+  layers?: CanvasLayerSpec[];
   nodes?: CanvasNode[];
 }
 
@@ -118,6 +162,8 @@ export interface CanvasSceneSpec {
 export interface CanvasScene {
   id: string;
   viewport: CanvasViewport;
+  projection: CanvasProjection;
+  layers: CanvasLayerSpec[];
   background: string;
   accessibleLabel: string;
   nodes: Map<string, CanvasNode>;

@@ -1,6 +1,6 @@
 # Inkforge Adventure Studio — Target Architecture
 
-Status: complete — see "Final status" (section 17)
+Status: baseline port complete; renderer stage expansion in progress — see section 17
 Source reference: `../inkforge-local/` (READ-ONLY)
 Target: `inkforge/` (this repository)
 
@@ -162,6 +162,7 @@ declarations that must NOT be ported (see section 13).
 | `src/lua/bridge.ts` | `createLuaEngine`: `LuaFactory` creation, `mountFile` for every `*.lua`, registration of Lua globals (`__ui_*`, `__output`, `__state_*`, `__canvas_command`, `__timer_*`), `doString`/`doFile`, callback capture. | `app.js:259`–`app.js:288` |
 | `src/canvas/runtime.ts` | `InkforgeCanvasRuntime` class: scenes, nodes, draw, pointer, timers, animations, loop. | `canvas-runtime.js:1`–`canvas-runtime.js:560` |
 | `src/canvas/math.ts` | Canvas point mapping, local point, hit tests, matrix multiply/invert/transform. | `canvas-runtime.js:470`–`canvas-runtime.js:559` |
+| `src/canvas/projection.ts` | Flat, isometric, and oblique viewport projections; forward/inverse point mapping, depth keys, and projected node transforms. | new renderer foundation |
 | `src/canvas/easings.ts` | Easing table attached as `InkforgeCanvasRuntime.easings`. | `canvas-runtime.js:562`–`canvas-runtime.js:570` |
 | `src/editor/editor.ts` | `lineNumbers` (gutter), `updateCursor` (readout), `syncEditor` (flush + persist), the path-based `switchFile`, and the dynamic open-tab management: `DEFAULT_OPEN_FILES`, `tabLabel`, `renderTabs`, `closeFile` (section 15(iv)). | `app.js:28`, `app.js:33`, `app.js:41`, `app.js:71`, `app.js:72` |
 | `src/ui/render.ts` | `render`, `renderUi`, `renderInventory`, `inspectItem`, `openInventory`. | `app.js:22` (dead), `app.js:247` (live), `app.js:23`–`app.js:26` |
@@ -174,7 +175,7 @@ declarations that must NOT be ported (see section 13).
 | `src/types/ui.ts` | UI element, field, override, action shapes. | `app.js:14`, `app.js:18`–`app.js:22`, `templates/lantern-below/ui.yml` |
 | `src/types/engine.ts` | Runtime state, inventory, event, location/action/item shapes. | `app.js:13`–`app.js:17` |
 | `src/types/events.ts` | Event union (`output`, `location:enter`, `inventory:add`, `inventory:remove`, `ui:update`, `game:over`). | `app.js:11`, `app.js:13`–`app.js:15`, `app.js:246` |
-| `src/types/canvas.ts` | Scene, node, viewport, animation, timer, pointer-event, binding types. | `canvas-runtime.js:92`–`canvas-runtime.js:107`, `canvas-runtime.js:220`–`canvas-runtime.js:281` |
+| `src/types/canvas.ts` | Scene, node, viewport, projection, layer, animation, timer, pointer-event, binding types. | `canvas-runtime.js:92`–`canvas-runtime.js:107`, `canvas-runtime.js:220`–`canvas-runtime.js:281`; renderer foundation |
 | `src/types/lua.ts` | Lua engine, Lua value, callback reference types. | `app.js:258`–`app.js:288` |
 | `src/types/editor.ts` | Editor state (current path, format, cursor). | `app.js:28`, `app.js:71`, `app.js:72` |
 | `src/deps/remote.ts` | CDN URL constants (`YAML_ESM_URL`, `WASMOON_ESM_URL`) and `loadEsm`, which keeps the specifier in a variable so the CDN URL stays a runtime import. | `app.js:6`, `app.js:265` |
@@ -297,8 +298,10 @@ Lua calls `game.*` -> `__canvas_command` / `__timer_command` / `__output` / `__s
 
 ## 7. Canvas subsystem
 
-`InkforgeCanvasRuntime` (`canvas-runtime.js:1`–`:560`) is retained essentially as-is,
-split into `src/canvas/runtime.ts`, `src/canvas/math.ts`, `src/canvas/easings.ts`.
+`InkforgeCanvasRuntime` (`canvas-runtime.js:1`–`:560`) remains the rendering kernel,
+split into `src/canvas/runtime.ts`, `src/canvas/math.ts`, `src/canvas/projection.ts`,
+and `src/canvas/easings.ts`. The viewport is the fixed visual stage; there is no
+camera abstraction. Projection is the logical-coordinate-to-viewport mapping.
 
 ### Class responsibilities
 
@@ -320,15 +323,21 @@ split into `src/canvas/runtime.ts`, `src/canvas/math.ts`, `src/canvas/easings.ts
 
 ### Scene / node model
 
-- Scene (`createScene`, `:92`): `{ id, viewport {width:960,height:720,fit:'contain'},
-  background:'transparent', accessibleLabel, nodes: Map, order: string[], canvas,
-  context, view, hitStack, hoverNode, pointerNode }`.
+- Scene (`createScene`, `:92`): `{ id, viewport {width:960,height:720,fit:'contain',projection?},
+  projection, layers, background:'transparent', accessibleLabel, nodes: Map, order: string[],
+  canvas, context, view, hitStack, hoverNode, pointerNode }`.
 - Node (`addNode`, `:109`): defaults `{ visible:true, opacity:1, x:0, y:0, rotation:0,
-  scale:1, interactive:true, ...source, parentId }`; `children` is deleted and recursed.
+  scale:1, interactive:true, ...source, parentId }`; optional `layer`, `space`, `z`, `elevation`,
+  and `depth` select composition behavior; `children` is deleted and recursed.
 - Node shapes drawn (`drawShape`, `:409`): `rect` (rounded via `roundRect`), `circle`/`marker`
   (arc), `line`/`path` (polyline, closed for `path`), `text` (fill/strokeText), `image`/`sprite`
   (with optional `frame` sub-rect). `originX`/`originY` are fractions of width/height.
-- Draw order = `scene.order`, children after parents; device pixel ratio capped at 2 (`:354`).
+- With no layer declarations, draw order remains `scene.order`, children after parents. Declared
+  layers sort by `order`; a layer with `sort:'depth'` uses the active projection depth key with
+  stable insertion-order tie breaking. Device pixel ratio remains capped at 2 (`:354`).
+- `flat` is the identity projection and is the default. `isometric` and `oblique` project world
+  roots; screen-space roots bypass projection. Root projection preserves the existing local
+  node transform and child-parent matrix behavior.
 - `hitStack` is rebuilt every `drawScene`; only nodes with `events`, `interactive !== false`,
   and `opacity > 0` are pushed (`:403`–`:404`).
 
@@ -341,6 +350,9 @@ split into `src/canvas/runtime.ts`, `src/canvas/math.ts`, `src/canvas/easings.ts
   tolerance = lineWidth/2 + padding), else axis-aligned rect with padding.
 - `nodeMatrix` (`:534`), `multiply` (`:541`), `invert` (`:549`), `transform` (`:559`).
 - `hit` overrides on a node (`node.hit`) can override type/size/points/padding.
+- Projection helpers in `src/canvas/projection.ts` provide `project`, `unproject`, `depth`, and
+  projected transform operations. Inverse matrix hit-testing therefore works for projected
+  geometry without changing the existing shape hit rules.
 
 ### Animations
 
@@ -777,6 +789,12 @@ defect.
 
 - Math (matrices, hit tests), animation timing/easing/yoyo/repeat, timer semantics,
   draw order, DPR cap, `mountSurfaces` DOM shape, ensure/remove surface hooks.
+- The viewport is the fixed visual stage; no camera abstraction exists.
+- `CanvasViewport.projection` supports `flat` (default), `isometric`, and `oblique`.
+- `CanvasScene.layers` supports explicit layer order and optional projection-depth sorting;
+  nodes may select `layer`, `space`, `z`/`elevation`, and explicit `depth`.
+- Projected world roots and unprojected screen-space roots share the existing node, animation,
+  and inverse-matrix hit-testing pipeline.
 
 ### Persistence & pack
 
@@ -937,15 +955,17 @@ byte-for-byte identical to `../inkforge-local/style.css` (SHA-256
 
 ## 17. Final status
 
-The port is **complete and verified**. The target tree in this repository (`src/`,
+The original port is **complete and verified**. The target tree in this repository (`src/`,
 `tools/`, `deno.json`, `index.html`, `styles/`, `templates/`) is the source of truth for
 further work. `../inkforge-local/` remains a read-only behavioral reference and a runnable
 fallback (`py -m http.server 4173`) and must not be modified.
 
-Verified on 2026-09-23 (Windows, Deno 2.9.5): `deno task check`, `deno task check:tools`,
-`deno lint`, `deno fmt --check`, `deno task build` and `deno task smoke` all exit `0`. The
-smoke harness passes **11/11** assertions and reports 0 console errors, 0 page errors and 0
-dialogs.
+The renderer stage expansion is active. The first foundation slice is implemented and verified
+on 2026-09-23 (Windows, Deno 2.9.5): `deno task check:renderer`, `deno task check`, focused
+renderer lint/format, `deno task build`, and `deno task smoke` pass. The smoke harness passes
+**11/11** assertions and reports 0 console errors, 0 page errors and 0 dialogs. The projection
+check covers flat identity, isometric and oblique round trips, affine basis transforms, stable
+layer order, and projected inverse hit-testing.
 
 The four documented deviations (section 15) are the only intentional behavioral differences
 from `../inkforge-local/`: the three import/new-project consolidations plus the
@@ -960,6 +980,7 @@ deno task check:tools    # type-check tools/**
 deno lint                # lint
 deno fmt --check         # format check (preserved assets and docs excluded)
 deno task build          # build dist/ (index.html, assets/main.js, style.css, templates/)
+deno task check:renderer # projection/layer math and hit-test checks
 deno task serve          # serve an existing dist/ on http://localhost:4173/
 deno task dev            # build + watch + serve
 deno task smoke          # build + serve + drive Chrome, assert the seven checks

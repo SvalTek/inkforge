@@ -10,6 +10,7 @@ import {
   transform as transformPoint,
 } from "./math.ts";
 import { type EasingFn, EASINGS } from "./easings.ts";
+import { createProjection, nodeElevation } from "./projection.ts";
 import type {
   CanvasAnimation,
   CanvasAnimationOptions,
@@ -19,11 +20,13 @@ import type {
   CanvasHost,
   CanvasKeyframe,
   CanvasKeyframesAnimation,
+  CanvasLayerSpec,
   CanvasNode,
   CanvasPointerEvent,
   CanvasPointInput,
   CanvasScene,
   CanvasSceneSpec,
+  CanvasSpace,
   CanvasTimer,
   CanvasTweenAnimation,
   CanvasUpdate,
@@ -164,6 +167,8 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     const scene: CanvasScene = {
       id: spec.id,
       viewport: { width: 960, height: 720, fit: "contain", ...(spec.viewport || {}) } as CanvasViewport,
+      projection: createProjection((spec.viewport as CanvasViewport | undefined)?.projection),
+      layers: [...(spec.layers || [])],
       background: spec.background || "transparent",
       accessibleLabel: spec.accessibleLabel || spec.id,
       nodes: new Map(),
@@ -519,12 +524,43 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     }
     scene.hitStack = [];
     const identity = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
-    for (const node of this.children(scene, null)) this.drawNode(context, scene, node, identity, 1);
+    for (const node of this.children(scene, null)) this.drawNode(context, scene, node, identity, 1, false, node.layer);
     context.restore();
   }
 
-  children(scene: CanvasScene, parentId: string | null): CanvasNode[] {
-    return scene.order.map((id) => scene.nodes.get(id)).filter((node) => node?.parentId === parentId) as CanvasNode[];
+  children(scene: CanvasScene, parentId: string | null, inheritedLayer?: string): CanvasNode[] {
+    const nodes = scene.order.map((id) => scene.nodes.get(id)).filter((node) =>
+      node?.parentId === parentId
+    ) as CanvasNode[];
+    const hasLayerPolicy = scene.layers.length > 0 || nodes.some((node) => node.layer);
+    if (!hasLayerPolicy) return nodes;
+    const positions = new Map(scene.order.map((id, index) => [id, index]));
+    return nodes.slice().sort((left, right) => {
+      const leftLayer = left.layer || inheritedLayer;
+      const rightLayer = right.layer || inheritedLayer;
+      const layerOrder = this.layerOrder(scene, leftLayer) - this.layerOrder(scene, rightLayer);
+      if (layerOrder) return layerOrder;
+      const layer = this.layer(scene, leftLayer);
+      if (layer?.sort === "depth") {
+        const depth = this.depth(scene, right) - this.depth(scene, left);
+        if (depth) return depth;
+      }
+      return (positions.get(left.id) || 0) - (positions.get(right.id) || 0);
+    });
+  }
+
+  layer(scene: CanvasScene, id: string | undefined): CanvasLayerSpec | undefined {
+    return id ? scene.layers.find((layer) => layer.id === id) : undefined;
+  }
+
+  layerOrder(scene: CanvasScene, id: string | undefined): number {
+    const layer = this.layer(scene, id);
+    return layer?.order ?? (id ? scene.layers.findIndex((candidate) => candidate.id === id) : 0);
+  }
+
+  depth(scene: CanvasScene, node: CanvasNode): number {
+    if (node.depth !== undefined) return Number(node.depth);
+    return scene.projection.depth({ x: Number(node.x || 0), y: Number(node.y || 0), z: nodeElevation(node) });
   }
 
   drawNode(
@@ -533,18 +569,27 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     node: CanvasNode,
     parentMatrix: Matrix,
     parentOpacity: number,
+    projectedParent = false,
+    inheritedLayer?: string,
   ): void {
     if (node.visible === false) return;
     const local = this.nodeMatrix(node);
-    const world = this.multiply(parentMatrix, local);
+    const layerId = node.layer || inheritedLayer;
+    const layer = this.layer(scene, layerId);
+    const space: CanvasSpace = node.space || layer?.space || (scene.projection.type === "flat" ? "screen" : "world");
+    const projected = !projectedParent && space === "world";
+    const renderLocal = projected ? scene.projection.transform(local, nodeElevation(node)) : local;
+    const world = this.multiply(parentMatrix, renderLocal);
     const opacity = parentOpacity * Math.min(Math.max(Number(node.opacity ?? 1), 0), 1);
     context.save();
-    context.transform(local.a, local.b, local.c, local.d, local.e, local.f);
+    context.transform(renderLocal.a, renderLocal.b, renderLocal.c, renderLocal.d, renderLocal.e, renderLocal.f);
     context.globalAlpha *= Math.min(Math.max(Number(node.opacity ?? 1), 0), 1);
     this.drawShape(context, node);
     const hasEvents = node.events && Object.keys(node.events).length > 0;
     if (hasEvents && node.interactive !== false && opacity > 0) scene.hitStack.push({ node, matrix: world });
-    for (const child of this.children(scene, node.id)) this.drawNode(context, scene, child, world, opacity);
+    for (const child of this.children(scene, node.id, layerId)) {
+      this.drawNode(context, scene, child, world, opacity, projectedParent || projected, layerId);
+    }
     context.restore();
   }
 
