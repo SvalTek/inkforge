@@ -14,6 +14,7 @@ import {
   closeFile as closeFileImpl,
   DEFAULT_OPEN_FILES,
   lineNumbers as lineNumbersImpl,
+  renderFileTree as renderFileTreeImpl,
   renderTabs as renderTabsImpl,
   switchFile as switchFileImpl,
   syncEditor as syncEditorImpl,
@@ -44,6 +45,7 @@ export function createApp(): AppContext {
     showView,
     switchFile,
     closeFile,
+    renderFileTree,
     renderTabs,
     syncEditor,
     lineNumbers,
@@ -70,6 +72,7 @@ export function createApp(): AppContext {
       }
       app.current = "scenario.yaml";
       dom.code.value = app.project.vfs[app.current] ?? "";
+      renderFileTreeImpl(app);
       lineNumbers();
       renderTabs();
       await start();
@@ -183,6 +186,10 @@ export function createApp(): AppContext {
     renderTabsImpl(app);
   }
 
+  function renderFileTree(): void {
+    renderFileTreeImpl(app);
+  }
+
   function syncEditor(): void {
     syncEditorImpl(app);
   }
@@ -213,6 +220,7 @@ export function createApp(): AppContext {
     app.dom.code.value = app.project.vfs["scenario.yaml"] ?? "";
     app.openFiles = [...DEFAULT_OPEN_FILES];
     persist();
+    renderFileTree();
     switchFile("scenario.yaml");
     await start();
   }

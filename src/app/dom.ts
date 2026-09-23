@@ -42,9 +42,9 @@ export interface DomRefs {
   modalHost: HTMLElement;
 
   authorView: HTMLElement;
+  tree: HTMLElement;
   tabs: HTMLElement;
   addFile: HTMLButtonElement;
-  assetCount: HTMLElement;
   gutter: HTMLElement;
   code: HTMLTextAreaElement;
   cursor: HTMLElement;
@@ -117,9 +117,9 @@ export function queryDom(): DomRefs {
     modalHost: get("#modalHost"),
 
     authorView: get("#authorView"),
+    tree: get(".tree"),
     tabs: get(".tabs"),
     addFile: get("#addFile"),
-    assetCount: get("#assetCount"),
     gutter: get("#gutter"),
     code: get("#code"),
     cursor: get("#cursor"),

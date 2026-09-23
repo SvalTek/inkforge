@@ -9,9 +9,6 @@ export function bindEvents(app: AppContext): void {
   dom.code.onscroll = () => {
     dom.gutter.scrollTop = dom.code.scrollTop;
   };
-  document.querySelectorAll<HTMLElement>(".file").forEach((button) => {
-    button.onclick = () => app.switchFile(button.dataset.file ?? "");
-  });
   document.querySelectorAll<HTMLElement>(".nav").forEach((button) => {
     button.onclick = () => app.showView((button.dataset.view as AppView) ?? "play");
   });

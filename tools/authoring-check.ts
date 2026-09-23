@@ -70,6 +70,12 @@ async function main(): Promise<void> {
       undefined,
       { timeout: TIMEOUT },
     );
+    await page.locator('.nav[data-view="author"]').click();
+    assert(await page.locator('.file[data-file="modals.yml"]').count() === 1, "modals.yml missing from Author tree");
+    assert(await page.locator('.file[data-file="tools.yml"]').count() === 1, "tools.yml missing from Author tree");
+    await page.locator('.file[data-file="modals.yml"]').click();
+    assert((await page.locator("#code").inputValue()).includes("Stage Journal"), "modals.yml could not be opened");
+    await page.locator('.nav[data-view="play"]').click();
 
     const toolIds = await page.locator("#toolRail [data-tool]").evaluateAll((nodes) =>
       nodes.map((node) => node.getAttribute("data-tool"))

@@ -31,6 +31,7 @@ export async function importPack(app: AppContext, file: File): Promise<void> {
   app.current = "scenario.yaml";
   app.dom.code.value = app.project.vfs["scenario.yaml"] ?? "";
   app.persist();
+  app.renderFileTree();
   app.switchFile("scenario.yaml");
   await app.start();
 }

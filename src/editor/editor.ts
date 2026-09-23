@@ -18,6 +18,43 @@ export function updateCursor(app: AppContext): void {
   }`;
 }
 
+/** Rebuild the Author explorer from the currently loaded project VFS. */
+export function renderFileTree(app: AppContext): void {
+  const tree = app.dom.tree;
+  tree.replaceChildren();
+
+  const folder = document.createElement("div");
+  folder.className = "folder";
+  folder.append("⌄ ");
+  const name = document.createElement("b");
+  name.textContent = "adventure";
+  folder.append(name);
+  tree.append(folder);
+
+  const paths = Object.keys(app.project.vfs);
+  for (const path of paths.filter((entry) => !entry.startsWith("assets/"))) {
+    const button = document.createElement("button");
+    button.className = path === app.current ? "file active" : "file";
+    button.dataset.file = path;
+    button.textContent = `◇ ${path}`;
+    button.onclick = () => app.switchFile(path);
+    tree.append(button);
+  }
+
+  const assetPaths = paths.filter((path) => path.startsWith("assets/") || path === "assets");
+  const assetCount = new Set([...assetPaths, ...app.project.assets]).size;
+  if (assetCount > 0 || app.project.assets.length > 0) {
+    const assets = document.createElement("button");
+    assets.className = "file";
+    assets.dataset.file = "assets";
+    assets.textContent = "▧ assets ";
+    const count = document.createElement("em");
+    count.textContent = String(assetCount);
+    assets.append(count);
+    tree.append(assets);
+  }
+}
+
 /** Persist the active editor buffer into the project and save locally. */
 export function syncEditor(app: AppContext): void {
   app.project = normalizeProject(app.project);
@@ -72,7 +109,7 @@ export function switchFile(app: AppContext, path: string): void {
   if (!app.openFiles.includes(path)) app.openFiles.push(path);
   app.dom.code.value = app.project.vfs[path] ?? "";
   app.dom.format.textContent = path.endsWith(".lua") ? "LUA" : "YAML";
-  document.querySelectorAll<HTMLElement>(".file").forEach((button) =>
+  app.dom.tree.querySelectorAll<HTMLElement>(".file").forEach((button) =>
     button.classList.toggle("active", button.dataset.file === path)
   );
   renderTabs(app);

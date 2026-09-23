@@ -31,6 +31,7 @@ export interface AppContext {
   showView(view: AppView): void;
   switchFile(path: string): void;
   closeFile(path: string): void;
+  renderFileTree(): void;
   renderTabs(): void;
   syncEditor(): void;
   lineNumbers(): void;
