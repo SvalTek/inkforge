@@ -48,11 +48,28 @@ async function main(): Promise<void> {
 
   try {
     await page.goto(`http://127.0.0.1:${server.port}/`, { waitUntil: "domcontentloaded", timeout: TIMEOUT });
+    await page.locator('.nav[data-view="author"]').click();
+    const authorBounds = await page.locator("#authorView").boundingBox();
+    const headerBounds = await page.locator("body > main > header").boundingBox();
+    assert(authorBounds && headerBounds, "author layout bounds unavailable");
+    assert(!await page.locator("#playView").isVisible(), "play view remains visible in author mode");
+    assert(
+      Math.abs(authorBounds.y - (headerBounds.y + headerBounds.height)) < 2 && authorBounds.height > 600,
+      `author view is not occupying the content row: y=${authorBounds.y}, headerBottom=${
+        headerBounds.y + headerBounds.height
+      }, height=${authorBounds.height}`,
+    );
+    await page.locator('.nav[data-view="play"]').click();
     const temp = await Deno.makeTempDir({ prefix: "inkforge-authoring-" });
     const packPath = `${temp}\\showcase.inkforge`;
     await Deno.copyFile("templates/renderer-showcase.inkforge", packPath);
     await page.locator("#importFile").setInputFiles(packPath);
     await waitFor(page, "#storyTitle", "The authored visual stage");
+    await page.waitForFunction(
+      () => document.querySelector('[data-tool="lua_tool"]') !== null,
+      undefined,
+      { timeout: TIMEOUT },
+    );
 
     const toolIds = await page.locator("#toolRail [data-tool]").evaluateAll((nodes) =>
       nodes.map((node) => node.getAttribute("data-tool"))
