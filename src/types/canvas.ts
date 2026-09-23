@@ -308,8 +308,13 @@ export interface CanvasPointerEvent {
   sceneId: string;
   nodeId: string;
   type: string;
+  /** Virtual viewport coordinates after CSS fitting, before node inversion. */
   x: number;
   y: number;
+  /** Inverse-projected ground-plane coordinates (`z` is always 0). */
+  worldX: number;
+  worldY: number;
+  worldZ: number;
   localX: number;
   localY: number;
   button: number;

@@ -79,4 +79,33 @@ assert(projectedHit?.node.id === "projected", "projected hit-test missed the nod
 close(projectedHit.local.x, 5, "projected local hit x");
 close(projectedHit.local.y, 5, "projected local hit y");
 
+let pointerPayload: Record<string, unknown> | undefined;
+const pointerRuntime = new InkforgeCanvasRuntime({ replaceChildren() {} } as HTMLElement, {
+  event: (_reference, event) => pointerPayload = event as unknown as Record<string, unknown>,
+});
+const pointerScene = pointerRuntime.createScene({
+  id: "pointer",
+  viewport: { projection: { type: "isometric", originX: 100, originY: 40, tileWidth: 64, tileHeight: 32 } },
+});
+const pointerNode = pointerRuntime.addNode(pointerScene, {
+  id: "pointer-node",
+  type: "rect",
+  events: { activate: "pointer_callback" },
+});
+const worldPoint = pointerScene.projection.project({ x: 3, y: 2, z: 0 });
+assert(
+  pointerRuntime.dispatch(
+    pointerScene,
+    pointerNode,
+    "activate",
+    { button: 0, pointerType: "mouse", altKey: false, ctrlKey: false, shiftKey: false } as PointerEvent,
+    worldPoint,
+    { x: 0, y: 0 },
+  ),
+  "projected pointer dispatch did not invoke the hook",
+);
+close(Number(pointerPayload?.worldX), 3, "projected pointer world x");
+close(Number(pointerPayload?.worldY), 2, "projected pointer world y");
+close(Number(pointerPayload?.worldZ), 0, "projected pointer world z");
+
 console.log("Renderer projection/layer checks passed.");

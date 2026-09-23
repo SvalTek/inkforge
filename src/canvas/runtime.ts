@@ -306,12 +306,16 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     const binding = node?.events?.[type];
     const callback = typeof binding === "string" ? binding : binding?.callback;
     if (!callback) return false;
+    const world = scene.projection.unproject(point, 0);
     this.hooks.event?.(callback, {
       sceneId: scene.id,
       nodeId: node.id,
       type,
       x: point.x,
       y: point.y,
+      worldX: world.x,
+      worldY: world.y,
+      worldZ: world.z,
       localX: local.x,
       localY: local.y,
       button: Number(event.button || 0),

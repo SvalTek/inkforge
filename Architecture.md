@@ -353,6 +353,9 @@ camera abstraction. Projection is the logical-coordinate-to-viewport mapping.
 - Projection helpers in `src/canvas/projection.ts` provide `project`, `unproject`, `depth`, and
   projected transform operations. Inverse matrix hit-testing therefore works for projected
   geometry without changing the existing shape hit rules.
+- `dispatch` preserves virtual viewport `x/y` and node-local `localX/localY`, and adds
+  inverse-projected ground-plane `worldX/worldY/worldZ` values. `worldZ` is `0` because a
+  2D pointer cannot infer elevation; the Lua `__canvas_event` bridge carries all fields.
 
 ### Animations
 
@@ -443,8 +446,10 @@ callback/event support remains separate. Together they define:
 - `game.canvas.create(spec)` -> `__canvas_command({op:'scene.create', scene})` -> `scene_handle`.
 - `game.canvas.node(sceneId, nodeId)` -> `node_handle`.
 - `game.timer.after(delay, cb, opts)` / `game.timer.every(delay, cb, opts)`.
-- `__canvas_event(reference, sceneId, nodeId, type, x, y, localX, localY, button,
-  pointerType, altKey, ctrlKey, shiftKey)` and `__timer_event(reference, timerId, iteration)`.
+- `__canvas_event(reference, sceneId, nodeId, type, x, y, worldX, worldY, worldZ, localX,
+  localY, button, pointerType, altKey, ctrlKey, shiftKey)` and `__timer_event(reference,
+  timerId, iteration)`. `x/y` are virtual viewport coordinates; `worldX/worldY/worldZ` are
+  inverse-projected ground-plane coordinates (`worldZ` is `0`); `localX/localY` are node-local.
 
 Only this `CANVAS_LUA_API` bootstrap is live. The older non-canvas `game={...}` bootstrap
 string embedded in the dead `bootLua` at `app.js:78`–`app.js:95` is **dead** and must not be ported.
@@ -965,7 +970,7 @@ on 2026-09-23 (Windows, Deno 2.9.5): `deno task check:renderer`, `deno task chec
 renderer lint/format, `deno task build`, and `deno task smoke` pass. The smoke harness passes
 **11/11** assertions and reports 0 console errors, 0 page errors and 0 dialogs. The projection
 check covers flat identity, isometric and oblique round trips, affine basis transforms, stable
-layer order, and projected inverse hit-testing.
+layer order, projected inverse hit-testing, and inverse-projected pointer payloads.
 
 The four documented deviations (section 15) are the only intentional behavioral differences
 from `../inkforge-local/`: the three import/new-project consolidations plus the
