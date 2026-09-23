@@ -1,6 +1,6 @@
 # Inkforge Adventure Studio — Target Architecture
 
-Status: baseline port complete; renderer viewport-boundary correction verified — see section 17
+Status: baseline port complete; renderer viewport-boundary correction and authored tool/modal slice verified — see section 17
 Source reference: `../inkforge-local/` (READ-ONLY)
 Target: `inkforge/` (this repository)
 
@@ -1023,6 +1023,58 @@ user-requested dynamic editor tabs (open / activate / close). The later renderer
 expansion is tracked separately from that baseline comparison; its viewport-boundary
 correction intentionally changes the stage CSS and runtime fitting/clipping behavior.
 
+### Authored tool rail and modal UI slice
+
+The authored shell now has three separate concepts:
+
+```text
+ui       persistent, region-bound flat elements
+modals   discrete lifecycle-managed window models
+tools    left-rail launchers for modals or Lua actions
+```
+
+`Scenario` accepts top-level `modals` and `tools` collections in addition to the
+existing `ui` collection. A modal is one authored window model with a recursive
+`elements` tree. Nested elements reuse the existing field, condition, and
+activation semantics; `children` is not an author-facing key. The initial modal
+renderer supports panels/stacks/rows/grids, text, buttons, images, meters, and
+page stacks/pages. `modal.close` and `modal.page` activation types provide generic
+shell/page operations without targeting a specific modal ID.
+
+The left rail is rendered by `src/ui/tools.ts` into `#toolRail`, replacing the
+decorative vertical wordmark. It is empty when no tools are authored. Tool icons
+may be text/Unicode/emoji or `{ image: "..." }`; UTF-8 SVG files in the project
+VFS are converted to data URLs for pack-safe rendering. Labels are available as
+accessible names, native hover titles, and visible hover labels. Tool state is
+held in one `ToolRegistry` (`src/engine/tool-state.ts`) shared by YAML seed data
+and the modular `game.tool` Lua facade:
+
+```lua
+game.tool.register(definition)
+game.tool.remove(id)
+game.tool.show(id)
+game.tool.hide(id)
+game.tool.enable(id)
+game.tool.disable(id)
+```
+
+Lua registration upserts the shared runtime entry by ID. Starting/restarting or
+re-importing a project rebuilds the registry from YAML and reruns the Lua script,
+so runtime-only registrations and state do not leak across project sessions.
+
+Modal content is DOM-rendered in `#modalHost` with an inventory-inspired shell.
+It is not drawn into the projected canvas, does not inherit projection, and does
+not alter the top/lower right-panel UI or viewport input boundary. Tool actions
+resolve named Lua globals through the same callback path as existing UI actions.
+
+The internal `templates/renderer-showcase/` fixture now includes YAML tools, a
+Lua-registered tool, an emoji icon, a VFS SVG icon, and a nested two-page modal;
+`templates/renderer-showcase.inkforge` is rebuilt through `deno task pack`. The
+focused browser verification command is `deno task check:authoring` and covers
+registration, icons, hover labels, modal recursion/paging, Lua actions, state
+mutations, and restart reset. This remains an internal architecture fixture, not
+stable public authoring documentation.
+
 Contributor commands (run from `inkforge/`):
 
 ```
@@ -1032,6 +1084,7 @@ deno lint                # lint
 deno fmt --check         # format check (preserved assets and docs excluded)
 deno task build          # build dist/ (index.html, assets/main.js, style.css, templates/)
 deno task check:renderer # projection/layer math and hit-test checks
+deno task check:authoring # tool rail/modal browser contract check
 deno task serve          # serve an existing dist/ on http://localhost:4173/
 deno task dev            # build + watch + serve
 deno task smoke          # build + serve + drive Chrome, assert the seven checks

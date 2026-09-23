@@ -15,7 +15,7 @@ export interface UiField {
 }
 
 /** Behaviour kind for an element activation binding. */
-export type UiActivationType = "inventory.open" | "command" | "instructions" | string;
+export type UiActivationType = "inventory.open" | "modal.close" | "modal.page" | "command" | "instructions" | string;
 
 /** Activation binding attached to `element.events.activate`/`actions.activate`. */
 export interface UiActivation {
@@ -23,6 +23,7 @@ export interface UiActivation {
   command?: string;
   then?: DirectiveList;
   callback?: string;
+  page?: string;
   kicker?: string;
   title?: string;
 }
@@ -33,6 +34,8 @@ export interface UiElement {
   type: string;
   location?: UiLocation;
   fields?: UiField[];
+  /** Nested authored elements for compound UI and modal content. */
+  elements?: UiElement[];
   events?: Record<string, UiActivation>;
   actions?: Record<string, UiActivation>;
   accessibleLabel?: string;
@@ -49,7 +52,7 @@ export type UiOverride = Partial<Omit<UiElement, "fields">> & { fields?: UiOverr
 export type UiOverrideMap = Record<string, UiOverride>;
 
 /** A UI element after field resolution, carrying computed `values`. */
-export type ResolvedUiElement = UiElement & { values: Record<string, unknown> };
+export type ResolvedUiElement = UiElement & { values: Record<string, unknown>; runtimePath: string };
 
 /** Imperative UI command consumed by `applyUi` (create/set/show/hide/remove). */
 export interface UiCommand {

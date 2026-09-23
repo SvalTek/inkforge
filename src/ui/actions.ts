@@ -1,6 +1,7 @@
 import type { AppContext } from "../app/context.ts";
-import type { LuaCallback, ResolvedUiElement } from "../types/index.ts";
+import type { LuaCallback, ResolvedUiElement, ToolEntry } from "../types/index.ts";
 import { openInventory } from "./render.ts";
+import { closeModal, openModal, setModalPage } from "./modals.ts";
 
 /** Run a UI element's activation binding (inventory/command/instructions/Lua). */
 export async function runUiAction(app: AppContext, element: ResolvedUiElement): Promise<void> {
@@ -8,6 +9,14 @@ export async function runUiAction(app: AppContext, element: ResolvedUiElement): 
   if (!action) return;
   if (action.type === "inventory.open") {
     openInventory(app, element, action);
+    return;
+  }
+  if (action.type === "modal.close") {
+    closeModal(app);
+    return;
+  }
+  if (action.type === "modal.page") {
+    setModalPage(app, action.page ?? "");
     return;
   }
   if (action.type === "command") {
@@ -26,4 +35,24 @@ export async function runUiAction(app: AppContext, element: ResolvedUiElement): 
       app.render();
     }
   }
+}
+
+/** Run a shell-level tool entry from the shared YAML/Lua registry. */
+export async function runToolAction(app: AppContext, entry: ToolEntry): Promise<void> {
+  if (entry.disabled) return;
+  const { modal, action } = entry.definition;
+  if (modal) {
+    openModal(app, modal);
+    return;
+  }
+  const lua = app.runtime?.lua;
+  if (action && lua) {
+    const callback = lua.global.get(action);
+    if (typeof callback === "function") {
+      await (callback as LuaCallback)();
+      app.render();
+      return;
+    }
+  }
+  if (action) app.output?.(`Unknown tool action: ${action}`, "warning");
 }

@@ -1,0 +1,89 @@
+- id: journal
+  kicker: AUTHORABLE WINDOW / RECURSIVE ELEMENTS
+  title: Stage Journal
+  elements:
+    - id: journal_panel
+      type: panel
+      elements:
+        - id: journal_intro
+          type: text
+          fields:
+            - id: text
+              type: text
+              value: This window is one modal model. Its pages and controls are nested elements, not unrelated global UI entries.
+        - id: journal_pages
+          type: page_stack
+          elements:
+            - id: journal_page_one
+              type: page
+              elements:
+                - id: page_one_title
+                  type: text
+                  fields:
+                    - { id: text, type: text, value: Page one / Composition }
+                - id: page_one_body
+                  type: text
+                  fields:
+                    - { id: text, type: text, value: The tool rail is a shell launcher. The projected canvas remains a separate stage. }
+            - id: journal_page_two
+              type: page
+              elements:
+                - id: page_two_title
+                  type: text
+                  fields:
+                    - { id: text, type: text, value: Page two / Runtime }
+                - id: page_two_body
+                  type: text
+                  fields:
+                    - { id: text, type: text, value: This page, its text, and its buttons are all descendants of the journal model. }
+        - id: journal_actions
+          type: row
+          elements:
+            - id: journal_page_one_button
+              type: button
+              fields:
+                - { id: label, type: text, value: First page }
+              events:
+                activate: { type: modal.page, page: journal_page_one }
+            - id: journal_page_two_button
+              type: button
+              fields:
+                - { id: label, type: text, value: Second page }
+              events:
+                activate: { type: modal.page, page: journal_page_two }
+            - id: hide_runtime_tool
+              type: button
+              fields:
+                - { id: label, type: text, value: Hide runtime tool }
+              events:
+                activate: { callback: hide_runtime_tool }
+            - id: show_runtime_tool
+              type: button
+              fields:
+                - { id: label, type: text, value: Show runtime tool }
+              events:
+                activate: { callback: show_runtime_tool }
+            - id: remove_runtime_tool
+              type: button
+              fields:
+                - { id: label, type: text, value: Remove runtime tool }
+              events:
+                activate: { callback: remove_runtime_tool }
+            - id: disable_map_tool
+              type: button
+              fields:
+                - { id: label, type: text, value: Disable map tool }
+              events:
+                activate: { callback: disable_map_tool }
+            - id: enable_map_tool
+              type: button
+              fields:
+                - { id: label, type: text, value: Enable map tool }
+              events:
+                activate: { callback: enable_map_tool }
+            - id: close_journal
+              type: button
+              fields:
+                - { id: label, type: text, value: Close }
+              events:
+                activate: { type: modal.close }

@@ -2,6 +2,7 @@ export type * from "./vfs.ts";
 export type * from "./project.ts";
 export type * from "./scenario.ts";
 export type * from "./ui.ts";
+export type * from "./tools.ts";
 export type * from "./events.ts";
 export type * from "./engine.ts";
 export type * from "./canvas.ts";

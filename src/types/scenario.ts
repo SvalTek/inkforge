@@ -1,4 +1,5 @@
 import type { UiCommand, UiElement } from "./ui.ts";
+import type { ModalDefinition, ToolDefinition } from "./tools.ts";
 
 /** Scenario front matter (`meta`). */
 export interface ScenarioMeta {
@@ -119,6 +120,8 @@ export interface Scenario {
   state?: Record<string, unknown>;
   player?: ScenarioPlayer;
   ui?: { elements?: UiElement[] };
+  modals?: ModalDefinition[];
+  tools?: ToolDefinition[];
   definitions?: Definitions;
   instances?: Instances;
   locations?: Record<string, Location>;

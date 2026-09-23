@@ -14,6 +14,7 @@ export interface DomRefs {
   exportBtn: HTMLButtonElement;
 
   playView: HTMLElement;
+  toolRail: HTMLElement;
   storyTitle: HTMLElement;
   heroTerminal: HTMLElement;
   uiOutput: HTMLElement;
@@ -38,6 +39,7 @@ export interface DomRefs {
   itemName: HTMLElement;
   itemDescription: HTMLElement;
   itemActions: HTMLElement;
+  modalHost: HTMLElement;
 
   authorView: HTMLElement;
   tabs: HTMLElement;
@@ -87,6 +89,7 @@ export function queryDom(): DomRefs {
     exportBtn: get("#exportBtn"),
 
     playView: get("#playView"),
+    toolRail: get("#toolRail"),
     storyTitle: get("#storyTitle"),
     heroTerminal: get("#heroTerminal"),
     uiOutput: get("#uiOutput"),
@@ -111,6 +114,7 @@ export function queryDom(): DomRefs {
     itemName: get("#itemName"),
     itemDescription: get("#itemDescription"),
     itemActions: get("#itemActions"),
+    modalHost: get("#modalHost"),
 
     authorView: get("#authorView"),
     tabs: get(".tabs"),

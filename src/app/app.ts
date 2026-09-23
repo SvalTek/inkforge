@@ -1,5 +1,5 @@
 import type { AppContext, AppView } from "./context.ts";
-import type { EngineRuntime, ResolvedUiElement } from "../types/index.ts";
+import type { EngineRuntime, ResolvedUiElement, ToolEntry } from "../types/index.ts";
 import { bootRuntime } from "./boot.ts";
 import { bindEvents } from "./events.ts";
 import { queryDom } from "./dom.ts";
@@ -19,8 +19,9 @@ import {
   syncEditor as syncEditorImpl,
 } from "../editor/editor.ts";
 import { render as renderDom } from "../ui/render.ts";
-import { runUiAction as runUiActionImpl } from "../ui/actions.ts";
+import { runToolAction as runToolActionImpl, runUiAction as runUiActionImpl } from "../ui/actions.ts";
 import { exportPack as exportPackImpl, importPack as importPackImpl } from "../import-export/pack.ts";
+import { createToolRegistry } from "../engine/tool-state.ts";
 
 /** Build the single app context and bind the DOM once. */
 export function createApp(): AppContext {
@@ -49,6 +50,7 @@ export function createApp(): AppContext {
     persist,
     render,
     runUiAction,
+    runToolAction,
     newProject,
     exportPack,
     importPack,
@@ -95,6 +97,8 @@ export function createApp(): AppContext {
       dom.title.textContent = "";
       dom.choiceCount.textContent = "";
       dom.decision.style.visibility = "hidden";
+      dom.toolRail.replaceChildren();
+      dom.modalHost.replaceChildren();
       return;
     }
 
@@ -111,6 +115,8 @@ export function createApp(): AppContext {
         events: [],
         over: false,
         ui: { hidden: new Set<string>(), overrides: {}, elements: [...(scenario.ui?.elements || [])] },
+        modals: { open: null, activePages: {} },
+        tools: createToolRegistry(scenario.tools || []),
         conversation: null,
         lua: null,
         canvasEngine: null,
@@ -195,6 +201,10 @@ export function createApp(): AppContext {
 
   function runUiAction(element: ResolvedUiElement): Promise<void> | void {
     return runUiActionImpl(app, element);
+  }
+
+  function runToolAction(entry: ToolEntry): Promise<void> | void {
+    return runToolActionImpl(app, entry);
   }
 
   async function newProject(): Promise<void> {

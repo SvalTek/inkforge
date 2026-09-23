@@ -3,6 +3,8 @@ import type { EngineEvent, ResolvedUiElement, UiActivation } from "../types/inde
 import { itemName } from "../engine/directives.ts";
 import { uiElement } from "../engine/ui-state.ts";
 import { $all } from "../app/dom.ts";
+import { renderModals } from "./modals.ts";
+import { renderTools } from "./tools.ts";
 
 type OutputEvent = Extract<EngineEvent, { type: "output" }>;
 
@@ -37,6 +39,8 @@ export function render(app: AppContext): void {
     .join("");
   renderInventory(app);
   renderUi(app);
+  renderTools(app);
+  renderModals(app);
   $all<HTMLElement>("[data-cmd]").forEach((button) => {
     button.onclick = () => app.engine?.dispatch(button.dataset.cmd ?? "");
   });

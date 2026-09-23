@@ -2,6 +2,7 @@ import type { CanvasHost } from "./canvas.ts";
 import type { EngineEvent, OutputKind } from "./events.ts";
 import type { LuaCallback, LuaEngine } from "./lua.ts";
 import type { Condition, DirectiveList, Scenario } from "./scenario.ts";
+import type { ModalRuntimeState, ToolRegistry } from "./tools.ts";
 import type { UiCommand, UiRuntimeState } from "./ui.ts";
 
 /** Live engine runtime object created by `start` and mutated by the engine. */
@@ -12,6 +13,8 @@ export interface EngineRuntime {
   events: EngineEvent[];
   over: boolean;
   ui: UiRuntimeState;
+  modals: ModalRuntimeState;
+  tools: ToolRegistry;
   conversation: unknown;
   lua: LuaEngine | null;
   canvasEngine: CanvasHost | null;

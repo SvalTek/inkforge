@@ -37,6 +37,39 @@ function show_mixed()
   show_preview("showcase_mixed", "projected world with screen-space VN layers")
 end
 
+function open_map()
+  game.output("Map tool action dispatched to Lua.")
+end
+
+function hide_runtime_tool()
+  game.tool.hide("lua_tool")
+  game.output("Lua-registered tool hidden. Use the author restart to reset runtime state.")
+end
+
+function show_runtime_tool()
+  game.tool.show("lua_tool")
+  game.output("Lua-registered tool shown.")
+end
+
+function open_lua_panel()
+  game.output("Lua-registered tool action dispatched.")
+end
+
+function remove_runtime_tool()
+  game.tool.remove("lua_tool")
+  game.output("Lua-registered tool removed.")
+end
+
+function disable_map_tool()
+  game.tool.disable("map_tool")
+  game.output("Map tool disabled.")
+end
+
+function enable_map_tool()
+  game.tool.enable("map_tool")
+  game.output("Map tool enabled.")
+end
+
 game.ui.create({
   id = "showcase_intro",
   type = "text",
@@ -60,6 +93,13 @@ preview_button("flat_button", "Flat / layered 2D", "show_flat")
 preview_button("iso_button", "Isometric / depth", "show_iso")
 preview_button("oblique_button", "Oblique / pseudo-3D", "show_oblique")
 preview_button("mixed_button", "Mixed world + VN overlay", "show_mixed")
+
+game.tool.register({
+  id = "lua_tool",
+  label = "Lua tool",
+  icon = "⚙",
+  action = "open_lua_panel"
+})
 
 flat_scene = game.canvas.create({
   id = "showcase_flat",

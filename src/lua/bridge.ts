@@ -5,6 +5,7 @@ import type { ApplyUiFn, EngineRuntime, OutputFn } from "../types/engine.ts";
 import type { LuaCallback, LuaEngine } from "../types/lua.ts";
 import type { UiCommand } from "../types/ui.ts";
 import type { Vfs } from "../types/vfs.ts";
+import { registerTool, removeTool, setToolDisabled, setToolHidden } from "../engine/tool-state.ts";
 
 /** Injected dependencies for {@link createLuaEngine}. */
 export interface LuaBridgeOptions {
@@ -65,6 +66,30 @@ export async function createLuaEngine(options: LuaBridgeOptions): Promise<LuaBri
   engine.global.set("__ui_show", (id: unknown) => applyUi({ show: String(id) }));
   engine.global.set("__ui_hide", (id: unknown) => applyUi({ hide: String(id) }));
   engine.global.set("__ui_remove", (id: unknown) => applyUi({ remove: String(id) }));
+  engine.global.set("__tool_register", (payload: unknown) => {
+    registerTool(runtime.tools, JSON.parse(String(payload)), "lua");
+    runtime.canvasViewDirty = true;
+  });
+  engine.global.set("__tool_remove", (id: unknown) => {
+    removeTool(runtime.tools, String(id));
+    runtime.canvasViewDirty = true;
+  });
+  engine.global.set("__tool_show", (id: unknown) => {
+    setToolHidden(runtime.tools, String(id), false);
+    runtime.canvasViewDirty = true;
+  });
+  engine.global.set("__tool_hide", (id: unknown) => {
+    setToolHidden(runtime.tools, String(id), true);
+    runtime.canvasViewDirty = true;
+  });
+  engine.global.set("__tool_enable", (id: unknown) => {
+    setToolDisabled(runtime.tools, String(id), false);
+    runtime.canvasViewDirty = true;
+  });
+  engine.global.set("__tool_disable", (id: unknown) => {
+    setToolDisabled(runtime.tools, String(id), true);
+    runtime.canvasViewDirty = true;
+  });
   engine.global.set("__output", (text: unknown) => output(text));
   engine.global.set("__state_get", (path: unknown) => runtime.state[String(path)]);
   engine.global.set("__state_set", (path: unknown, value: unknown) => {

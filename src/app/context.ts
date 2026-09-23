@@ -6,6 +6,7 @@ import type {
   ProjectData,
   ResolvedUiElement,
   Scenario,
+  ToolEntry,
 } from "../types/index.ts";
 import type { InkforgeCanvasRuntime } from "../canvas/runtime.ts";
 import type { DomRefs } from "./dom.ts";
@@ -36,6 +37,7 @@ export interface AppContext {
   persist(): void;
   render(): void;
   runUiAction(element: ResolvedUiElement): Promise<void> | void;
+  runToolAction(entry: ToolEntry): Promise<void> | void;
   newProject(): Promise<void>;
   exportPack(): void;
   importPack(file: File): Promise<void>;

@@ -4,6 +4,7 @@ import { LUA_OUTPUT_FACADE } from "./facades/output.ts";
 import { LUA_STATE_FACADE } from "./facades/state.ts";
 import { LUA_TIMER_FACADE, LUA_TIMER_IMPLEMENTATION, LUA_TIMER_SUPPORT } from "./facades/timer.ts";
 import { LUA_UI_FACADE } from "./facades/ui.ts";
+import { LUA_TOOL_FACADE } from "./facades/tool.ts";
 import { LUA_SHARED } from "./shared.ts";
 
 /**
@@ -21,6 +22,7 @@ export const CANVAS_LUA_API = [
   LUA_OUTPUT_FACADE,
   LUA_STATE_FACADE,
   LUA_UI_FACADE,
+  LUA_TOOL_FACADE,
   LUA_CANVAS_FACADE,
   LUA_TIMER_FACADE,
   "}\n",

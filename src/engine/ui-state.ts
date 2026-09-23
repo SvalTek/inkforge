@@ -39,10 +39,12 @@ export function uiFields(element: UiElement, runtime: EngineRuntime): Record<str
   return values;
 }
 
-export function uiElement(element: UiElement, runtime: EngineRuntime): ResolvedUiElement {
+export function uiElement(element: UiElement, runtime: EngineRuntime, runtimePath = element.id): ResolvedUiElement {
   return {
     ...element,
     ...(runtime.ui.overrides[element.id] || {}),
     values: uiFields(element, runtime),
+    runtimePath,
+    elements: element.elements?.map((nested) => uiElement(nested, runtime, `${runtimePath}.${nested.id}`)),
   } as ResolvedUiElement;
 }

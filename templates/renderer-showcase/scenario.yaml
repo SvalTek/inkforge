@@ -6,6 +6,8 @@ startLocation: showcase
 state: !import state.yml
 player: !import player.yml
 ui: !import ui.yml
+modals: !import modals.yml
+tools: !import tools.yml
 definitions: !import definitions.yml
 instances: !import instances.yml
 locations: !import locations.yml

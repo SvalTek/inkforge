@@ -1,0 +1,10 @@
+- id: journal_tool
+  label: Journal
+  icon: "📖"
+  modal: journal
+
+- id: map_tool
+  label: Map
+  icon:
+    image: assets/map.svg
+  action: open_map
