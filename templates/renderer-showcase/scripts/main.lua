@@ -131,7 +131,7 @@ oblique_scene = game.canvas.create({
   id = "showcase_oblique",
   accessibleLabel = "Oblique pseudo 3D machinery preview",
   viewport = { width = 900, height = 600, fit = "contain",
-    projection = { type = "oblique", originX = 100, originY = 100, elevation = 30, skew = 0.48 } },
+    projection = { type = "oblique", originX = -150, originY = 100, elevation = 30, skew = 0.48 } },
   background = "#201713",
   layers = {
     { id = "machine_back", order = 0, space = "screen" },

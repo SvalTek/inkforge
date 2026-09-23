@@ -186,6 +186,7 @@ declarations that must NOT be ported (see section 13).
 | `tools/dev.ts` | Watch/rebuild + serve orchestration. | new (tooling) |
 | `tools/serve.ts` | `deno task serve` entry (serves an existing `dist/`). | new (tooling) |
 | `tools/server.ts` | Deno static file server (correct MIME types, `no-store` caching). | new (tooling) |
+| `tools/package.ts` | Manifest-backed folder packer for version-1 `.inkforge` files; validates canonical files and UTF-8 VFS content. | new (tooling) |
 | `tools/smoke.ts` | Playwright smoke harness: build, serve, drive headless Chrome, assert the checks. | new (tooling) |
 | `deno.json` | Tasks, imports, `compilerOptions` (`lib: ["dom","dom.iterable","dom.asynciterable","esnext","deno.ns"]`), and the `fmt`/`lint` excludes. | new (tooling) |
 | `index.html` | Application shell, DOM ids/classes; `<script type="module" src="/assets/main.js">`. | `index.html:1`–`index.html:15` |
@@ -601,6 +602,13 @@ the imported value at that position (deeply, because `resolve` recurses).
 - New project: re-fetches the starter, loads its `scenario.yaml` buffer into `#code`,
   saves, switches file, starts.
 
+The contributor packer is `deno task pack -- <project-folder> [--out <file.inkforge>]`.
+The source folder must contain `manifest.json`, `scenario.yaml`, and `scripts/main.lua`.
+The manifest is an array of relative VFS paths and is the complete file list; the packer
+does not recursively include unlisted files. Listed files must be UTF-8 text because pack
+version 1 stores VFS content as strings. Without `--out`, the artifact is written beside
+the source folder using its folder name plus `.inkforge`.
+
 > The import/new-project flow contains two of the three documented consolidations in
 > section 15: the `switchFile("scenario.yaml")` correction and the
 > load-buffer-before-switch ordering.
@@ -1005,6 +1013,9 @@ layers. The browser smoke checks also prove logical viewport clipping, offscreen
 and responsive canvas bounds between the flat top and lower UI regions. The internal renderer
 showcase pack is import-verified: its four output controls switch only the mounted viewport
 surface, and its mixed-scene marker reports inverse-projected world coordinates.
+The oblique showcase composition uses `originX: -150` so its skewed world geometry fits the
+900x600 logical viewport; `templates/renderer-showcase.inkforge` was regenerated from the
+folder through `tools/package.ts`.
 
 The four documented deviations (section 15) are the only intentional behavioral differences
 from `../inkforge-local/`: the three import/new-project consolidations plus the
