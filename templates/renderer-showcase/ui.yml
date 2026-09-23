@@ -1,0 +1,6 @@
+elements:
+  - id: showcase_status
+    type: text
+    location: output
+    fields:
+      - { id: text, type: text, value: Select a viewport study below. Each one is a separate canvas scene. }

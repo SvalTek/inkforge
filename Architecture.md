@@ -12,6 +12,8 @@ derived from, and must remain behaviorally faithful to, the read-only source in
 - `app.js` (289 physical lines) — engine, VFS, YAML composition, Wasmoon bridge, editor
 - `canvas-runtime.js` (572 lines) — canvas compositor, interaction, animation, timers, main loop
 - `templates/lantern-below/**` — starter project (YAML + Lua)
+- `templates/renderer-showcase/**` and `templates/renderer-showcase.inkforge` — internal renderer
+  showcase source and packed verification fixture
 
 Where a fact in this document can be checked against the source, a `file:line`
 reference is given. Implementation agents must treat source line references as the
@@ -94,7 +96,7 @@ imports from `tools/`, and `tools/` never runs in the browser.
                    ▼
    ┌──────────────────────────────────────────────────────────────────────────┐
    │  dist/  (STATIC ASSETS — the only production artifact)                    │
-   │    index.html  assets/main.js  style.css  templates/lantern-below/**     │
+   │    index.html  assets/main.js  style.css  templates/**                  │
    └───────────────┬───────────────────────────────────────────────────────────┘
                    │ HTTP GET (static)
                    ▼
@@ -189,6 +191,8 @@ declarations that must NOT be ported (see section 13).
 | `index.html` | Application shell, DOM ids/classes; `<script type="module" src="/assets/main.js">`. | `index.html:1`–`index.html:15` |
 | `styles/*.css` | Ordered CSS partials; concatenated to `dist/style.css`. | `style.css:1`–`style.css:18` (section 12) |
 | `templates/lantern-below/**` | Starter project copied verbatim into `dist/`. | `templates/lantern-below/**` |
+| `templates/renderer-showcase/**` | Internal Lua/YAML renderer fixture copied into `dist/templates/renderer-showcase/`; it is not the starter project or public API documentation. | current showcase slice |
+| `templates/renderer-showcase.inkforge` | Packed copy of the showcase VFS for import/export verification. | current showcase slice |
 | `.gitignore` | Ignores `dist/` and `node_modules/`. | new (tooling) |
 | `README.md` | Contributor-facing run/build/test summary. | new (docs) |
 | `dist/` | Generated static output. Not authored, not committed by hand. | generated |
@@ -625,7 +629,8 @@ to the bundled `playwright@1.58.2` Chromium.
 `tools/build.ts`:
 - bundles `src/main.ts` -> `dist/assets/main.js` (esbuild),
 - copies `index.html` -> `dist/index.html` (script tag points at `assets/main.js`),
-- copies `templates/lantern-below/**` -> `dist/templates/lantern-below/**` (verbatim),
+- copies the complete `templates/**` tree -> `dist/templates/**` (verbatim), including both
+  authored template directories and `.inkforge` pack artifacts,
 - concatenates `styles/*.css` -> `dist/style.css` (section 12).
 
 ### Dev vs prod serve
@@ -800,6 +805,11 @@ defect.
   nodes may select `layer`, `space`, `z`/`elevation`, and explicit `depth`.
 - Projected world roots and unprojected screen-space roots share the existing node, animation,
   and inverse-matrix hit-testing pipeline.
+- The internal `templates/renderer-showcase/` fixture exercises this contract as four independent
+  Lua-created surfaces: flat ordered layers, isometric depth/elevation, oblique pseudo-3D, and a
+  mixed projected-world/VN-style screen overlay. Its output buttons use `game.ui.hide/show` to
+  switch surfaces; the packed `.inkforge` artifact is the importable form of the same VFS. This is
+  an architecture verification fixture, not a stable user-facing renderer manual.
 
 ### Persistence & pack
 
@@ -973,7 +983,9 @@ renderer lint/format, `deno task build`, and `deno task smoke` pass. The smoke h
 **12/12** assertions and reports 0 console errors, 0 page errors and 0 dialogs. The projection
 check covers flat identity, isometric and oblique round trips, affine basis transforms, stable
 layer order, projected inverse hit-testing, inverse-projected pointer payloads, and a Lua-authored
-projected scene with mixed world/screen layers.
+projected scene with mixed world/screen layers. The internal renderer showcase pack is also
+import-verified: its four output controls switch the mounted canvas surface, and its mixed-scene
+marker reports inverse-projected world coordinates.
 
 The four documented deviations (section 15) are the only intentional behavioral differences
 from `../inkforge-local/`: the three import/new-project consolidations plus the

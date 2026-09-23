@@ -1,0 +1,5 @@
+showcase:
+  title: The authored visual stage
+  text:
+    - "This sample pack is a small renderer laboratory: the output controls switch between authored canvas scenes."
+    - "Click the highlighted objects inside the scenes to exercise interaction as well as composition."
