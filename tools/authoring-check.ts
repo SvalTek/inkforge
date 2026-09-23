@@ -96,6 +96,22 @@ async function main(): Promise<void> {
     await page.waitForFunction(() => document.querySelectorAll("#projectList .project-card").length >= 2, undefined, {
       timeout: TIMEOUT,
     });
+    const projectLayout = await page.locator("#projectOverlay .project-window").evaluate((windowNode) => {
+      const list = windowNode.querySelector<HTMLElement>("#projectList");
+      const cards = [...windowNode.querySelectorAll<HTMLElement>(".project-card")];
+      const windowBounds = windowNode.getBoundingClientRect();
+      return {
+        windowHeight: windowBounds.height,
+        listClientHeight: list?.clientHeight ?? 0,
+        listScrollHeight: list?.scrollHeight ?? 0,
+        cardHeights: cards.map((card) => card.getBoundingClientRect().height),
+      };
+    });
+    assert(projectLayout.windowHeight < 500, `project modal is not content-sized: ${projectLayout.windowHeight}px`);
+    assert(
+      projectLayout.cardHeights.every((height) => height < 120),
+      `project cards are not compact rows: ${projectLayout.cardHeights.join(",")}px`,
+    );
     const projectIds = await page.locator("#projectList .project-card").evaluateAll((nodes) =>
       nodes.map((node) => node.getAttribute("data-project"))
     );
