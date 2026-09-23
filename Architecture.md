@@ -151,7 +151,14 @@ declarations that must NOT be ported (see section 13).
 | `src/yaml/loader.ts` | Lazy dynamic import of `yaml@2.6.0`. | `app.js:6` |
 | `src/yaml/compose.ts` | `composeScenario` plus the recursive `resolve`/`load` for `!import`/`!mixin`/`<<`. | `app.js:62`, `app.js:64`–`app.js:65` |
 | `src/lua/loader.ts` | `loadWasmoon`: dynamic import of the remote `wasmoon@1.16.0` ESM build. | `app.js:265` |
-| `src/lua/lua-api.ts` | `CANVAS_LUA_API` bootstrap string, ported verbatim. | `app.js:98`–`app.js:244` |
+| `src/lua/lua-api.ts` | Assembles the byte-preserved `CANVAS_LUA_API` bootstrap from the shared layer and facade modules. | `app.js:98`–`app.js:244` |
+| `src/lua/shared.ts` | Shared Lua JSON serialization and callback registry used by the facades. | derived from `app.js:98`–`:131` |
+| `src/lua/facades/output.ts` | `game.output` Lua facade. | derived from `app.js:98`–`:244` |
+| `src/lua/facades/state.ts` | `game.state` Lua facade. | derived from `app.js:98`–`:244` |
+| `src/lua/facades/ui.ts` | `game.ui` Lua facade. | derived from `app.js:98`–`:244` |
+| `src/lua/facades/canvas.ts` | Canvas callbacks, node/scene/animation handles, and `game.canvas` facade. | derived from `app.js:98`–`:244` |
+| `src/lua/facades/timer.ts` | Timer handles and `game.timer` facade. | derived from `app.js:98`–`:244` |
+| `src/lua/facades/events.ts` | Lua callback entry points for canvas and timer events. | derived from `app.js:98`–`:244` |
 | `src/lua/bridge.ts` | `createLuaEngine`: `LuaFactory` creation, `mountFile` for every `*.lua`, registration of Lua globals (`__ui_*`, `__output`, `__state_*`, `__canvas_command`, `__timer_*`), `doString`/`doFile`, callback capture. | `app.js:259`–`app.js:288` |
 | `src/canvas/runtime.ts` | `InkforgeCanvasRuntime` class: scenes, nodes, draw, pointer, timers, animations, loop. | `canvas-runtime.js:1`–`canvas-runtime.js:560` |
 | `src/canvas/math.ts` | Canvas point mapping, local point, hit tests, matrix multiply/invert/transform. | `canvas-runtime.js:470`–`canvas-runtime.js:559` |
@@ -411,8 +418,11 @@ Booted by `src/app/boot.ts` (canvas construction + runtime hooks) and `src/lua/b
 
 ### `CANVAS_LUA_API` (verbatim)
 
-`CANVAS_LUA_API` (`app.js:98`–`app.js:244`) is a `String.raw` Lua chunk that **must be ported
-verbatim** — byte-for-byte, including indentation and escaping. It defines:
+`CANVAS_LUA_API` (`app.js:98`–`app.js:244`) is assembled from `src/lua/shared.ts` and
+`src/lua/facades/*.ts`. The assembled Lua chunk **must remain byte-for-byte identical** to
+the source, including indentation and escaping. The modules divide the API into the
+`output`, `state`, `ui`, `canvas`, and `timer` facades, while shared serialization and
+callback/event support remains separate. Together they define:
 
 - `quote` / `json` serializers (with `error('Cannot encode '..kind)` for unsupported types).
 - Callback registry: `callbacks`, `callback_ref`, `prepare_events`, `prepare_node`.
