@@ -87,7 +87,7 @@ Builds, serves, and drives Chrome. Captures console messages, page errors and di
 | 6h | Markdown renders, and authored links are gated behind a confirmation dialog |
 | 7 | New project restores the starter |
 | 8 | A Lua timer repaints a bound meter with no command |
-| 9 | Save a run, restart without overwriting it, and resume its state |
+| 9 | Save a run, restart without overwriting it, and resume its state and inventory |
 | 9a | Export a save as JSON, delete it, import it, and resume it |
 
 Assertion 1a exists because a Lua error on every tick is invisible in a screenshot — it was written to catch a real
@@ -113,6 +113,13 @@ paging, UI actions, state controls and reset.
 
 Runs `InkforgeCanvasRuntime` directly, with no browser. Covers layer order, projection hit-testing and the canvas math.
 This is where canvas-loop and animation changes can be pinned deterministically.
+
+### `deno task check:save`
+
+Runs the snapshot round-trip in process, with no browser: the transcript cap, the save/export envelope, and the
+tolerance of a hand-edited or imported file. A save can arrive from any browser or a text editor, so every field is
+narrowed rather than trusted — a malformed tool definition, UI field or nested child is dropped so it costs that entry
+instead of the whole resume, which is the failure mode only a test can reach.
 
 ### `deno task check:pack`
 
@@ -150,3 +157,7 @@ ship a change nobody could install. `--bump patch|minor|major` raises the versio
 `manifest.json`; `--force` repacks in place. The version bumped is `manifest.json`'s `project.version`, never
 `scenario.yaml`'s `meta.version` — see [the package version is not the scenario
 version](../authoring/project-format.md#the-package-version-is-not-the-scenario-version).
+
+The packer also requires the configured Lua entry script, resolved from the composed scenario so `scripts.main` is
+honoured rather than the conventional path. That check is skipped when the YAML does not compose: a project mid-edit
+still packs, and the YAML error is reported at boot instead, which is what browser export and import already do.

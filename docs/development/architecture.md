@@ -42,6 +42,9 @@ there when you need to know what an author can write.
 4. `bootRuntime()` — construct the canvas host, then the Lua engine, then cross-check every authored Lua reference
    against the loaded script.
 5. Enter the start location and render.
+6. On a resume only, re-apply the snapshot over the boot: the entry script and the saved location's own directives have
+   just run, and everything the save recorded — state, inventory, transcript, tools, UI, modals — has to win over them.
+   A location that grants an item on entry would otherwise hand it back every time.
 
 `start()` is async and is called fire-and-forget from several DOM handlers as well as the initial load, so boots are
 **serialised and generation-stamped**: calls are chained so two boots never interleave on shared state, and a superseded

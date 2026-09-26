@@ -1640,8 +1640,23 @@ locations:
     title: 'Cold Vault'
     text:
       - 'The vault smells of iron and old rain.'
+      - give: vault_relic
     exits:
       south: 'gate'
+ui:
+  elements:
+    - id: save_consume
+      type: button
+      location: output
+      fields:
+        - id: label
+          type: text
+          value: 'Consume relic'
+      events:
+        activate:
+          type: instructions
+          then:
+            - remove: vault_relic
 `),
           // The clobber this has to survive: a top-level write on every boot,
           // which a seeded-but-not-re-applied restore would leave at 2.
@@ -1679,11 +1694,18 @@ end
       await page.locator("#heroChoices button", { hasText: "North" }).first().click();
       await waitForTextEquals(page, "#storyTitle", "Cold Vault");
       await waitForText(page, "#heroTerminal", "The vault smells of iron and old rain.");
+      // The vault grants a relic on entry, so a save made after spending it is
+      // the one case where boot behaviour and the snapshot disagree. The spend
+      // is a UI activation rather than a typed command so the turn boundary does
+      // not clear the transcript out from under the save.
+      await waitForTextEquals(page, "#inventoryCount", "2 / 12");
       await page.locator('[data-ui="save_mutate"]').click();
       assert(await page.locator('[data-tool="saved_hidden"]').count() === 0, "hidden tool remained visible");
       assert(await page.locator('[data-tool="saved_disabled"]').isDisabled(), "tool did not disable");
       assert(await page.locator('[data-tool="saved_removed"]').count() === 0, "removed tool remained visible");
       assert(await page.locator('[data-ui="saved_removed_panel"]').count() === 0, "removed panel remained visible");
+      await page.locator('[data-ui="save_consume"]').click();
+      await waitForTextEquals(page, "#inventoryCount", "1 / 12");
 
       await page.locator("#saveBtn").click();
       await waitForText(page, "#diagnostics", "Saved");
@@ -1696,7 +1718,7 @@ end
       await page.locator("#closeSaves").click();
 
       const readSave = async (): Promise<
-        { location: string; snapshot: { state: Record<string, number> } } | undefined
+        { location: string; snapshot: { state: Record<string, number>; inventory?: string[] } } | undefined
       > =>
         await page.evaluate(async (projectId: string) => {
           const request = indexedDB.open("inkforge-project-library");
@@ -1711,12 +1733,18 @@ end
           });
           db.close();
           return found ?? undefined;
-        }, pack.manifest.project.id) as { location: string; snapshot: { state: Record<string, number> } } | undefined;
+        }, pack.manifest.project.id) as
+          | { location: string; snapshot: { state: Record<string, number>; inventory?: string[] } }
+          | undefined;
 
       const stored = await readSave();
       assert(stored, "no save record was written to the saves store");
       assert(stored.location === "vault", `save recorded location "${stored.location}", expected vault`);
       assert(stored.snapshot.state.visits === 1, `save recorded visits=${stored.snapshot.state.visits}, expected 1`);
+      assert(
+        stored.snapshot.inventory?.join() === "coin",
+        `save recorded inventory [${stored.snapshot.inventory?.join() ?? ""}], expected [coin]`,
+      );
 
       // A restart is a genuine reset, so the save must be untouched by it and
       // must not be applied on its own.
@@ -1741,6 +1769,12 @@ end
         resumed?.snapshot.state.visits === 1,
         `resumed visits=${resumed?.snapshot.state.visits}, expected 1 — the entry script's GameState.set was not re-applied over the save`,
       );
+      // The same contract for the inventory: the entry directive that granted
+      // the relic has just run again, and the save's own contents must still
+      // be the ones that count.
+      await waitForTextEquals(page, "#inventoryCount", "1 / 12");
+      const inventory = await textOf(page, "#inventoryCount");
+      assert(inventory === "1 / 12", `resume re-granted a spent item: #inventoryCount=${inventory}`);
 
       // The manager lists the slot, and the slot belongs to this project alone.
       await page.locator("#savesBtn").click();
@@ -1756,8 +1790,9 @@ end
       }
       await page.locator("#closeSaves").click();
 
-      return `saved location=vault visits=1; restart returned to Iron Gate with the save intact; ` +
-        `Manage Saves restored Cold Vault with visits=1 (entry script's GameState.set did not clobber it); ` +
+      return `saved location=vault visits=1 inventory=[coin]; restart returned to Iron Gate with the save intact; ` +
+        `Manage Saves restored Cold Vault with visits=1 and the spent relic still spent ` +
+        `(neither the entry script's GameState.set nor the vault's give directive clobbered the save); ` +
         `save manager listed 1 row with Resume/Export/Delete`;
     });
 

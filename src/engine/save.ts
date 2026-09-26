@@ -1,12 +1,15 @@
+import { normalizeTool } from "./tool-state.ts";
 import type {
   EngineEvent,
   EngineRuntime,
   ModalRuntimeState,
   ResumedRuntime,
   SaveSnapshot,
+  ToolDefinition,
   ToolEntry,
   ToolRegistry,
   UiElement,
+  UiField,
   UiOverride,
   UiOverrideMap,
   Vfs,
@@ -149,19 +152,51 @@ function readEvents(value: unknown): EngineEvent[] {
 }
 
 /**
- * Narrow a saved UI element list.
+ * Narrow a saved field list, or report that there is nothing usable in it.
+ *
+ * `uiFields` dereferences `f.id` on every entry, so one `null` in an imported
+ * `fields` list would fail the render and with it the whole resume. Each field
+ * needs the id the value map is keyed on; `type`, `value` and `path` are
+ * optional in practice, since an untyped field simply resolves to its value.
+ */
+function readFieldList(value: unknown): UiField[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const fields = value.filter((item): item is UiField => {
+    const entry = asObject(item);
+    return entry !== null && typeof entry.id === "string" && entry.id.length > 0;
+  });
+  return fields.length ? fields : undefined;
+}
+
+/**
+ * Narrow one saved UI element, and everything nested inside it.
  *
  * An element is kept only if it has the one field the renderer and the dedupe
  * both dispatch on: a non-empty string `id`. Anything else is dropped rather
  * than cast, so a malformed entry in a hand-edited file costs that entry and
- * not the panel around it.
+ * not the panel around it. Children and fields are narrowed the same way and in
+ * turn, because `uiElement` reads `child.id` while resolving nested elements
+ * and `uiFields` reads `f.id` — a malformed one in either list would take the
+ * resume down with it.
  */
+function readElement(value: unknown): UiElement | null {
+  const entry = asObject(value);
+  if (entry === null || typeof entry.id !== "string" || !entry.id) return null;
+  const element = { ...entry, type: typeof entry.type === "string" ? entry.type : "" } as unknown as UiElement;
+  const fields = readFieldList(entry.fields);
+  if (fields) element.fields = fields;
+  else delete element.fields;
+  if (Array.isArray(entry.elements)) {
+    const children = entry.elements.map(readElement).filter((child): child is UiElement => child !== null);
+    if (children.length) element.elements = children;
+    else delete element.elements;
+  }
+  return element;
+}
+
 function readElements(value: unknown): UiElement[] {
   if (!Array.isArray(value)) return [];
-  return value.filter((item): item is UiElement => {
-    const entry = asObject(item);
-    return entry !== null && typeof entry.id === "string" && entry.id.length > 0;
-  });
+  return value.map(readElement).filter((element): element is UiElement => element !== null);
 }
 
 function readOverrides(value: unknown): UiOverrideMap {
@@ -170,7 +205,11 @@ function readOverrides(value: unknown): UiOverrideMap {
   const out: UiOverrideMap = {};
   for (const [id, override] of Object.entries(source)) {
     const entry = asObject(override);
-    if (entry) out[id] = entry as UiOverride;
+    if (!entry) continue;
+    // An override may carry a replacement field list, which `uiFields` walks
+    // with the same `f.id` dereference as a declared one.
+    const fields = readFieldList(entry.fields);
+    out[id] = (fields ? { ...entry, fields } : entry) as UiOverride;
   }
   return out;
 }
@@ -180,18 +219,25 @@ function readTools(value: unknown): ToolRegistry {
   if (!Array.isArray(value)) return { entries };
   for (const item of value) {
     const entry = asObject(item);
-    const definition = asObject(entry?.definition);
-    const id = typeof definition?.id === "string" ? definition.id : "";
+    if (!entry) continue;
+    // Checked the same way a live registration is, because `renderTools` slices
+    // `definition.label` while painting: a definition that kept an id but lost
+    // its label would fail the very resume this narrowing exists to protect. A
+    // tool the player no longer has an authored definition for costs that tool.
+    let definition: ToolDefinition;
+    try {
+      definition = normalizeTool(entry.definition);
+    } catch {
+      continue;
+    }
     // Keyed off the definition's own id rather than the array position, so a
     // reordered export still restores the same registry.
-    if (id) {
-      entries.set(id, {
-        definition: definition as unknown as ToolEntry["definition"],
-        hidden: entry?.hidden === true,
-        disabled: entry?.disabled === true,
-        source: entry?.source === "lua" ? "lua" : "yaml",
-      });
-    }
+    entries.set(definition.id, {
+      definition,
+      hidden: entry.hidden === true,
+      disabled: entry.disabled === true,
+      source: entry.source === "lua" ? "lua" : "yaml",
+    });
   }
   return { entries };
 }

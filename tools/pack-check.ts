@@ -190,3 +190,35 @@ try {
   await Deno.remove(join(customRoot, "chapter"));
   await Deno.remove(customRoot);
 }
+
+// A scenario that does not compose is a work in progress, not a broken file: the
+// browser exporter and importer both pack it and leave the YAML diagnostics to
+// the next boot, so the disk packer must not refuse to pack it either. Without
+// this the only way to back up a project mid-edit is the browser.
+const unfinishedRoot = await Deno.makeTempDir({ prefix: "inkforge-unfinished-pack-" });
+const unfinishedOutput = join(unfinishedRoot, "unfinished.inkforge");
+try {
+  await Deno.mkdir(join(unfinishedRoot, "scripts"));
+  await Deno.writeTextFile(join(unfinishedRoot, "scenario.yaml"), "startLocation: gate\nlocations: [oops\n");
+  await Deno.writeTextFile(join(unfinishedRoot, "scripts", "main.lua"), "-- half-written\n");
+  await Deno.writeTextFile(
+    join(unfinishedRoot, "manifest.json"),
+    JSON.stringify({
+      format: "inkforge-pack",
+      packVersion: 2,
+      project: { id: "unfinished-pack", version: "1.0.0" },
+      files: ["scenario.yaml", "scripts/main.lua"],
+    }),
+  );
+  await packageFolder({ folder: unfinishedRoot, output: unfinishedOutput, force: false });
+  const packed = unzipSync(await Deno.readFile(unfinishedOutput));
+  assert(packed["scenario.yaml"] !== undefined, "packer refused a project whose YAML does not compose");
+  assert(packed["scripts/main.lua"] !== undefined, "packer dropped the entry of an uncomposable project");
+} finally {
+  await Deno.remove(unfinishedOutput).catch(() => {});
+  await Deno.remove(join(unfinishedRoot, "manifest.json"));
+  await Deno.remove(join(unfinishedRoot, "scenario.yaml"));
+  await Deno.remove(join(unfinishedRoot, "scripts", "main.lua"));
+  await Deno.remove(join(unfinishedRoot, "scripts"));
+  await Deno.remove(unfinishedRoot);
+}

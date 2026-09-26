@@ -57,6 +57,10 @@ end
 The same applies to `GameUI.create` and tool registration: anything the boot rebuilds is replaced by what the save
 restored, so create it unconditionally and let the save win.
 
+It applies to the entry directives of the location the save was made in, too. Resuming re-enters that location, so a
+`give` in its `text:` runs again — but the save's own inventory is applied over the top of it. An item granted on
+arrival and spent later in the run therefore stays spent: nothing a run consumed can come back on resume.
+
 If you need something that genuinely must not be rebuilt, keep it in state — it is what a save is for.
 
 ## Requiring other files

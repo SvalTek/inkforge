@@ -358,6 +358,11 @@ export function createApp(): AppContext {
         // restoring the entries last is what makes a resumed session read like
         // the same session rather than a fresh one with a fresh prologue.
         Object.assign(runtime.state, resume.state);
+        // The snapshot's inventory, on the same footing as its state: an item
+        // the entry directives grant on every boot is boot behaviour, not the
+        // run, so one granted at entry and spent afterwards must not come back
+        // each time the save is resumed.
+        runtime.inventory = [...resume.inventory];
         runtime.ui.overrides = { ...resume.ui.overrides };
         runtime.ui.hidden = new Set(resume.ui.hidden);
         runtime.ui.elements = [...resume.ui.elements];
@@ -834,6 +839,18 @@ export function createApp(): AppContext {
   }
 
   /**
+   * The cached save, but only while it is the active project's own.
+   *
+   * `refreshActiveSave` runs after a boot settles, so a project whose scenario
+   * is empty or does not compose leaves the previous project's record in the
+   * cache. Answering resume and import questions from that record would claim
+   * the wrong scenario already has a save.
+   */
+  function activeProjectSave(): SaveRecord | null {
+    return activeSave && activeSave.projectId === app.project.identity.id ? activeSave : null;
+  }
+
+  /**
    * Identity of the authored content a save is made against.
    *
    * Every VFS source can affect composition or Lua behavior. Compared on resume
@@ -881,7 +898,8 @@ export function createApp(): AppContext {
   }
 
   async function resumeSavedGame(slot: string = DEFAULT_SAVE_SLOT): Promise<void> {
-    const record = activeSave?.slot === slot ? activeSave : await getSave(app.project.identity.id, slot);
+    const cached = activeProjectSave();
+    const record = cached?.slot === slot ? cached : await getSave(app.project.identity.id, slot);
     if (!record) {
       reportStatus("There is no save for this scenario", "#d6a95c");
       return;
@@ -937,9 +955,10 @@ export function createApp(): AppContext {
       throw new Error(`That save file is too large (limit ${Math.round(SAVE_LIMITS.maxFileBytes / 1024)} KB).`);
     }
     const record = parseSaveFile(await file.text());
-    if (activeSave) {
+    const existing = activeProjectSave();
+    if (existing) {
       const overwrite = globalThis.confirm(
-        `This scenario already has a save from ${new Date(activeSave.savedAt).toLocaleString()}. ` +
+        `This scenario already has a save from ${new Date(existing.savedAt).toLocaleString()}. ` +
           "Replace it with the imported one?",
       );
       if (!overwrite) return;

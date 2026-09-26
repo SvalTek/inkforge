@@ -155,6 +155,57 @@ assert(
   "a malformed override entry is dropped rather than stored",
 );
 
+// The renderer walks nested values without re-checking them: `uiFields` reads
+// `f.id` on every field and `uiElement` reads `child.id` on every child, so a
+// single `null` inside an imported list takes down the whole resume render
+// unless the narrowing on the way in recurses with it.
+const nestedElements = fromSnapshot({
+  ui: {
+    elements: [
+      {
+        id: "panel",
+        type: "group",
+        fields: [{ id: "label", type: "text", value: "kept" }, null, { type: "text", value: "no id" }],
+        elements: [
+          { id: "child", type: "button", fields: [null, { id: "label", type: "text", value: "deep" }] },
+          null,
+          { type: "button" },
+        ],
+      },
+      { id: "empty", type: "group", fields: [null, 7], elements: [null] },
+    ],
+    overrides: { panel: { fields: [{ id: "label", type: "text", value: "overridden" }, null] } },
+  },
+})?.ui;
+const panel = nestedElements?.elements[0];
+assert(panel?.fields?.length === 1 && panel.fields[0].id === "label", "a malformed saved field is dropped");
+assert(panel?.elements?.length === 1 && panel.elements[0].id === "child", "a malformed saved child is dropped");
+assert(panel?.elements?.[0].fields?.[0]?.value === "deep", "narrowing recurses into a saved child");
+const empty = nestedElements?.elements[1];
+assert(empty?.fields === undefined && empty?.elements === undefined, "a list of only malformed entries is dropped");
+assert(
+  (nestedElements?.overrides.panel as { fields?: { id: string }[] })?.fields?.[0].id === "label",
+  "a malformed field in an override is dropped too",
+);
+
+// `renderTools` slices `definition.label` while painting, so a definition that
+// kept its id but lost its label has to be dropped on the way in rather than
+// fail the resume. Checked against the same rules as a live registration.
+const tools = fromSnapshot({
+  tools: [
+    { definition: { id: "lantern", label: "Lantern" }, hidden: true },
+    { definition: { id: "unlabelled" } },
+    { definition: { label: "no id" } },
+    { definition: { id: "blank", label: "   " } },
+    { definition: { id: "bad_icon", label: "Bad icon", icon: 7 } },
+    null,
+    { definition: null },
+  ],
+})?.tools;
+assert([...(tools?.entries.keys() ?? [])].join(",") === "lantern", "a tool that would not render is dropped");
+assert(tools?.entries.get("lantern")?.definition.label === "Lantern", "a valid tool definition survives");
+assert(tools?.entries.get("lantern")?.hidden === true, "a dropped tool's state does not leak onto a valid one");
+
 // A save that cannot be written back out is worse than a lossy one, so the one
 // field the engine never reads is checked for representability on the way in.
 const cyclic: Record<string, unknown> = { lines: ["hi"] };
