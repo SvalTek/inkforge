@@ -15,7 +15,7 @@ Use Deno 2.x from the repository root. The docs site also needs Node.js 22+ and 
 - `deno task dev`: build, serve at `http://localhost:4173/`, and rebuild on source changes.
 - `deno task build`: create the static site in `dist/`.
 - `deno task check` and `deno task check:tools`: type-check the app and tool scripts separately.
-- `deno task fmt` and `deno task lint`: format and lint Deno sources.
+- `deno task fmt`, `deno task fmt:check` and `deno task lint`: format and lint Deno sources.
 - `deno task docs:dev` / `deno task docs:build`: develop or build the documentation site.
 - `deno task pack -- templates/lantern-below`: regenerate a project pack after changing its folder; update its package
   version when content changes.

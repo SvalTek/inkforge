@@ -16,6 +16,7 @@
     "docs:build": "npm run build --prefix docs",
     "docs:preview": "npm run preview --prefix docs",
     "fmt": "deno fmt",
+    "fmt:check": "deno fmt --check",
     "lint": "deno lint"
   },
   "imports": {
@@ -55,6 +56,7 @@
       "docs",
       "index.html",
       "*.md",
+      "AGENTS.md",
       "Architecture.md",
       "Plan.md",
       "README.md"
