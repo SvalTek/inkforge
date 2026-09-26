@@ -173,14 +173,23 @@ button:hover {
   grid-template-columns: 230px minmax(390px, 1fr) 390px;
 }
 
-.explorer,
+.author-sidebar,
 .runtime {
   background: var(--panel2);
 }
 
-.explorer {
-  position: relative;
+.author-sidebar {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   border-right: 1px solid var(--line);
+}
+
+.explorer {
+  min-height: 0;
+  overflow: hidden;
   padding: 18px 12px;
   display: flex;
   flex-direction: column;
@@ -208,13 +217,10 @@ button:hover {
 }
 
 .docs-card {
-  position: absolute;
-  right: 12px;
-  bottom: 12px;
-  left: 12px;
   display: flex;
   align-items: center;
   gap: 9px;
+  margin: 0 12px 12px;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 5px;
@@ -571,7 +577,7 @@ form button {
     grid-template-columns: 1fr;
   }
 
-  .explorer {
+  .author-sidebar {
     display: none;
   }
 
