@@ -187,6 +187,17 @@ assert(
   (nestedElements?.overrides.panel as { fields?: { id: string }[] })?.fields?.[0].id === "label",
   "a malformed field in an override is dropped too",
 );
+// A list that narrows to nothing must be removed rather than kept: keeping it
+// leaves the malformed array for `uiFields` to walk, and the id-to-value map
+// form is the one shape that is not a field list at all.
+const clearedOverride = fromSnapshot({
+  ui: { overrides: { panel: { fields: [null, 7, { type: "text" }] }, meter: { fields: { value: "kept" } } } },
+})?.ui.overrides as Record<string, { fields?: unknown }>;
+assert(clearedOverride.panel?.fields === undefined, "an override field list with nothing usable is removed");
+assert(
+  clearedOverride.meter?.fields !== undefined && !Array.isArray(clearedOverride.meter.fields),
+  "an id-to-value override map is not mistaken for a field list",
+);
 
 // `renderTools` slices `definition.label` while painting, so a definition that
 // kept its id but lost its label has to be dropped on the way in rather than

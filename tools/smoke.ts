@@ -363,7 +363,13 @@ async function exportPack(page: Page): Promise<PackShape> {
   return { manifest, entries: archive } as PackShape;
 }
 
-async function importPack(page: Page, pack: PackShape, storageMarker: string, storagePath: string): Promise<void> {
+async function importPack(
+  page: Page,
+  pack: PackShape,
+  storageMarker: string,
+  storagePath: string,
+  options: { expectReady?: boolean } = {},
+): Promise<void> {
   const dir = await Deno.makeTempDir({ prefix: "inkforge-smoke-" });
   const filePath = `${dir}\\pack.inkforge`;
   const entries = {
@@ -393,12 +399,17 @@ async function importPack(page: Page, pack: PackShape, storageMarker: string, st
     { marker: storageMarker, path: storagePath },
     { timeout: BOOT_TIMEOUT },
   );
-  await page.waitForFunction(
-    (projectId: string) =>
-      document.body.dataset.projectId === projectId && document.body.dataset.projectReady === "true",
-    pack.manifest.project.id,
-    { timeout: BOOT_TIMEOUT },
-  );
+  // A pack whose YAML does not compose is imported on purpose in check 9b, and
+  // it never becomes ready. The stored file already says the import landed, so
+  // the ready wait is opt-out rather than a 30-second timeout.
+  if (options.expectReady !== false) {
+    await page.waitForFunction(
+      (projectId: string) =>
+        document.body.dataset.projectId === projectId && document.body.dataset.projectReady === "true",
+      pack.manifest.project.id,
+      { timeout: BOOT_TIMEOUT },
+    );
+  }
 }
 
 async function waitForStoredText(page: Page, marker: string, path: string): Promise<void> {
@@ -1871,6 +1882,103 @@ end
       return `exported "${download.suggestedFilename()}" with format=inkforge-save saveVersion=1 and location=vault; ` +
         `deleted the stored slot (store confirmed empty); re-imported it and resumed to Cold Vault, ` +
         `with the origin project recorded`;
+    });
+
+    await runCheck("9b. Importing over a stored save asks first, even after a boot that failed", async () => {
+      // The cached save is refreshed once a boot settles, so a project that
+      // cannot boot leaves the previous project's record sitting in it. Reading
+      // only the cache would then replace the active project's own save with no
+      // question asked — the one import path that can lose a run outright.
+      const target: PackShape = {
+        manifest: {
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "import-target", title: "Import Target", version: "1.0.0" },
+          files: ["scenario.yaml", "scripts/main.lua"],
+        },
+        entries: {
+          "scenario.yaml": new TextEncoder().encode(`meta:
+  title: Import Target
+startLocation: hall
+locations:
+  hall:
+    title: 'Import Hall'
+    text:
+      - 'A quiet hall, and nothing in it yet.'
+`),
+          "scripts/main.lua": new TextEncoder().encode("-- import-target\n"),
+        },
+      };
+      await importPack(page, target, "startLocation: hall", "scenario.yaml");
+      await waitForTextEquals(page, "#storyTitle", "Import Hall");
+      await page.locator("#saveBtn").click();
+      await waitForText(page, "#diagnostics", "Saved");
+
+      // Away to a project that has a save of its own, so the cache holds that
+      // project's record rather than the target's. A load is a fresh boot, so
+      // it lands on the start location and nothing is resumed.
+      await page.locator("#loadBtn").click();
+      await page.locator('#projectList [data-project="save-fixture"] button', { hasText: "Load" }).click();
+      await waitForTextEquals(page, "#storyTitle", "Iron Gate");
+
+      // Then a newer pack for the target whose YAML does not compose: the
+      // import lands and the boot fails, so nothing refreshes the cache. The
+      // slot itself is untouched — a pack has nothing to say about saves.
+      const broken: PackShape = {
+        manifest: { ...target.manifest, project: { ...target.manifest.project, version: "1.0.1" } },
+        entries: {
+          ...target.entries,
+          "scenario.yaml": new TextEncoder().encode("startLocation: hall\nlocations: [oops\n"),
+        },
+      };
+      await importPack(page, broken, "startLocation: hall", "scenario.yaml", { expectReady: false });
+      // The switch is observable on the body, and `projectReady` is the signal
+      // the harness trusts: a boot that failed leaves it false, and only the
+      // boot that reaches the end — where the save cache is refreshed — sets it.
+      await page.waitForFunction(
+        () => document.body.dataset.projectId === "import-target" && document.body.dataset.projectReady === "false",
+        undefined,
+        { timeout: BOOT_TIMEOUT },
+      );
+      // What the author sees, not the wording of the YAML library's complaint.
+      const failedBoot = await page.evaluate(() => ({
+        diagnostics: (document.querySelector("#diagnostics")?.textContent ?? "").trim(),
+        entries: document.querySelectorAll("#heroTerminal .entry").length,
+      }));
+      assert(failedBoot.entries > 0, "the boot that failed left no entry in the terminal");
+      assert(failedBoot.diagnostics !== "● Ready", `a boot that failed still reported "${failedBoot.diagnostics}"`);
+
+      // The target's own save is still there to be protected.
+      await page.locator("#savesBtn").click();
+      await waitForText(page, "#saveOverlay", "Import Target");
+      const row = page.locator("#saveList .project-card", { hasText: "Import Target" });
+      assert(await row.count() === 1, "the target's save was not listed");
+      const before = (await row.textContent()) ?? "";
+      const downloadPromise = page.waitForEvent("download");
+      await row.locator("button", { hasText: "Export" }).click();
+      const file = await (await downloadPromise).path();
+      assert(file, "export produced no save file to re-import");
+
+      // The harness dismisses every dialog it is not expecting, so a declined
+      // prompt is the outcome here — which is exactly what must happen.
+      const prompted = page.waitForEvent("dialog", { timeout: BOOT_TIMEOUT }).then(() => true).catch(() => false);
+      const chooserPromise = page.waitForEvent("filechooser");
+      await page.locator("#importSaveBtn").click();
+      await (await chooserPromise).setFiles(file);
+      assert(await prompted, "importing over the active project's own save did not ask first");
+      assert(
+        await page.locator("#saveList .project-card", { hasText: "Import Target" }).locator(".save-origin").count() ===
+          0,
+        "a declined import still replaced the save",
+      );
+      assert(
+        ((await row.textContent()) ?? "") === before,
+        "the target's save row changed after a declined import",
+      );
+
+      return `imported a project, saved, left for another project, then re-imported a pack whose YAML does not ` +
+        `compose; the boot failed and the stale cache was not consulted: re-importing over the target's own save ` +
+        `asked first and, declined, left the row unchanged ("${before.trim()}")`;
     });
   } finally {
     await context.close();

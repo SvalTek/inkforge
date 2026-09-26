@@ -89,6 +89,7 @@ Builds, serves, and drives Chrome. Captures console messages, page errors and di
 | 8 | A Lua timer repaints a bound meter with no command |
 | 9 | Save a run, restart without overwriting it, and resume its state and inventory |
 | 9a | Export a save as JSON, delete it, import it, and resume it |
+| 9b | Importing over the active project's own save asks first, even after a boot that failed |
 
 Assertion 1a exists because a Lua error on every tick is invisible in a screenshot — it was written to catch a real
 regression where the runtime leaked stack slots until it trapped. Assertion 8 covers the repaint model: a

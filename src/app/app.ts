@@ -955,7 +955,11 @@ export function createApp(): AppContext {
       throw new Error(`That save file is too large (limit ${Math.round(SAVE_LIMITS.maxFileBytes / 1024)} KB).`);
     }
     const record = parseSaveFile(await file.text());
-    const existing = activeProjectSave();
+    // Asked against the active project's own slot, cached or not. A project
+    // whose boot never reached `refreshActiveSave` — empty, or a scenario that
+    // does not compose — would otherwise replace a save it never admitted to
+    // having, and the player would only find out by losing the run.
+    const existing = activeProjectSave() ?? (await getSave(app.project.identity.id)) ?? null;
     if (existing) {
       const overwrite = globalThis.confirm(
         `This scenario already has a save from ${new Date(existing.savedAt).toLocaleString()}. ` +

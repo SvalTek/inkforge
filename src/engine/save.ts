@@ -208,8 +208,14 @@ function readOverrides(value: unknown): UiOverrideMap {
     if (!entry) continue;
     // An override may carry a replacement field list, which `uiFields` walks
     // with the same `f.id` dereference as a declared one.
+    const narrowed: Record<string, unknown> = { ...entry };
     const fields = readFieldList(entry.fields);
-    out[id] = (fields ? { ...entry, fields } : entry) as UiOverride;
+    if (fields) narrowed.fields = fields;
+    // A list that yielded nothing usable is removed, not kept: the malformed
+    // array is exactly what `uiFields` would walk. The id-to-value map form is
+    // a different thing and survives, because it is not iterated as fields.
+    else if (Array.isArray(entry.fields)) delete narrowed.fields;
+    out[id] = narrowed as UiOverride;
   }
   return out;
 }
