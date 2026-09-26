@@ -1642,6 +1642,17 @@ locations:
           "scripts/main.lua": new TextEncoder().encode(`-- save-fixture
 function OnInit()
   GameState.set('visits', (GameState.get('visits') or 0) + 1)
+  GameTools.register({id='saved_hidden', label='Hidden'})
+  GameTools.register({id='saved_disabled', label='Disabled'})
+  GameTools.register({id='saved_removed', label='Removed'})
+  GameUI.create({id='save_mutate', type='button', location='output', fields={{id='label', type='text', value='Change save state'}}, events={activate={callback='changeSaveState'}}})
+  GameUI.create({id='saved_removed_panel', type='button', location='output', fields={{id='label', type='text', value='Removable panel'}}})
+end
+function changeSaveState()
+  GameTools.hide('saved_hidden')
+  GameTools.disable('saved_disabled')
+  GameTools.remove('saved_removed')
+  GameUI.remove('saved_removed_panel')
 end
 `),
         },
@@ -1658,6 +1669,11 @@ end
       await page.locator("#heroChoices button", { hasText: "North" }).first().click();
       await waitForTextEquals(page, "#storyTitle", "Cold Vault");
       await waitForText(page, "#heroTerminal", "The vault smells of iron and old rain.");
+      await page.locator('[data-ui="save_mutate"]').click();
+      assert(await page.locator('[data-tool="saved_hidden"]').count() === 0, "hidden tool remained visible");
+      assert(await page.locator('[data-tool="saved_disabled"]').isDisabled(), "tool did not disable");
+      assert(await page.locator('[data-tool="saved_removed"]').count() === 0, "removed tool remained visible");
+      assert(await page.locator('[data-ui="saved_removed_panel"]').count() === 0, "removed panel remained visible");
 
       await page.locator("#saveBtn").click();
       await waitForText(page, "#diagnostics", "Saved");
@@ -1696,6 +1712,13 @@ end
       await page.locator("#continueBtn").click();
       await waitForTextEquals(page, "#storyTitle", "Cold Vault");
       await waitForText(page, "#heroTerminal", "The vault smells of iron and old rain.");
+      assert(await page.locator('[data-tool="saved_hidden"]').count() === 0, "resume restored a hidden Lua tool");
+      assert(await page.locator('[data-tool="saved_disabled"]').isDisabled(), "resume enabled a disabled Lua tool");
+      assert(await page.locator('[data-tool="saved_removed"]').count() === 0, "resume restored a removed Lua tool");
+      assert(
+        await page.locator('[data-ui="saved_removed_panel"]').count() === 0,
+        "resume restored a removed UI element",
+      );
       const resumed = await readSave();
       assert(
         resumed?.snapshot.state.visits === 1,

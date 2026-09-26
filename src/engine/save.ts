@@ -9,6 +9,7 @@ import type {
   UiElement,
   UiOverride,
   UiOverrideMap,
+  Vfs,
 } from "../types/index.ts";
 
 /**
@@ -63,11 +64,8 @@ function asJsonSafe(value: unknown): unknown {
 /**
  * A stable identity for the authored content a save was made against.
  *
- * FNV-1a over the scenario source and the main script, because a save is only
- * safe to resume into the same story: relocating a location or renumbering a
- * `goto` target makes the restored position meaningless, and the player deserves
- * to be told rather than dropped into an empty room. Cheap and dependency-free,
- * which is all a warning check needs to be.
+ * FNV-1a over text sources. The path participates in the hash so renames and
+ * additions matter as well as content changes.
  */
 export function hashScenario(...parts: string[]): string {
   let hash = 0x811c9dc5;
@@ -82,6 +80,12 @@ export function hashScenario(...parts: string[]): string {
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
   return hash.toString(16).padStart(8, "0");
+}
+
+/** Hash every project text file in path order, including imported YAML and Lua. */
+export function hashProjectSources(vfs: Vfs): string {
+  const paths = Object.keys(vfs).sort();
+  return `v2:${hashScenario(...paths.flatMap((path) => [path, vfs[path]]))}`;
 }
 
 /**
@@ -112,13 +116,36 @@ export function toSnapshot(runtime: EngineRuntime): SaveSnapshot {
 
 function readEvents(value: unknown): EngineEvent[] {
   if (!Array.isArray(value)) return [];
-  // Only the shape the terminal needs: an object with a string `type`. The six
-  // variants are flat, and `eventRow` reads no payload beyond `itemId`, so an
-  // unrecognised type is inert rather than dangerous.
-  return value.filter((item): item is EngineEvent => {
+  const events: EngineEvent[] = [];
+  for (const item of value) {
     const entry = asObject(item);
-    return entry !== null && typeof entry.type === "string";
-  });
+    if (!entry) continue;
+    switch (entry.type) {
+      case "output":
+        if (typeof entry.text === "string") {
+          events.push({
+            type: "output",
+            text: entry.text,
+            kind: typeof entry.kind === "string" ? entry.kind : "normal",
+          });
+        }
+        break;
+      case "location:enter":
+        if (typeof entry.locationId === "string") events.push({ type: "location:enter", locationId: entry.locationId });
+        break;
+      case "ui:update":
+        if (typeof entry.elementId === "string") events.push({ type: "ui:update", elementId: entry.elementId });
+        break;
+      case "inventory:add":
+      case "inventory:remove":
+        if (typeof entry.itemId === "string") events.push({ type: entry.type, itemId: entry.itemId });
+        break;
+      case "game:over":
+        events.push({ type: "game:over" });
+        break;
+    }
+  }
+  return events;
 }
 
 /**
@@ -180,24 +207,6 @@ function readModals(value: unknown): ModalRuntimeState {
     open: typeof source?.open === "string" ? source.open : null,
     activePages: pages,
   };
-}
-
-/**
- * Collapse a resumed element list to one entry per id, last write winning.
- *
- * A resume seeds the saved elements and then boots, and an entry script that
- * creates an element with `GameUI.create` will add it a second time. Left alone
- * that renders the panel twice, and it grows by one every time the player
- * resumes. `Map` keeps the first position but the last value, so the element
- * the boot just rebuilt wins while the scenario's original ordering — and with
- * it the panel layout — is left alone.
- */
-export function dedupeUiElements(elements: UiElement[]): UiElement[] {
-  const byId = new Map<string, UiElement>();
-  for (const element of elements) {
-    if (element?.id) byId.set(element.id, element);
-  }
-  return [...byId.values()];
 }
 
 /**

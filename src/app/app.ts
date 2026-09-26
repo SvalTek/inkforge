@@ -5,7 +5,6 @@ import type {
   ResolvedUiElement,
   ResumedRuntime,
   SaveRecord,
-  Scenario,
   ToolEntry,
 } from "../types/index.ts";
 import { DEFAULT_SAVE_SLOT, SAVE_LIMITS, saveFileStem } from "../types/save.ts";
@@ -44,7 +43,7 @@ import { render as renderDom } from "../ui/render.ts";
 import { runToolAction as runToolActionImpl, runUiAction as runUiActionImpl } from "../ui/actions.ts";
 import { exportPack as exportPackImpl, importPack as importPackImpl } from "../import-export/pack.ts";
 import { createToolRegistry } from "../engine/tool-state.ts";
-import { dedupeUiElements, fromSnapshot, hashScenario, toSnapshot } from "../engine/save.ts";
+import { fromSnapshot, hashProjectSources, hashScenario, toSnapshot } from "../engine/save.ts";
 import { deleteSave, getSave, listSaves, parseSaveFile, putSave, serializeSaveFile } from "../project/save-storage.ts";
 import { AssetResolver } from "../project/assets.ts";
 import { AudioManager } from "../audio/manager.ts";
@@ -259,7 +258,7 @@ export function createApp(): AppContext {
         modals: resume
           ? { open: resume.modals.open, activePages: { ...resume.modals.activePages } }
           : { open: null, activePages: {} },
-        tools: resume?.tools ?? createToolRegistry(scenario.tools || []),
+        tools: createToolRegistry(scenario.tools || []),
         conversation: resume?.conversation ?? null,
         lua: null,
         canvasEngine: null,
@@ -320,7 +319,8 @@ export function createApp(): AppContext {
         Object.assign(runtime.state, resume.state);
         runtime.ui.overrides = { ...resume.ui.overrides };
         runtime.ui.hidden = new Set(resume.ui.hidden);
-        runtime.ui.elements = dedupeUiElements(runtime.ui.elements);
+        runtime.ui.elements = [...resume.ui.elements];
+        runtime.tools = resume.tools;
         runtime.modals = { open: resume.modals.open, activePages: { ...resume.modals.activePages } };
         runtime.events = [...resume.events];
         runtime.droppedEvents = resume.droppedEvents;
@@ -615,13 +615,16 @@ export function createApp(): AppContext {
   /**
    * Identity of the authored content a save is made against.
    *
-   * The scenario and the main script, because either can invalidate a restored
-   * position — a renamed location id in one, a changed start condition in the
-   * other. Compared on resume to warn, never to refuse: the player is the only
-   * one who can say whether their story still makes sense.
+   * Every VFS source can affect composition or Lua behavior. Compared on resume
+   * to warn, never to refuse: the player decides whether to continue.
    */
-  function scenarioHash(scenario: Scenario | null): string {
-    const scriptPath = scenario?.scripts?.main ?? "scripts/main.lua";
+  function scenarioHash(): string {
+    return hashProjectSources(app.project.vfs);
+  }
+
+  /** Existing saves used only the scenario entry file and main Lua script. */
+  function legacyScenarioHash(): string {
+    const scriptPath = app.scenario?.scripts?.main ?? "scripts/main.lua";
     return hashScenario(app.project.vfs["scenario.yaml"] ?? "", app.project.vfs[scriptPath] ?? "");
   }
 
@@ -639,7 +642,7 @@ export function createApp(): AppContext {
       savedAt: Date.now(),
       location: snapshot.location,
       scenarioVersion: app.project.identity.version,
-      scenarioHash: scenarioHash(app.scenario),
+      scenarioHash: scenarioHash(),
       snapshot,
     };
     try {
@@ -668,7 +671,10 @@ export function createApp(): AppContext {
       reportStatus("That save could not be read", "#ee7c78");
       return;
     }
-    if (record.scenarioHash && record.scenarioHash !== scenarioHash(app.scenario)) {
+    if (
+      record.scenarioHash && record.scenarioHash !== scenarioHash() &&
+      record.scenarioHash !== legacyScenarioHash()
+    ) {
       const proceed = globalThis.confirm(
         "This scenario has changed since the save was made. Resuming may leave the story in an odd place. Continue?",
       );

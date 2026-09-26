@@ -7,7 +7,7 @@
  * `tools/smoke.ts`.
  */
 import { clearTranscript, MAX_EVENTS, pushEvent } from "../src/engine/events.ts";
-import { dedupeUiElements, fromSnapshot, hashScenario, toSnapshot } from "../src/engine/save.ts";
+import { fromSnapshot, hashProjectSources, hashScenario, toSnapshot } from "../src/engine/save.ts";
 import { parseSaveFile, serializeSaveFile } from "../src/project/save-storage.ts";
 import { saveFileStem } from "../src/types/save.ts";
 import type { EngineRuntime, SaveRecord } from "../src/types/index.ts";
@@ -121,6 +121,20 @@ const partial = fromSnapshot({ location: "cellar", events: [{ type: "output", te
 assert(partial !== null, "a sparse snapshot still resumes");
 assert(partial.location === "cellar", "a present field is used");
 assert(partial.events.length === 1, "entries with no string `type` are dropped rather than rendered");
+const malformedEvents = fromSnapshot({
+  events: [
+    { type: "output" },
+    { type: "output", text: "kept" },
+    { type: "inventory:add", itemId: 7 },
+    { type: "location:enter" },
+    { type: "ui:update", elementId: null },
+    { type: "unknown" },
+    { type: "game:over" },
+  ],
+})?.events;
+assert(malformedEvents?.length === 2, "malformed and unknown event variants are dropped");
+assert(malformedEvents[0].type === "output" && malformedEvents[0].kind === "normal", "older output gets a kind");
+assert(malformedEvents[1].type === "game:over", "valid payload-free events survive");
 assert(partial.inventory.length === 0, "a missing inventory is empty, not undefined");
 assert(partial.ui.hidden.size === 0, "a missing `hidden` is an empty Set");
 assert(partial.ui.overrides !== null, "missing overrides are an object");
@@ -153,22 +167,34 @@ assert(
   "an ordinary conversation survives the check",
 );
 
-// Element dedupe -----------------------------------------------------------
-
-const deduped = dedupeUiElements([
-  { id: "meter", type: "meter", accessibleLabel: "saved" },
-  { id: "notes", type: "panel" },
-  { id: "meter", type: "meter", accessibleLabel: "rebuilt by boot" },
-]);
-assert(deduped.length === 2, "a re-created element is collapsed to one");
-assert(deduped[0].id === "meter", "the first position wins, so authored order is stable");
-assert(deduped[0].accessibleLabel === "rebuilt by boot", "the last value wins, so the fresh element is used");
-
 // Scenario identity --------------------------------------------------------
 
 assert(hashScenario("a", "b") === hashScenario("a", "b"), "the hash is stable");
 assert(hashScenario("a", "b") !== hashScenario("a", "c"), "the hash tracks the script");
 assert(hashScenario("ab", "c") !== hashScenario("a", "bc"), "the parts cannot be shifted into one another");
+const sources = {
+  "scenario.yaml": "locations: !import locations.yml",
+  "locations.yml": "gate: {}",
+  "scripts/main.lua": "require('helper')",
+  "scripts/helper.lua": "return true",
+};
+assert(hashProjectSources(sources).startsWith("v2:"), "the full-project hash is distinguishable from older saves");
+assert(
+  hashProjectSources(sources) === hashProjectSources(Object.fromEntries(Object.entries(sources).reverse())),
+  "source insertion order does not change the hash",
+);
+assert(
+  hashProjectSources(sources) !== hashProjectSources({ ...sources, "locations.yml": "vault: {}" }),
+  "imported YAML changes the hash",
+);
+assert(
+  hashProjectSources(sources) !== hashProjectSources({ ...sources, "scripts/helper.lua": "return false" }),
+  "supporting Lua changes the hash",
+);
+assert(
+  hashProjectSources(sources) !== hashProjectSources({ ...sources, "other.yml": "new" }),
+  "added source paths change the hash",
+);
 
 // Export envelope ----------------------------------------------------------
 
