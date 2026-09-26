@@ -3,6 +3,7 @@ import { DIST } from "./paths.ts";
 import { serveStatic } from "./server.ts";
 import type { EditorHarness } from "../src/editor/harness.ts";
 import type { Browser, BrowserContext, Page } from "playwright-core";
+import { strToU8, zipSync } from "fflate";
 
 const CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const TIMEOUT = 30_000;
@@ -88,6 +89,31 @@ async function main(): Promise<void> {
     await Deno.copyFile("templates/renderer-showcase.inkforge", packPath);
     await page.locator("#importFile").setInputFiles(packPath);
     await waitFor(page, "#storyTitle", "The authored visual stage");
+    const reservedPath = "scripts/.inkforge-dir";
+    const reservedManifest = {
+      format: "inkforge-pack",
+      packVersion: 2,
+      project: { id: "reserved-marker-test", version: "1.0.0" },
+      files: ["scenario.yaml", "scripts/main.lua", reservedPath],
+    };
+    const invalidPackPath = `${temp}\\reserved-marker.inkforge`;
+    await Deno.writeFile(
+      invalidPackPath,
+      zipSync({
+        "manifest.json": strToU8(JSON.stringify(reservedManifest)),
+        "scenario.yaml": strToU8("startLocation: gate"),
+        "scripts/main.lua": strToU8("-- entry"),
+        [reservedPath]: strToU8("authored content"),
+      }),
+    );
+    const importDialog = page.waitForEvent("dialog");
+    await page.locator("#importFile").setInputFiles(invalidPackPath);
+    const dialog = await importDialog;
+    assert(
+      dialog.message().includes(`Reserved empty-folder marker path: ${reservedPath}`),
+      "marker collision import was accepted",
+    );
+    await dialog.accept();
     await page.waitForFunction(
       () => document.querySelector('[data-tool="lua_tool"]') !== null,
       undefined,
@@ -276,15 +302,39 @@ async function main(): Promise<void> {
       vfsAfterNested["rooms/deep/.inkforge-dir"] !== undefined,
       "nested empty folder marker missing",
     );
+    assert(
+      await page.locator('.folder[data-folder="rooms/deep/.i"]').count() === 0,
+      "nested marker created a phantom child folder",
+    );
+
+    // A long folder path must not be truncated when the marker is stripped.
+    await page.locator("#createNew").click();
+    await page.locator("#createName").fill("really-long-folder");
+    await page.locator("#createSubmit").click();
+    assert(
+      await page.locator('.folder[data-folder="really-long-folder"]').count() === 1,
+      "long folder path was truncated",
+    );
+    await page.locator('.folder[data-folder="really-long-folder"] .folder-add').click();
+    await page.locator("#createName").fill("inside");
+    await page.locator("#createSubmit").click();
+    assert(
+      await page.locator('.file[data-file="really-long-folder/inside.yaml"]').count() === 1,
+      "add in a long folder wrote to the wrong path",
+    );
 
     // Test that the marker is filtered from pack export.
     await page.locator("#exportBtn").click();
     // The export is a download; we can't easily intercept it in playwright-core,
     // but we can check the manifest by evaluating the export logic directly.
     const manifestFiles = await page.evaluate(() => {
-      const app = (globalThis as { inkforgeApp?: { project: { vfs: Record<string, string>; assets: Record<string, unknown> } } }).inkforgeApp;
+      const app =
+        (globalThis as { inkforgeApp?: { project: { vfs: Record<string, string>; assets: Record<string, unknown> } } })
+          .inkforgeApp;
       if (!app) return [];
-      const vfsKeys = Object.keys(app.project.vfs).filter((key) => !key.endsWith("/.inkforge-dir") && key !== ".inkforge-dir");
+      const vfsKeys = Object.keys(app.project.vfs).filter((key) =>
+        !key.endsWith("/.inkforge-dir") && key !== ".inkforge-dir"
+      );
       return [...vfsKeys, ...Object.keys(app.project.assets)].sort();
     });
     assert(

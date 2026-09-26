@@ -130,6 +130,7 @@ else:
 - No leading `/` — paths are relative to the project root.
 - No `.` or `..` segments, and no empty segments.
 - `manifest.json` is reserved and cannot appear in `files`.
+- `.inkforge-dir` is reserved as a filename at any depth for the Author view's empty-folder markers. Packs containing it are refused.
 - Duplicate paths in `files` are refused.
 
 On import, an archive is also bounded: 16 MB compressed, at most 256 entries, 8 MB per entry and 32 MB uncompressed in

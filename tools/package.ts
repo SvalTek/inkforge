@@ -2,6 +2,7 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { assetMime } from "../src/project/assets.ts";
 import { compareVersions } from "../src/import-export/pack.ts";
+import { isFolderMarker } from "../src/editor/tree.ts";
 import type { ProjectIdentity } from "../src/types/project.ts";
 
 interface SourceManifest {
@@ -104,6 +105,7 @@ async function selectedFiles(root: string, manifest: SourceManifest, excluded: s
   const files: string[] = [];
   const seen = new Set<string>();
   for (const entry of manifest.files) {
+    if (isFolderMarker(entry)) throw new Error(`Reserved empty-folder marker path: ${entry}`);
     if (
       !entry || entry === "manifest.json" || entry.startsWith("/") || entry.includes("\\") ||
       entry.split("/").some((segment) => !segment || segment === "." || segment === "..")

@@ -126,8 +126,8 @@ export function buildFileTree(vfs: Record<string, string>): TreeEntry[] {
     if (isFolderMarker(path)) {
       // `rooms/.inkforge-dir` stands for `rooms`; `rooms/deep/.inkforge-dir`
       // stands for `rooms/deep`, which is why the directory is dropped first.
-      const owner = path.slice(0, FOLDER_MARKER.length + 1);
-      descend(root, owner ? owner.slice(0, -1).split("/").filter(Boolean) : []).marker = true;
+      const owner = path === FOLDER_MARKER ? "" : path.slice(0, -(`/${FOLDER_MARKER}`).length);
+      descend(root, owner ? owner.split("/").filter(Boolean) : []).marker = true;
       continue;
     }
     const segments = path.split("/").filter(Boolean);
@@ -194,7 +194,12 @@ function resolveName(kind: CreateKind, input: string): { name: string } | { mess
  * held by a real key and the marker would only be noise. Failure leaves the VFS
  * untouched, so the dialog can report and let the author try again.
  */
-export function createEntry(vfs: Record<string, string>, target: string, kind: CreateKind, input: string): CreateResult {
+export function createEntry(
+  vfs: Record<string, string>,
+  target: string,
+  kind: CreateKind,
+  input: string,
+): CreateResult {
   const resolved = resolveName(kind, input);
   if ("message" in resolved) return { ok: false, message: resolved.message, path: "", marker: "", kind };
   const name = resolved.name;
