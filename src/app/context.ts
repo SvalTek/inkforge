@@ -10,6 +10,7 @@ import type {
 } from "../types/index.ts";
 import type { InkforgeCanvasRuntime } from "../canvas/runtime.ts";
 import type { CodeEditor } from "../editor/codemirror.ts";
+import type { CreateKind, CreateResult } from "../editor/tree.ts";
 import type { DomRefs } from "./dom.ts";
 import type { AssetResolver } from "../project/assets.ts";
 import type { AudioManager } from "../audio/manager.ts";
@@ -33,6 +34,13 @@ export interface AppContext {
   openFiles: string[];
   activeAsset: string | null;
   assetsExpanded: boolean;
+  /**
+   * Folder paths the explorer is showing. Held here rather than in the DOM so a
+   * collapse survives the repaints that editing triggers.
+   */
+  expandedFolders: Set<string>;
+  /** Which project's `expandedFolders` describes; a change reseeds it. */
+  explorerProjectId: string | null;
   /** Incremented per boot request; a boot whose generation is stale stands down. */
   bootGeneration: number;
 
@@ -40,6 +48,13 @@ export interface AppContext {
   start(): Promise<void>;
   showView(view: AppView): void;
   switchFile(path: string): void;
+  toggleFolder(path: string): void;
+  /** Open the create dialog for `target`; `""` is the project root. */
+  openCreateDialog(target: string): void;
+  setCreateKind(kind: CreateKind): void;
+  submitCreate(): void;
+  /** Create and, for a file, open it. Returns the outcome for the dialog to show. */
+  createEntry(target: string, kind: CreateKind, name: string): CreateResult;
   previewAsset(path: string): void;
   closeFile(path: string): void;
   renderFileTree(): void;

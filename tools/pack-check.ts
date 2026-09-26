@@ -1,6 +1,7 @@
 import { strFromU8, unzipSync } from "fflate";
 import { basename, join } from "node:path";
 import { compareVersions } from "../src/import-export/pack.ts";
+import { packageFolder } from "./package.ts";
 import { TEMPLATES } from "./paths.ts";
 
 /**
@@ -114,3 +115,37 @@ function verifyCommittedPack(packPath: string): string {
 
 const verified = committedPacks().map(verifyCommittedPack);
 console.log(`Committed packs match their folders: ${verified.join(", ")}.`);
+
+// The disk packer must reject the same reserved basename as browser import.
+const markerRoot = await Deno.makeTempDir({ prefix: "inkforge-marker-pack-" });
+const markerOutput = join(markerRoot, "invalid.inkforge");
+try {
+  await Deno.mkdir(join(markerRoot, "scripts"));
+  await Deno.writeTextFile(join(markerRoot, "scenario.yaml"), "startLocation: gate\n");
+  await Deno.writeTextFile(join(markerRoot, "scripts", "main.lua"), "-- entry\n");
+  await Deno.writeTextFile(join(markerRoot, "scripts", ".inkforge-dir"), "authored content\n");
+  await Deno.writeTextFile(
+    join(markerRoot, "manifest.json"),
+    JSON.stringify({
+      format: "inkforge-pack",
+      packVersion: 2,
+      project: { id: "reserved-marker-test", version: "1.0.0" },
+      files: ["scenario.yaml", "scripts/main.lua", "scripts/.inkforge-dir"],
+    }),
+  );
+  let rejected = false;
+  try {
+    await packageFolder({ folder: markerRoot, output: markerOutput, force: false });
+  } catch (error) {
+    rejected = (error as Error).message.includes("Reserved empty-folder marker path: scripts/.inkforge-dir");
+  }
+  assert(rejected, "disk packer accepted a file that export would silently omit");
+} finally {
+  await Deno.remove(markerOutput).catch(() => {});
+  await Deno.remove(join(markerRoot, "manifest.json"));
+  await Deno.remove(join(markerRoot, "scenario.yaml"));
+  await Deno.remove(join(markerRoot, "scripts", "main.lua"));
+  await Deno.remove(join(markerRoot, "scripts", ".inkforge-dir"));
+  await Deno.remove(join(markerRoot, "scripts"));
+  await Deno.remove(markerRoot);
+}

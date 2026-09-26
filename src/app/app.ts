@@ -2,7 +2,7 @@ import type { AppContext, AppView } from "./context.ts";
 import type { EngineRuntime, ProjectData, ResolvedUiElement, ToolEntry } from "../types/index.ts";
 import { bootRuntime } from "./boot.ts";
 import { bindEvents } from "./events.ts";
-import { queryDom } from "./dom.ts";
+import { queryDom, $all } from "./dom.ts";
 import { applyUi as applyUiState } from "../engine/ui-state.ts";
 import { createEngine } from "../engine/engine.ts";
 import { createOutput, flushView as flushViewImpl } from "../engine/events.ts";
@@ -30,6 +30,7 @@ import {
   syncEditor as syncEditorImpl,
 } from "../editor/editor.ts";
 import { createCodeEditor } from "../editor/codemirror.ts";
+import { createEntry as createEntryImpl, type CreateKind, type CreateResult } from "../editor/tree.ts";
 import { installEditorHarness } from "../editor/harness.ts";
 import { render as renderDom } from "../ui/render.ts";
 import { runToolAction as runToolActionImpl, runUiAction as runUiActionImpl } from "../ui/actions.ts";
@@ -40,11 +41,15 @@ import { AudioManager } from "../audio/manager.ts";
 
 /** Debounce window for coalescing keystroke-driven IndexedDB saves. */
 const PERSIST_DEBOUNCE_MS = 400;
-
 /** Build the single app context and bind the DOM once. */
 export function createApp(): AppContext {
   const dom = queryDom();
   let persistTimer: ReturnType<typeof setTimeout> | undefined;
+  // Create-dialog state: where the new entry goes, and of what kind. Held here
+  // so the dialog and the explorer agree on the target without passing it
+  // through the DOM.
+  let createTarget = "";
+  let createKind: CreateKind = "folder";
   const reportMediaError = (message: string) => {
     dom.diagnostics.textContent = `● ${message}`;
     dom.diagnostics.style.color = "#ee7c78";
@@ -79,11 +84,18 @@ export function createApp(): AppContext {
     openFiles: [...DEFAULT_OPEN_FILES],
     activeAsset: null,
     assetsExpanded: true,
+    expandedFolders: new Set<string>(),
+    explorerProjectId: null,
     bootGeneration: 0,
     initialise,
     start,
     showView,
     switchFile,
+    toggleFolder,
+    openCreateDialog,
+    setCreateKind,
+    submitCreate,
+    createEntry,
     previewAsset,
     closeFile,
     renderFileTree,
@@ -365,6 +377,66 @@ export function createApp(): AppContext {
 
   function closeFile(path: string): void {
     closeFileImpl(app, path);
+  }
+
+  function toggleFolder(path: string): void {
+    if (app.expandedFolders.has(path)) app.expandedFolders.delete(path);
+    else app.expandedFolders.add(path);
+    renderFileTree();
+  }
+
+  function openCreateDialog(target: string): void {
+    createTarget = target;
+    // Adding to a folder almost always means a file; adding at the root almost
+    // always means structure. Either is one click away in the dialog.
+    createKind = target ? "yaml" : "folder";
+    const label = target ? target.slice(target.lastIndexOf("/") + 1) : "project";
+    dom.createTitle.textContent = target ? `New in ${label}` : "New in project";
+    dom.createLabel.textContent = createKind === "folder" ? "Folder name" : "File name";
+    dom.createName.value = "";
+    dom.createError.textContent = "";
+    setCreateKind(createKind);
+    dom.createOverlay.classList.remove("hidden");
+    dom.createName.focus();
+  }
+
+  function setCreateKind(kind: CreateKind): void {
+    createKind = kind;
+    dom.createLabel.textContent = kind === "folder" ? "Folder name" : "File name";
+    for (const button of $all<HTMLButtonElement>("#createOverlay [data-create-kind]")) {
+      const active = button.dataset.createKind === kind;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-pressed", String(active));
+    }
+  }
+
+  function submitCreate(): void {
+    const result = createEntry(createTarget, createKind, dom.createName.value);
+    if (!result.ok) {
+      dom.createError.textContent = result.message ?? "That name cannot be used.";
+      return;
+    }
+    dom.createOverlay.classList.add("hidden");
+  }
+
+  function createEntry(target: string, kind: CreateKind, name: string): CreateResult {
+    const result = createEntryImpl(app.project.vfs, target, kind, name);
+    if (!result.ok) return result;
+    // Reveal what was just made: the folder it went into, and the folder that
+    // holds it, so an author who collapsed the tree still sees their own result.
+    if (target) app.expandedFolders.add(target);
+    if (result.path) {
+      const owner = result.path.slice(0, result.path.lastIndexOf("/"));
+      if (owner) app.expandedFolders.add(owner);
+      switchFile(result.path);
+    } else if (result.marker) {
+      // A folder was created; expand it so the author sees the result.
+      const folderPath = result.marker.slice(0, result.marker.lastIndexOf("/"));
+      if (folderPath) app.expandedFolders.add(folderPath);
+    }
+    renderFileTree();
+    schedulePersist();
+    return result;
   }
 
   function renderTabs(): void {
