@@ -18,8 +18,8 @@
  */
 
 :root {
-  --vp-layout-max-width: 1600px;
-  --vp-sidebar-width: 240px;
+  --vp-layout-max-width: 1700px;
+  --vp-sidebar-width: 230px;
 }
 
 .VPDoc.has-aside .content-container {
