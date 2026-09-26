@@ -130,6 +130,7 @@ else:
 - No leading `/` — paths are relative to the project root.
 - No `.` or `..` segments, and no empty segments.
 - `manifest.json` is reserved and cannot appear in `files`.
+- `.inkforge-dir` is reserved as a filename at any depth for the Author view's empty-folder markers. Packs containing it are refused.
 - Duplicate paths in `files` are refused.
 
 On import, an archive is also bounded: 16 MB compressed, at most 256 entries, 8 MB per entry and 32 MB uncompressed in
@@ -138,7 +139,9 @@ total. Exceeding any of these reports the specific limit that was hit rather tha
 ## Export and import
 
 **Export Scenario** writes the current project — every VFS file plus every asset — as a ZIP with a generated
-`manifest.json`. The download is named after the project title, sanitised for a filesystem.
+`manifest.json`. The download is named after the project title, sanitised for a filesystem. Empty folders created in the
+Author view are recorded with a hidden marker that survives saves but is filtered from exports, so a pack contains only
+real files and assets.
 
 **Import Scenario** in the **Scenarios** dialog validates the manifest, checks the version against any stored project with the same id, and then either
 declines it or installs it and starts it. Source files must be valid UTF-8; a file that is not is reported as

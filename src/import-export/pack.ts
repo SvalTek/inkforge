@@ -4,9 +4,11 @@ import { assetFromBlob, assetMime } from "../project/assets.ts";
 import { normalizeProject, projectTitle } from "../project/project.ts";
 import { getProject, putProject, setActiveProjectId } from "../project/storage.ts";
 import { DEFAULT_OPEN_FILES, openInEditor } from "../editor/editor.ts";
+import { isFolderMarker } from "../editor/tree.ts";
 import type { ProjectManifest } from "../types/index.ts";
 
 function assertSafePath(path: string): void {
+  if (isFolderMarker(path)) throw new Error(`Reserved empty-folder marker path: ${path}`);
   if (
     !path || path === "manifest.json" || path.startsWith("/") || path.includes("\\") ||
     path.split("/").some((segment) => !segment || segment === "." || segment === "..")
@@ -113,7 +115,10 @@ function validateManifest(value: unknown): ProjectManifest {
 /** Download the active project as a version-2 ZIP package. */
 export async function exportPack(app: AppContext): Promise<void> {
   await app.persist();
-  const files = [...Object.keys(app.project.vfs), ...Object.keys(app.project.assets)].sort();
+  // Empty-folder markers are bookkeeping for the explorer, not authored work;
+  // they must not travel with the pack.
+  const vfsKeys = Object.keys(app.project.vfs).filter((key) => !isFolderMarker(key));
+  const files = [...vfsKeys, ...Object.keys(app.project.assets)].sort();
   const manifest: ProjectManifest = {
     format: "inkforge-pack",
     packVersion: 2,
@@ -121,7 +126,10 @@ export async function exportPack(app: AppContext): Promise<void> {
     files,
   };
   const archive: Record<string, Uint8Array> = { "manifest.json": strToU8(`${JSON.stringify(manifest, null, 2)}\n`) };
-  for (const [path, content] of Object.entries(app.project.vfs)) archive[path] = new TextEncoder().encode(content);
+  for (const [path, content] of Object.entries(app.project.vfs)) {
+    if (isFolderMarker(path)) continue;
+    archive[path] = new TextEncoder().encode(content);
+  }
   for (const [path, asset] of Object.entries(app.project.assets)) {
     archive[path] = new Uint8Array(await asset.data.arrayBuffer());
   }

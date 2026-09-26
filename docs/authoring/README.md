@@ -55,6 +55,23 @@ were open or hidden. It is not a recording of the run: the Lua VM, timers, anima
 normal boot, so `OnInit` runs again on resume. That matters for scripts — see
 [Saving and resuming](lua.md#saving-and-resuming).
 
+## Creating files and folders
+
+The Author view's file tree is a real nested hierarchy. You can create folders and files at any level:
+
+- **+ New** in the explorer header opens a dialog for creating a folder, YAML file, or Lua file at the project root.
+- **+** on any folder row opens the same dialog, scoped to that folder.
+
+The dialog validates names: no path separators, no leading dots, no duplicates, and files must use a supported extension
+(`.yaml`, `.yml`, or `.lua`). A name typed without an extension gets the default for the chosen type.
+
+Empty folders are allowed. The explorer records them with a hidden marker that survives saves but is filtered from
+exports, so an empty folder does not travel with a `.inkforge` pack. Adding a file to an empty folder removes the marker
+automatically.
+
+Assets are uploaded separately via the **↑ Asset** button, which accepts the supported image and audio types. See
+[Project format](project-format.md) for the full list.
+
 ## A project's shape
 
 Lantern Below, the starter, is a reasonable template to copy:
