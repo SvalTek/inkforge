@@ -203,6 +203,7 @@ button:hover {
 
 .tree {
   display: grid;
+  align-content: start;
   gap: 3px;
   flex: 1;
   min-height: 0;
