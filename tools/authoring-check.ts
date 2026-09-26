@@ -194,6 +194,8 @@ async function main(): Promise<void> {
     // Open the create dialog from the root `+ New` button.
     await page.locator("#createNew").click();
     assert(await page.locator("#createOverlay").isVisible(), "create dialog did not open");
+    const createHeight = await page.locator(".create-window").evaluate((node) => node.getBoundingClientRect().height);
+    assert(createHeight < 400, `create dialog inherited an oversized height (${createHeight}px)`);
     // Default type from root is "folder".
     assert(
       await page.locator('#createOverlay [data-create-kind="folder"]').evaluate((node) =>

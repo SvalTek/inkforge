@@ -205,33 +205,36 @@ button:hover {
   padding: 0 8px 12px;
 }
 
-.pane-head button {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--muted);
-  font-size: 12px;
-  letter-spacing: .08em;
-  cursor: pointer;
+/* Keep the explorer label and its two actions on separate rows. The sidebar is
+   narrow enough that three items across wrap the button labels. */
+.pane-head {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 11px;
 }
 
-.pane-head button:hover {
-  color: var(--gold);
+.explorer-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
 }
 
-.pane-head #createNew {
-  font-size: 11px;
-  padding: 2px 8px;
+.pane-head .explorer-actions button {
+  min-width: 0;
+  padding: 7px 6px;
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
-.pane-head #createNew:hover {
-  border-color: #6d5939;
-}
-
-.pane-head #addFile {
-  font-size: 16px;
+.pane-head .explorer-actions button:hover {
+  border-color: #6c7181;
+  background: #202331;
+  color: var(--text);
 }
 
 .tree {
@@ -324,11 +327,12 @@ button:hover {
 
 .folder-add {
   flex: 0 0 auto;
-  border: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
   background: transparent;
-  padding: 4px 8px;
+  padding: 3px 7px;
   font-size: 13px;
-  color: #6d5939;
+  color: var(--muted);
   cursor: pointer;
   opacity: 0;
   transition: opacity .12s ease;
@@ -341,6 +345,8 @@ button:hover {
 
 .folder-add:hover {
   color: var(--gold);
+  border-color: #6d5939;
+  background: #25212a;
 }
 
 .file {
