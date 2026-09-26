@@ -229,7 +229,9 @@ export async function packageFolder(options: PackageOptions): Promise<void> {
     vfs[path] = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   }
   const scriptPath = mainScriptPath(await composeScenario(vfs));
-  if (vfs[scriptPath] === undefined) throw new Error(`Manifest must include configured Lua entry script: ${scriptPath}`);
+  if (vfs[scriptPath] === undefined) {
+    throw new Error(`Manifest must include configured Lua entry script: ${scriptPath}`);
+  }
   // The importer keeps whichever project is newer, so a pack that changes content
   // under an unchanged version is one nobody can install: it is declined as
   // "already v<version>". Catch that here, where the author still knows what the

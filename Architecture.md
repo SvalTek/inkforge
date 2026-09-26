@@ -20,7 +20,7 @@ The authored format is described in [Project format](docs/authoring/project-form
 
 ## Projects, files, and saves
 
-A project has an identity, a virtual file system (VFS) of text files, and binary assets. `scenario.yaml` is the composition entry point; `scripts/main.lua` is the required Lua entry file in a project pack. Other YAML and Lua files can be added under folders. The explorer derives folders from VFS paths and records empty folders with a hidden marker; markers are omitted from exported packs. The two required files and the folder containing `main.lua` cannot be deleted in the editor.
+A project has an identity, a virtual file system (VFS) of text files, and binary assets. `scenario.yaml` is the composition entry point; its `scripts.main` field names the Lua entry file, defaulting to `scripts/main.lua`. Other YAML and Lua files can be added under folders. The explorer derives folders from VFS paths and records empty folders with a hidden marker; markers are omitted from exported packs. The scenario file, configured Lua entry file, and folders containing either cannot be deleted in the editor. Pack import, export, and the disk packer also require the configured entry file, checked once the scenario composes far enough to name it.
 
 Projects are independent records in IndexedDB. The bundled starter is seeded as a pinned project, and **Scenarios** can make a separate copy or load another stored project. Editor changes are saved locally on a debounce; project transitions and pack export flush pending edits first. An `.inkforge` file is a ZIP pack of the project's source and assets, with a generated manifest. Import validates the pack and compares project versions before replacing a stored project with the same ID.
 

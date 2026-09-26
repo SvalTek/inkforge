@@ -14,8 +14,12 @@ import { $all, queryDom } from "./dom.ts";
 import { applyUi as applyUiState } from "../engine/ui-state.ts";
 import { createEngine } from "../engine/engine.ts";
 import { createOutput, flushView as flushViewImpl } from "../engine/events.ts";
-import { composeScenario as composeScenarioImpl, readScenarioMeta, validateScenario } from "../yaml/compose.ts";
-import { mainScriptPath } from "../yaml/compose.ts";
+import {
+  composeScenario as composeScenarioImpl,
+  mainScriptPath,
+  readScenarioMeta,
+  validateScenario,
+} from "../yaml/compose.ts";
 import { emitNamedEvent, invokeNamedFunction, type SeamReport } from "../lua/invoke.ts";
 import { normalizeProject, projectCardMeta, projectTitle } from "../project/project.ts";
 import {

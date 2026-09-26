@@ -114,9 +114,14 @@ function validateManifest(value: unknown): ProjectManifest {
 /** Download the active project as a version-2 ZIP package. */
 export async function exportPack(app: AppContext): Promise<void> {
   await app.persist();
-  const scriptPath = mainScriptPath(await composeScenario(app.project.vfs));
-  if (app.project.vfs[scriptPath] === undefined) {
-    throw new Error(`Project is missing configured Lua entry script: ${scriptPath}`);
+  // An unfinished scenario can still be exported as a backup. Check the entry
+  // when composition succeeds, but leave YAML diagnostics to the normal boot.
+  const scenario = await composeScenario(app.project.vfs).catch(() => null);
+  if (scenario) {
+    const scriptPath = mainScriptPath(scenario);
+    if (app.project.vfs[scriptPath] === undefined) {
+      throw new Error(`Project is missing configured Lua entry script: ${scriptPath}`);
+    }
   }
   // Empty-folder markers are bookkeeping for the explorer, not authored work;
   // they must not travel with the pack.
@@ -195,9 +200,14 @@ export async function importPack(app: AppContext, file: File): Promise<void> {
       }
     }
   }
-  const scriptPath = mainScriptPath(await composeScenario(vfs));
-  if (!manifest.files.includes(scriptPath) || vfs[scriptPath] === undefined) {
-    throw new Error(`Package must include configured Lua entry script: ${scriptPath}`);
+  // Existing imports may contain broken YAML and surface that failure at boot.
+  // Only validate the selected entry when the scenario can be composed.
+  const scenario = await composeScenario(vfs).catch(() => null);
+  if (scenario) {
+    const scriptPath = mainScriptPath(scenario);
+    if (!manifest.files.includes(scriptPath) || vfs[scriptPath] === undefined) {
+      throw new Error(`Package must include configured Lua entry script: ${scriptPath}`);
+    }
   }
   const existing = await getProject(manifest.project.id);
   if (existing && compareVersions(manifest.project.version, existing.identity.version) <= 0) {

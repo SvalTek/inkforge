@@ -169,6 +169,10 @@ Scenario source is not valid UTF-8: <path>
 An import that is declined because the loaded project is the same version or newer says so rather than importing — see
 [Project format](project-format.md).
 
+`Package must include configured Lua entry script` only appears when the pack's scenario composes far enough to name its
+entry script. A pack with broken or unfinished YAML imports anyway and reports through the diagnostics line at boot, so
+the two failure paths never overlap.
+
 ## The console
 
 `print` from Lua writes to the browser console, not to the transcript. Use `GameOutput.add` for anything the player
