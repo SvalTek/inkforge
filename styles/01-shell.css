@@ -205,10 +205,36 @@ button:hover {
   padding: 0 8px 12px;
 }
 
-.pane-head button {
-  padding: 0;
-  border: 0;
-  font-size: 18px;
+/* Keep the explorer label and its two actions on separate rows. The sidebar is
+   narrow enough that three items across wrap the button labels. */
+.pane-head {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 11px;
+}
+
+.explorer-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.pane-head .explorer-actions button {
+  min-width: 0;
+  padding: 7px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.pane-head .explorer-actions button:hover {
+  border-color: #6c7181;
+  background: #202331;
+  color: var(--text);
 }
 
 .tree {
@@ -276,9 +302,79 @@ button:hover {
 }
 
 .folder {
+  display: flex;
+  align-items: center;
+  gap: 0;
   font-size: 13px;
-  padding: 9px 8px;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.file-row > .file {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.entry-delete {
+  flex: 0 0 24px;
+  padding: 2px;
+  margin-right: 7px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.entry-delete:hover {
+  color: var(--red);
+  border-color: #70434a;
+  background: #282027;
+}
+
+.folder-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 8px 4px;
+  font-size: 13px;
   color: #d5d2db;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.folder-toggle:hover {
+  color: #fff;
+}
+
+.folder-add {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  padding: 3px 7px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+
+.folder:hover > .folder-add,
+.folder-add:focus-visible {
+  opacity: 1;
+}
+
+.folder-add:hover {
+  color: var(--gold);
+  border-color: #6d5939;
+  background: #25212a;
 }
 
 .file {
@@ -559,18 +655,42 @@ form button {
     gap: 15px;
   }
 
-  .actions button:not(.gold) {
+  .actions {
+    gap: 6px;
+  }
+
+  .actions button {
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 850px) {
+  .project-title {
     display: none;
   }
 }
 
 @media (max-width: 660px) {
-  header {
-    padding: 0 14px;
+  .app > header {
+    flex-wrap: wrap;
+    gap: 0 12px;
+    padding: 8px 14px;
+    align-content: center;
   }
 
-  .project-title {
-    display: none;
+  .actions {
+    order: 3;
+    flex: 0 0 100%;
+    justify-content: space-between;
+    overflow-x: auto;
+    margin: 6px 0 0;
+  }
+
+  .actions button {
+    flex: 0 0 auto;
+    padding: 6px 7px;
+    font-size: 11px;
   }
 
   .workspace {

@@ -4,20 +4,26 @@ An Inkforge project is a flat set of text files plus an `assets/` folder, bundle
 Inside the studio the same files are held in a virtual file system, so paths always use forward slashes regardless of
 the host operating system.
 
-## The two required files
+## Required entry files
 
-Every project must contain:
+Every project must contain `scenario.yaml` and the Lua entry file named by its composed `scripts.main` field:
 
 | Path | Purpose |
 |---|---|
 | `scenario.yaml` | The entry point. The composer starts here and follows `!import`s. |
-| `scripts/main.lua` | The Lua entry file. |
+| `scripts/main.lua` by default | The Lua entry file. Set `scripts.main` in `scenario.yaml` to use another project-relative path. |
 
-These are the only fixed names. Everything else — `locations.yml`, `ui.yml`, `modals.yml`, anything — is a convention
-you can rearrange freely, because `scenario.yaml` names what it imports.
+Only `scenario.yaml` has a fixed name. Everything else — the entry script, `locations.yml`, `ui.yml`, `modals.yml`,
+anything — can be rearranged if the scenario points to it.
 
-A project that is missing either file is rejected at import with
-`Package must include scenario.yaml and scripts/main.lua`.
+A pack without `scenario.yaml` is rejected with `Package must include scenario.yaml`. A pack whose manifest omits the
+configured Lua entry file is rejected with `Package must include configured Lua entry script: <path>`.
+The Author explorer protects `scenario.yaml`, the configured entry script, and any folder containing that script.
+
+The entry check needs a composed scenario to know which script is the entry one, so it only runs when the YAML composes.
+A pack whose YAML is unfinished or broken is still accepted and imports normally; its problem surfaces in the diagnostics
+line at boot instead, which is where you fix it. Exporting such a project is also allowed, so an in-progress project can
+still be packed as a backup.
 
 ## `manifest.json`
 
@@ -112,7 +118,7 @@ Anything under `assets/` is treated as binary rather than source. The supported 
 | `.wav` | `audio/wav` |
 
 Any other extension under `assets/` is refused — on import, `Unsupported asset type: <path>`, and on upload through the
-**+** button, `● Unsupported asset type: <name>`. The `+` button also refuses to overwrite: `● Asset already exists:
+**↑ Asset** button, `● Unsupported asset type: <name>`. The upload button also refuses to overwrite: `● Asset already exists:
 <path>`.
 
 Assets are referenced by their project path. An `image` element uses `src: assets/map.svg`; audio uses
@@ -130,6 +136,7 @@ else:
 - No leading `/` — paths are relative to the project root.
 - No `.` or `..` segments, and no empty segments.
 - `manifest.json` is reserved and cannot appear in `files`.
+- `.inkforge-dir` is reserved as a filename at any depth for the Author view's empty-folder markers. Packs containing it are refused.
 - Duplicate paths in `files` are refused.
 
 On import, an archive is also bounded: 16 MB compressed, at most 256 entries, 8 MB per entry and 32 MB uncompressed in
@@ -137,10 +144,12 @@ total. Exceeding any of these reports the specific limit that was hit rather tha
 
 ## Export and import
 
-**Export .inkforge** writes the current project — every VFS file plus every asset — as a ZIP with a generated
-`manifest.json`. The download is named after the project title, sanitised for a filesystem.
+**Export Scenario** writes the current project — every VFS file plus every asset — as a ZIP with a generated
+`manifest.json`. The download is named after the project title, sanitised for a filesystem. Empty folders created in the
+Author view are recorded with a hidden marker that survives saves but is filtered from exports, so a pack contains only
+real files and assets.
 
-**Import pack** validates the manifest, checks the version against any stored project with the same id, and then either
+**Import Scenario** in the **Scenarios** dialog validates the manifest, checks the version against any stored project with the same id, and then either
 declines it or installs it and starts it. Source files must be valid UTF-8; a file that is not is reported as
 `Scenario source is not valid UTF-8: <path>`.
 
@@ -149,7 +158,7 @@ library, or in `manifest.json` of the source folder if you are packing from disk
 
 ## The scenario library
 
-**Load scenario** opens the library, which lists every scenario stored in the browser. Scenarios persist locally in
+**Scenarios** opens the library, which lists every scenario stored in the browser. Scenarios persist locally in
 IndexedDB; nothing is sent anywhere, and there is no server. The bundled starter is marked pinned: pinning survives an
 import, so a newer pack updates the starter in place rather than adding a second copy — which is how the template that
 ships with the app is refreshed in an existing install.
@@ -169,4 +178,4 @@ version has to move — see [the package version is not the scenario version](#t
 compares it, file by file, against the folder it was built from, so a pack left behind by an edit fails the matrix
 instead of shipping stale content.
 
-**New scenario** restores a fresh copy of the starter, leaving the existing scenarios untouched.
+**New scenario** in the **Scenarios** dialog restores a fresh copy of the starter, leaving the existing scenarios untouched.

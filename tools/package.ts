@@ -2,6 +2,8 @@ import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { assetMime } from "../src/project/assets.ts";
 import { compareVersions } from "../src/import-export/pack.ts";
+import { isFolderMarker } from "../src/editor/tree.ts";
+import { composeScenario, mainScriptPath } from "../src/yaml/compose.ts";
 import type { ProjectIdentity } from "../src/types/project.ts";
 
 interface SourceManifest {
@@ -104,6 +106,7 @@ async function selectedFiles(root: string, manifest: SourceManifest, excluded: s
   const files: string[] = [];
   const seen = new Set<string>();
   for (const entry of manifest.files) {
+    if (isFolderMarker(entry)) throw new Error(`Reserved empty-folder marker path: ${entry}`);
     if (
       !entry || entry === "manifest.json" || entry.startsWith("/") || entry.includes("\\") ||
       entry.split("/").some((segment) => !segment || segment === "." || segment === "..")
@@ -121,7 +124,6 @@ async function selectedFiles(root: string, manifest: SourceManifest, excluded: s
     files.push(path);
   }
   if (!manifest.files.includes("scenario.yaml")) throw new Error("Manifest must include scenario.yaml");
-  if (!manifest.files.includes("scripts/main.lua")) throw new Error("Manifest must include scripts/main.lua");
   return files;
 }
 
@@ -220,6 +222,21 @@ export async function packageFolder(options: PackageOptions): Promise<void> {
   for (const path of selected) {
     const key = relative(options.folder, path).split(sep).join("/");
     archive[key] = await Deno.readFile(path);
+  }
+  const vfs: Record<string, string> = {};
+  for (const [path, bytes] of Object.entries(archive)) {
+    if (path === "manifest.json" || path.startsWith("assets/")) continue;
+    vfs[path] = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  }
+  // An unfinished scenario can still be packed as a backup, exactly as the
+  // browser exporter does. Check the entry when composition succeeds, but leave
+  // YAML diagnostics to the normal boot.
+  const scenario = await composeScenario(vfs).catch(() => null);
+  if (scenario) {
+    const scriptPath = mainScriptPath(scenario);
+    if (vfs[scriptPath] === undefined) {
+      throw new Error(`Manifest must include configured Lua entry script: ${scriptPath}`);
+    }
   }
   // The importer keeps whichever project is newer, so a pack that changes content
   // under an unchanged version is one nobody can install: it is declined as

@@ -1,5 +1,5 @@
 import type { EngineRuntime } from "../types/index.ts";
-import { markViewDirty } from "./events.ts";
+import { markViewDirty, pushEvent } from "./events.ts";
 
 /**
  * State, inventory and location mutations.
@@ -25,19 +25,19 @@ export function adjustState(runtime: EngineRuntime, path: string, by: number): v
 export function addItem(runtime: EngineRuntime, id: string): void {
   if (runtime.inventory.includes(id)) return;
   runtime.inventory.push(id);
-  runtime.events.push({ type: "inventory:add", itemId: id });
+  pushEvent(runtime, { type: "inventory:add", itemId: id });
   markViewDirty(runtime);
 }
 
 export function removeItem(runtime: EngineRuntime, id: string): void {
   runtime.inventory = runtime.inventory.filter((value) => value !== id);
-  runtime.events.push({ type: "inventory:remove", itemId: id });
+  pushEvent(runtime, { type: "inventory:remove", itemId: id });
   markViewDirty(runtime);
 }
 
 export function setLocation(runtime: EngineRuntime, id: string): void {
   runtime.location = id;
   runtime.conversation = null;
-  runtime.events.push({ type: "location:enter", locationId: id });
+  pushEvent(runtime, { type: "location:enter", locationId: id });
   markViewDirty(runtime);
 }

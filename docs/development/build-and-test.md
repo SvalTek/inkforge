@@ -18,9 +18,15 @@
 | `deno task docs:build` | Build the docs site into `dist/docs/` |
 | `deno task docs:preview` | Preview the built docs site |
 | `deno task fmt` / `deno task lint` | Format and lint the Deno sources |
+| `deno task fmt:check` | Report formatting drift without writing, for verifying a change |
 
 `dev` and `serve` accept `--port <n>`. `pack` accepts `--out <file.inkforge>`, `--bump major|minor|patch` and
 `--force`.
+
+**Line endings are pinned to LF.** `.gitattributes` sets `text=auto eol=lf`, so a checkout is LF on every operating
+system while `text=auto` still leaves binary packs, audio and images byte-for-byte alone. This matters because `deno fmt`
+writes LF: without the attribute a Windows checkout is CRLF and `deno task fmt:check` reports nearly every file as
+unformatted, which is a line-ending false positive rather than real drift.
 
 The docs site uses VitePress. Install its pinned dependencies once with `npm ci --prefix docs`; the application tasks
 remain Deno-only.
@@ -55,7 +61,7 @@ Output is a set of plain static files. Host `dist/` on any static host; no build
 Four suites, two flavours. The browser ones prove the app works end to end; the in-process ones pin behaviour that is
 awkward to observe through a page.
 
-### `deno task smoke` — 23 assertions
+### `deno task smoke`
 
 Builds, serves, and drives Chrome. Captures console messages, page errors and dialogs, and fails on unexpected ones.
 
@@ -81,6 +87,9 @@ Builds, serves, and drives Chrome. Captures console messages, page errors and di
 | 6h | Markdown renders, and authored links are gated behind a confirmation dialog |
 | 7 | New project restores the starter |
 | 8 | A Lua timer repaints a bound meter with no command |
+| 9 | Save a run, restart without overwriting it, and resume its state and inventory |
+| 9a | Export a save as JSON, delete it, import it, and resume it |
+| 9b | Importing over the active project's own save asks first, even after a boot that failed |
 
 Assertion 1a exists because a Lua error on every tick is invisible in a screenshot — it was written to catch a real
 regression where the runtime leaked stack slots until it trapped. Assertion 8 covers the repaint model: a
@@ -105,6 +114,13 @@ paging, UI actions, state controls and reset.
 
 Runs `InkforgeCanvasRuntime` directly, with no browser. Covers layer order, projection hit-testing and the canvas math.
 This is where canvas-loop and animation changes can be pinned deterministically.
+
+### `deno task check:save`
+
+Runs the snapshot round-trip in process, with no browser: the transcript cap, the save/export envelope, and the
+tolerance of a hand-edited or imported file. A save can arrive from any browser or a text editor, so every field is
+narrowed rather than trusted — a malformed tool definition, UI field or nested child is dropped so it costs that entry
+instead of the whole resume, which is the failure mode only a test can reach.
 
 ### `deno task check:pack`
 
@@ -142,3 +158,7 @@ ship a change nobody could install. `--bump patch|minor|major` raises the versio
 `manifest.json`; `--force` repacks in place. The version bumped is `manifest.json`'s `project.version`, never
 `scenario.yaml`'s `meta.version` — see [the package version is not the scenario
 version](../authoring/project-format.md#the-package-version-is-not-the-scenario-version).
+
+The packer also requires the configured Lua entry script, resolved from the composed scenario so `scripts.main` is
+honoured rather than the conventional path. That check is skipped when the YAML does not compose: a project mid-edit
+still packs, and the YAML error is reported at boot instead, which is what browser export and import already do.

@@ -11,6 +11,9 @@ export interface DomRefs {
   saved: HTMLElement;
   newBtn: HTMLButtonElement;
   loadBtn: HTMLButtonElement;
+  savesBtn: HTMLButtonElement;
+  importSaveBtn: HTMLButtonElement;
+  saveFile: HTMLInputElement;
   importBtn: HTMLButtonElement;
   importFile: HTMLInputElement;
   assetInput: HTMLInputElement;
@@ -30,6 +33,7 @@ export interface DomRefs {
   gameSurface: HTMLElement;
   gameHud: HTMLElement;
   restartHero: HTMLButtonElement;
+  saveBtn: HTMLButtonElement;
 
   inventoryOverlay: HTMLElement;
   inventoryKicker: HTMLElement;
@@ -48,6 +52,9 @@ export interface DomRefs {
   projectOverlay: HTMLElement;
   projectList: HTMLElement;
   closeProjects: HTMLButtonElement;
+  saveOverlay: HTMLElement;
+  saveList: HTMLElement;
+  closeSaves: HTMLButtonElement;
 
   authorView: HTMLElement;
   tree: HTMLElement;
@@ -55,13 +62,27 @@ export interface DomRefs {
   editorWrap: HTMLElement;
   assetPreview: HTMLElement;
   addFile: HTMLButtonElement;
+  createNew: HTMLButtonElement;
+  createOverlay: HTMLElement;
+  createTitle: HTMLElement;
+  createLabel: HTMLElement;
+  createName: HTMLInputElement;
+  createError: HTMLElement;
+  createClose: HTMLButtonElement;
+  createCancel: HTMLButtonElement;
+  createSubmit: HTMLButtonElement;
+  deleteOverlay: HTMLElement;
+  deleteTitle: HTMLElement;
+  deleteDescription: HTMLElement;
+  deleteClose: HTMLButtonElement;
+  deleteCancel: HTMLButtonElement;
+  deleteConfirm: HTMLButtonElement;
   /** The editor's mount point; CodeMirror owns everything inside it. */
   code: HTMLElement;
   cursor: HTMLElement;
   diagnostics: HTMLElement;
   format: HTMLElement;
   runTitle: HTMLElement;
-  restart: HTMLButtonElement;
   run: HTMLButtonElement;
   location: HTMLElement;
   terminal: HTMLElement;
@@ -90,6 +111,9 @@ export function queryDom(): DomRefs {
     saved: get("#saved"),
     newBtn: get("#newBtn"),
     loadBtn: get("#loadBtn"),
+    savesBtn: get("#savesBtn"),
+    importSaveBtn: get("#importSaveBtn"),
+    saveFile: get("#saveFile"),
     importBtn: get("#importBtn"),
     importFile: get("#importFile"),
     assetInput: get("#assetInput"),
@@ -109,6 +133,7 @@ export function queryDom(): DomRefs {
     gameSurface: get("#gameSurface"),
     gameHud: get("#gameHud"),
     restartHero: get("#restartHero"),
+    saveBtn: get("#saveBtn"),
 
     inventoryOverlay: get("#inventoryOverlay"),
     inventoryKicker: get("#inventoryKicker"),
@@ -126,6 +151,9 @@ export function queryDom(): DomRefs {
     projectOverlay: get("#projectOverlay"),
     projectList: get("#projectList"),
     closeProjects: get("#closeProjects"),
+    saveOverlay: get("#saveOverlay"),
+    saveList: get("#saveList"),
+    closeSaves: get("#closeSaves"),
 
     authorView: get("#authorView"),
     tree: get(".tree"),
@@ -133,12 +161,26 @@ export function queryDom(): DomRefs {
     editorWrap: get(".editor-wrap"),
     assetPreview: get("#assetPreview"),
     addFile: get("#addFile"),
+    createNew: get("#createNew"),
+    createOverlay: get("#createOverlay"),
+    createTitle: get("#createTitle"),
+    createLabel: get("#createLabel"),
+    createName: get("#createName"),
+    createError: get("#createError"),
+    createClose: get("#closeCreate"),
+    createCancel: get("#createCancel"),
+    createSubmit: get("#createSubmit"),
+    deleteOverlay: get("#deleteOverlay"),
+    deleteTitle: get("#deleteTitle"),
+    deleteDescription: get("#deleteDescription"),
+    deleteClose: get("#closeDelete"),
+    deleteCancel: get("#deleteCancel"),
+    deleteConfirm: get("#deleteConfirm"),
     code: get("#code"),
     cursor: get("#cursor"),
     diagnostics: get("#diagnostics"),
     format: get("#format"),
     runTitle: get("#runTitle"),
-    restart: get("#restart"),
     run: get("#run"),
     location: get("#location"),
     terminal: get("#terminal"),

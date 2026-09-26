@@ -1,7 +1,7 @@
 {
   "tasks": {
     "check": "deno check src/main.ts",
-    "check:tools": "deno check tools/build.ts tools/dev.ts tools/serve.ts tools/server.ts tools/smoke.ts tools/authoring-check.ts tools/renderer-check.ts tools/package.ts tools/pack-check.ts tools/manifest-check.ts",
+    "check:tools": "deno check tools/build.ts tools/dev.ts tools/serve.ts tools/server.ts tools/smoke.ts tools/authoring-check.ts tools/renderer-check.ts tools/package.ts tools/pack-check.ts tools/manifest-check.ts tools/save-check.ts",
     "build": "deno run -A tools/build.ts",
     "pack": "deno run -A tools/package.ts",
     "dev": "deno run -A tools/dev.ts",
@@ -9,12 +9,14 @@
     "smoke": "deno run -A tools/smoke.ts",
     "check:authoring": "deno run -A tools/authoring-check.ts",
     "check:renderer": "deno run tools/renderer-check.ts",
+    "check:save": "deno run tools/save-check.ts",
     "check:pack": "deno run -A tools/pack-check.ts",
     "check:manifest": "deno run -A tools/manifest-check.ts",
     "docs:dev": "npm run dev --prefix docs",
     "docs:build": "npm run build --prefix docs",
     "docs:preview": "npm run preview --prefix docs",
     "fmt": "deno fmt",
+    "fmt:check": "deno fmt --check",
     "lint": "deno lint"
   },
   "imports": {
@@ -54,6 +56,7 @@
       "docs",
       "index.html",
       "*.md",
+      "AGENTS.md",
       "Architecture.md",
       "Plan.md",
       "README.md"

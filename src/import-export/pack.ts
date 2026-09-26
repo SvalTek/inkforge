@@ -4,9 +4,12 @@ import { assetFromBlob, assetMime } from "../project/assets.ts";
 import { normalizeProject, projectTitle } from "../project/project.ts";
 import { getProject, putProject, setActiveProjectId } from "../project/storage.ts";
 import { DEFAULT_OPEN_FILES, openInEditor } from "../editor/editor.ts";
+import { isFolderMarker } from "../editor/tree.ts";
+import { composeScenario, mainScriptPath } from "../yaml/compose.ts";
 import type { ProjectManifest } from "../types/index.ts";
 
 function assertSafePath(path: string): void {
+  if (isFolderMarker(path)) throw new Error(`Reserved empty-folder marker path: ${path}`);
   if (
     !path || path === "manifest.json" || path.startsWith("/") || path.includes("\\") ||
     path.split("/").some((segment) => !segment || segment === "." || segment === "..")
@@ -104,16 +107,26 @@ function validateManifest(value: unknown): ProjectManifest {
     if (seen.has(path)) throw new Error(`Duplicate scenario path: ${path}`);
     seen.add(path);
   }
-  if (!seen.has("scenario.yaml") || !seen.has("scripts/main.lua")) {
-    throw new Error("Package must include scenario.yaml and scripts/main.lua");
-  }
+  if (!seen.has("scenario.yaml")) throw new Error("Package must include scenario.yaml");
   return manifest as ProjectManifest;
 }
 
 /** Download the active project as a version-2 ZIP package. */
 export async function exportPack(app: AppContext): Promise<void> {
   await app.persist();
-  const files = [...Object.keys(app.project.vfs), ...Object.keys(app.project.assets)].sort();
+  // An unfinished scenario can still be exported as a backup. Check the entry
+  // when composition succeeds, but leave YAML diagnostics to the normal boot.
+  const scenario = await composeScenario(app.project.vfs).catch(() => null);
+  if (scenario) {
+    const scriptPath = mainScriptPath(scenario);
+    if (app.project.vfs[scriptPath] === undefined) {
+      throw new Error(`Project is missing configured Lua entry script: ${scriptPath}`);
+    }
+  }
+  // Empty-folder markers are bookkeeping for the explorer, not authored work;
+  // they must not travel with the pack.
+  const vfsKeys = Object.keys(app.project.vfs).filter((key) => !isFolderMarker(key));
+  const files = [...vfsKeys, ...Object.keys(app.project.assets)].sort();
   const manifest: ProjectManifest = {
     format: "inkforge-pack",
     packVersion: 2,
@@ -121,7 +134,10 @@ export async function exportPack(app: AppContext): Promise<void> {
     files,
   };
   const archive: Record<string, Uint8Array> = { "manifest.json": strToU8(`${JSON.stringify(manifest, null, 2)}\n`) };
-  for (const [path, content] of Object.entries(app.project.vfs)) archive[path] = new TextEncoder().encode(content);
+  for (const [path, content] of Object.entries(app.project.vfs)) {
+    if (isFolderMarker(path)) continue;
+    archive[path] = new TextEncoder().encode(content);
+  }
   for (const [path, asset] of Object.entries(app.project.assets)) {
     archive[path] = new Uint8Array(await asset.data.arrayBuffer());
   }
@@ -184,16 +200,28 @@ export async function importPack(app: AppContext, file: File): Promise<void> {
       }
     }
   }
+  // Existing imports may contain broken YAML and surface that failure at boot.
+  // Only validate the selected entry when the scenario can be composed.
+  const scenario = await composeScenario(vfs).catch(() => null);
+  if (scenario) {
+    const scriptPath = mainScriptPath(scenario);
+    if (!manifest.files.includes(scriptPath) || vfs[scriptPath] === undefined) {
+      throw new Error(`Package must include configured Lua entry script: ${scriptPath}`);
+    }
+  }
   const existing = await getProject(manifest.project.id);
   if (existing && compareVersions(manifest.project.version, existing.identity.version) <= 0) {
     app.dom.diagnostics.textContent = `● ${projectTitle(existing)} is already v${existing.identity.version}`;
     app.dom.diagnostics.style.color = "#d6a95c";
+    app.dom.projectOverlay.classList.add("hidden");
     return;
   }
   const project = normalizeProject({ identity: manifest.project, vfs, assets, pinned: existing?.pinned });
   await putProject(project);
   setActiveProjectId(project.identity.id);
   app.project = project;
+  app.scenario = null;
+  app.protectedScript = "scripts/main.lua";
   app.openFiles = [...DEFAULT_OPEN_FILES];
   app.current = "scenario.yaml";
   app.activeAsset = null;
@@ -203,4 +231,5 @@ export async function importPack(app: AppContext, file: File): Promise<void> {
   app.renderFileTree();
   app.renderTabs();
   await app.start();
+  app.dom.projectOverlay.classList.add("hidden");
 }

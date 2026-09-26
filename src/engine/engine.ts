@@ -2,6 +2,7 @@ import type { AvailableAction, Condition, DirectiveList, EngineApi, EngineDeps, 
 import { check as checkCondition } from "./conditions.ts";
 import type { DirectiveDeps } from "./directives.ts";
 import { execute as executeDirectives, itemName, move as moveTo } from "./directives.ts";
+import { clearTranscript } from "./events.ts";
 
 export function createEngine(deps: EngineDeps): EngineApi {
   const dirDeps: DirectiveDeps = {
@@ -49,7 +50,9 @@ export function createEngine(deps: EngineDeps): EngineApi {
     const cmd = raw.trim();
     const lower = cmd.toLowerCase();
     if (!cmd || deps.runtime.over) return;
-    deps.runtime.events = [];
+    // The turn boundary. Resetting the discard count with the entries is what
+    // keeps a fresh turn from inheriting an elision notice it no longer needs.
+    clearTranscript(deps.runtime);
     try {
       if (["look", "l"].includes(lower)) {
         await execute(deps.getScenario()?.locations?.[deps.runtime.location]?.text);

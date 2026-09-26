@@ -113,7 +113,8 @@ it to the bridge as `wasmUri`, so the bundle needs no external file and there is
 reintroduce a copied `glue.wasm`.
 
 **`deno task check` before you are finished.** It type-checks `src/main.ts`; `deno task check:tools` type-checks the
-tools, which are outside that graph. `deno task fmt` and `deno task lint` are separate. Beyond the type checker, the four
+tools, which are outside that graph. `deno task fmt` and `deno task lint` are separate, and `deno task fmt:check` reports
+formatting drift without writing. Beyond the type checker, the four
 browser checks (`check:renderer`, `check:authoring`, `check:pack`, `check:tools`) plus `smoke` cover the surfaces types
 cannot reach — see [Build and test](build-and-test.md).
 

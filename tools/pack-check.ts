@@ -1,6 +1,7 @@
 import { strFromU8, unzipSync } from "fflate";
 import { basename, join } from "node:path";
 import { compareVersions } from "../src/import-export/pack.ts";
+import { packageFolder } from "./package.ts";
 import { TEMPLATES } from "./paths.ts";
 
 /**
@@ -114,3 +115,110 @@ function verifyCommittedPack(packPath: string): string {
 
 const verified = committedPacks().map(verifyCommittedPack);
 console.log(`Committed packs match their folders: ${verified.join(", ")}.`);
+
+// The disk packer must reject the same reserved basename as browser import.
+const markerRoot = await Deno.makeTempDir({ prefix: "inkforge-marker-pack-" });
+const markerOutput = join(markerRoot, "invalid.inkforge");
+try {
+  await Deno.mkdir(join(markerRoot, "scripts"));
+  await Deno.writeTextFile(join(markerRoot, "scenario.yaml"), "startLocation: gate\n");
+  await Deno.writeTextFile(join(markerRoot, "scripts", "main.lua"), "-- entry\n");
+  await Deno.writeTextFile(join(markerRoot, "scripts", ".inkforge-dir"), "authored content\n");
+  await Deno.writeTextFile(
+    join(markerRoot, "manifest.json"),
+    JSON.stringify({
+      format: "inkforge-pack",
+      packVersion: 2,
+      project: { id: "reserved-marker-test", version: "1.0.0" },
+      files: ["scenario.yaml", "scripts/main.lua", "scripts/.inkforge-dir"],
+    }),
+  );
+  let rejected = false;
+  try {
+    await packageFolder({ folder: markerRoot, output: markerOutput, force: false });
+  } catch (error) {
+    rejected = (error as Error).message.includes("Reserved empty-folder marker path: scripts/.inkforge-dir");
+  }
+  assert(rejected, "disk packer accepted a file that export would silently omit");
+} finally {
+  await Deno.remove(markerOutput).catch(() => {});
+  await Deno.remove(join(markerRoot, "manifest.json"));
+  await Deno.remove(join(markerRoot, "scenario.yaml"));
+  await Deno.remove(join(markerRoot, "scripts", "main.lua"));
+  await Deno.remove(join(markerRoot, "scripts", ".inkforge-dir"));
+  await Deno.remove(join(markerRoot, "scripts"));
+  await Deno.remove(markerRoot);
+}
+
+// The packer must follow scenario.scripts.main instead of requiring the
+// conventional path, and refuse a manifest that omits the configured entry.
+const customRoot = await Deno.makeTempDir({ prefix: "inkforge-custom-script-pack-" });
+const customOutput = join(customRoot, "custom.inkforge");
+try {
+  await Deno.mkdir(join(customRoot, "chapter"));
+  await Deno.writeTextFile(
+    join(customRoot, "scenario.yaml"),
+    "startLocation: gate\nscripts:\n  main: chapter/entry.lua\nlocations:\n  gate:\n    text: Hello\n",
+  );
+  await Deno.writeTextFile(join(customRoot, "chapter", "entry.lua"), "-- custom entry\n");
+  const manifest = {
+    format: "inkforge-pack",
+    packVersion: 2,
+    project: { id: "custom-script-pack", version: "1.0.0" },
+    files: ["scenario.yaml", "chapter/entry.lua"],
+  };
+  await Deno.writeTextFile(join(customRoot, "manifest.json"), JSON.stringify(manifest));
+  await packageFolder({ folder: customRoot, output: customOutput, force: false });
+  const packed = unzipSync(await Deno.readFile(customOutput));
+  assert(packed["chapter/entry.lua"] !== undefined, "packer omitted the configured entry");
+  assert(packed["scripts/main.lua"] === undefined, "packer required an unused default entry");
+
+  manifest.files = ["scenario.yaml"];
+  await Deno.writeTextFile(join(customRoot, "manifest.json"), JSON.stringify(manifest));
+  let rejected = false;
+  try {
+    await packageFolder({ folder: customRoot, output: customOutput, force: false });
+  } catch (error) {
+    rejected = (error as Error).message.includes("configured Lua entry script: chapter/entry.lua");
+  }
+  assert(rejected, "packer accepted a manifest missing its configured entry");
+} finally {
+  await Deno.remove(customOutput).catch(() => {});
+  await Deno.remove(join(customRoot, "manifest.json"));
+  await Deno.remove(join(customRoot, "scenario.yaml"));
+  await Deno.remove(join(customRoot, "chapter", "entry.lua"));
+  await Deno.remove(join(customRoot, "chapter"));
+  await Deno.remove(customRoot);
+}
+
+// A scenario that does not compose is a work in progress, not a broken file: the
+// browser exporter and importer both pack it and leave the YAML diagnostics to
+// the next boot, so the disk packer must not refuse to pack it either. Without
+// this the only way to back up a project mid-edit is the browser.
+const unfinishedRoot = await Deno.makeTempDir({ prefix: "inkforge-unfinished-pack-" });
+const unfinishedOutput = join(unfinishedRoot, "unfinished.inkforge");
+try {
+  await Deno.mkdir(join(unfinishedRoot, "scripts"));
+  await Deno.writeTextFile(join(unfinishedRoot, "scenario.yaml"), "startLocation: gate\nlocations: [oops\n");
+  await Deno.writeTextFile(join(unfinishedRoot, "scripts", "main.lua"), "-- half-written\n");
+  await Deno.writeTextFile(
+    join(unfinishedRoot, "manifest.json"),
+    JSON.stringify({
+      format: "inkforge-pack",
+      packVersion: 2,
+      project: { id: "unfinished-pack", version: "1.0.0" },
+      files: ["scenario.yaml", "scripts/main.lua"],
+    }),
+  );
+  await packageFolder({ folder: unfinishedRoot, output: unfinishedOutput, force: false });
+  const packed = unzipSync(await Deno.readFile(unfinishedOutput));
+  assert(packed["scenario.yaml"] !== undefined, "packer refused a project whose YAML does not compose");
+  assert(packed["scripts/main.lua"] !== undefined, "packer dropped the entry of an uncomposable project");
+} finally {
+  await Deno.remove(unfinishedOutput).catch(() => {});
+  await Deno.remove(join(unfinishedRoot, "manifest.json"));
+  await Deno.remove(join(unfinishedRoot, "scenario.yaml"));
+  await Deno.remove(join(unfinishedRoot, "scripts", "main.lua"));
+  await Deno.remove(join(unfinishedRoot, "scripts"));
+  await Deno.remove(unfinishedRoot);
+}

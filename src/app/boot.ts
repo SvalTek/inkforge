@@ -4,7 +4,7 @@ import type { OutputFn, Scenario, UiCommand } from "../types/index.ts";
 import { InkforgeCanvasRuntime } from "../canvas/runtime.ts";
 import { createLuaEngine } from "../lua/bridge.ts";
 import { markViewDirty } from "../engine/events.ts";
-import { collectReferencedLuaNames, type ValidationIssue } from "../yaml/compose.ts";
+import { collectReferencedLuaNames, mainScriptPath, type ValidationIssue } from "../yaml/compose.ts";
 import type { AudioManagerLike } from "../types/audio.ts";
 
 /**
@@ -62,7 +62,7 @@ export interface BootHooks {
  * torn down and replaced here.
  */
 export async function bootRuntime(app: AppContext, scenario: Scenario, hooks: BootHooks): Promise<void> {
-  const scriptPath = scenario.scripts?.main ?? "scripts/main.lua";
+  const scriptPath = mainScriptPath(scenario);
   const source = app.project.vfs[scriptPath];
   if (source === undefined) throw new Error(`Script not found: ${scriptPath}`);
   if (!String(source).trim()) return;

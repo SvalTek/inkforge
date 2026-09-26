@@ -85,6 +85,15 @@ export class AssetResolver {
     return this.assets[path];
   }
 
+  /** Drop one asset without invalidating URLs already in use by other assets. */
+  remove(path: string): void {
+    const url = this.urls.get(path);
+    if (url) URL.revokeObjectURL(url);
+    this.urls.delete(path);
+    this.missing.delete(path);
+    delete this.assets[path];
+  }
+
   revoke(): void {
     for (const url of this.urls.values()) URL.revokeObjectURL(url);
     this.urls.clear();

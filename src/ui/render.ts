@@ -54,6 +54,25 @@ function outputEntry(event: OutputEvent, isLatest: boolean): HTMLDivElement {
   return entry;
 }
 
+/**
+ * The notice that stands in for transcript the cap discarded.
+ *
+ * Painted rather than stored as an event, for two reasons: trimming can then
+ * never re-elide the marker that reports the trimming, and the count can
+ * describe everything dropped this run instead of only what the array holds.
+ * `system` is the muted teal the terminal already uses for chrome, so the
+ * notice reads as terminal furniture rather than as something the story said.
+ */
+function elisionEntry(dropped: number): HTMLDivElement {
+  const entry = document.createElement("div");
+  entry.className = "entry system";
+  const note = document.createElement("p");
+  const unit = dropped === 1 ? "entry" : "entries";
+  note.textContent = `--- ${dropped} earlier ${unit} elided ---`;
+  entry.append(note);
+  return entry;
+}
+
 function choiceButton(choice: AvailableAction): HTMLButtonElement {
   const button = document.createElement("button");
   button.className = "choice";
@@ -112,6 +131,9 @@ export function render(app: AppContext): void {
   const outputEvents = runtime.events.filter((e): e is OutputEvent => e.type === "output");
   const followTail = shouldFollowTail(dom.heroTerminal);
   const entries = outputEvents.map((event, index) => outputEntry(event, index === outputEvents.length - 1));
+  // Unshifted after the map so the notice cannot take the NOW badge, which the
+  // last *output* entry owns, and so it reaches both terminals below.
+  if (runtime.droppedEvents > 0) entries.unshift(elisionEntry(runtime.droppedEvents));
   dom.heroTerminal.replaceChildren(...entries.map((entry) => entry.cloneNode(true) as HTMLDivElement));
   if (followTail && dom.heroTerminal.clientHeight > 0) {
     dom.heroTerminal.scrollTop = dom.heroTerminal.scrollHeight;

@@ -1,7 +1,7 @@
 # Lua
 
-Scripts live in `scripts/`. The entry file is `scenario.scripts.main`, defaulting to `scripts/main.lua`. Every other
-`.lua` file in the project is available to `require`.
+Lua files can live in project folders. The entry file is `scenario.scripts.main`, defaulting to `scripts/main.lua`.
+Every other `.lua` file in the project is available to `require`.
 
 ## Lifecycle
 
@@ -29,6 +29,39 @@ advance every frame — a smooth oscillation, a countdown, a position that accum
 
 A fresh scenario start calls `OnInit` again. State is rebuilt from `player.state` at the same time, so a restart is a
 genuine reset rather than a continuation.
+
+## Saving and resuming
+
+A save is a snapshot of run state, not of the runtime. It records where the player is, their inventory, state variables,
+the transcript, and which tools and UI panels were open or hidden. It does **not** record the Lua VM, timers, animations
+or canvas scenes — none of those survive a reload anyway.
+
+The consequence for a script is the one that catches people out: **resuming runs `OnInit` again**, and the state it
+builds is then covered by the save. So a top-level write on every boot is undone by the resume, and one guarded by a
+check is not:
+
+```lua
+-- Wrong. A resume would set this back to false, discarding the saved value.
+function OnInit()
+  GameState.set('gate_open', false)
+end
+
+-- Right. A resume leaves the saved value alone.
+function OnInit()
+  if GameState.get('gate_open') == nil then
+    GameState.set('gate_open', false)
+  end
+end
+```
+
+The same applies to `GameUI.create` and tool registration: anything the boot rebuilds is replaced by what the save
+restored, so create it unconditionally and let the save win.
+
+It applies to the entry directives of the location the save was made in, too. Resuming re-enters that location, so a
+`give` in its `text:` runs again — but the save's own inventory is applied over the top of it. An item granted on
+arrival and spent later in the run therefore stays spent: nothing a run consumed can come back on resume.
+
+If you need something that genuinely must not be rebuilt, keep it in state — it is what a save is for.
 
 ## Requiring other files
 
@@ -175,7 +208,7 @@ json.encode(value)   -- alias of stringify
 json.decode(text)    -- alias of parse
 ```
 
-Useful for a save blob, or for inspecting a structure you are unsure of — `GameOutput.add(json.stringify(GameState.get("inventory")))`.
+Useful for inspecting a structure you are unsure of — `GameOutput.add(json.stringify(GameState.get("inventory")))`.
 
 ### `regex`
 

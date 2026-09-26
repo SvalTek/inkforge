@@ -11,6 +11,16 @@ export interface EngineRuntime {
   state: Record<string, unknown>;
   inventory: string[];
   events: EngineEvent[];
+  /**
+   * How many transcript entries the cap has discarded this run.
+   *
+   * `dispatch` clears the transcript at every turn boundary, so growth is
+   * bounded per turn — but nothing bounds a single turn, where a Lua timer or
+   * an update loop can narrate indefinitely. Dropped entries are counted rather
+   * than forgotten so the terminal can admit what is missing, and so a resumed
+   * save carries an honest transcript instead of pretending it is complete.
+   */
+  droppedEvents: number;
   over: boolean;
   ui: UiRuntimeState;
   modals: ModalRuntimeState;

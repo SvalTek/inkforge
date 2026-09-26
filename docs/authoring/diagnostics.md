@@ -118,7 +118,7 @@ worse than an error.
 | A tool `action:` or UI `callback:` naming a function that does not exist | At boot, the same way |
 | A tool definition that is malformed | When registered — `Tool needs a non-empty id.` and friends |
 | A `modal.page` naming a page that is not in the open modal | When activated |
-| Missing `scripts/main.lua` | At boot — `Script not found: scripts/main.lua` |
+| Missing configured Lua entry file | At boot — `Script not found: <path>` |
 
 **Not caught — the ones to watch for:**
 
@@ -138,13 +138,15 @@ rest are worth knowing about rather than being papered over with a guess.
 ## The author loop
 
 1. Edit in the Author view. Saves are debounced and coalesced, and the `saved locally` note next to the title confirms
-   the write. There is nothing to press to save.
+   the write. There is nothing to press to save the *project*.
 2. Press **Restart** for the run panel alone, or **Run** to restart and switch to Play. Both do a full teardown and boot:
    scenes are destroyed, the Lua runtime is closed and recreated, and state is rebuilt from `player.state`.
 3. Read the diagnostics line, then the transcript, then the event stream.
 
 A restart is a genuine reset, not a continuation. Anything you set during the previous run is gone, which is what makes
-the loop reliable — the scenario you are running is always exactly what is on disk.
+the loop reliable — the scenario you are running is always exactly what is on disk. That is also why **Restart** is the
+right button while authoring: it deliberately discards run state, where **Save** in the Play view deliberately keeps it.
+See [Saving a run](README.md#saving-a-run).
 
 ## Import errors
 
@@ -155,7 +157,8 @@ drop rather than part of the running app. The messages are specific:
 Invalid .inkforge ZIP package
 Package is missing manifest.json
 Unsupported Inkforge package; expected pack version 2
-Package must include scenario.yaml and scripts/main.lua
+Package must include scenario.yaml
+Package must include configured Lua entry script: <path>
 Package is missing <path>
 Duplicate project path: <path>
 Invalid project path: <path>
@@ -165,6 +168,10 @@ Scenario source is not valid UTF-8: <path>
 
 An import that is declined because the loaded project is the same version or newer says so rather than importing — see
 [Project format](project-format.md).
+
+`Package must include configured Lua entry script` only appears when the pack's scenario composes far enough to name its
+entry script. A pack with broken or unfinished YAML imports anyway and reports through the diagnostics line at boot, so
+the two failure paths never overlap.
 
 ## The console
 
