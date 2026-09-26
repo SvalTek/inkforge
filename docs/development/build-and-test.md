@@ -14,10 +14,16 @@
 | `deno task check:authoring` | Browser check for authored tools, modals and UI actions |
 | `deno task check:renderer` | In-process canvas projection and layer checks |
 | `deno task check:pack` | `.inkforge` version-precedence checks, and a drift guard that every committed pack matches its folder |
+| `deno task docs:dev` | Run the VitePress docs site with live reload |
+| `deno task docs:build` | Build the docs site into `dist/docs/` |
+| `deno task docs:preview` | Preview the built docs site |
 | `deno task fmt` / `deno task lint` | Format and lint the Deno sources |
 
 `dev` and `serve` accept `--port <n>`. `pack` accepts `--out <file.inkforge>`, `--bump major|minor|patch` and
 `--force`.
+
+The docs site uses VitePress. Install its pinned dependencies once with `npm ci --prefix docs`; the application tasks
+remain Deno-only.
 
 ## What the build does
 

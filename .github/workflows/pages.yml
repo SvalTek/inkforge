@@ -23,8 +23,18 @@ jobs:
         with:
           deno-version: 2.9.5
           cache: true
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
       - name: Build site
         run: deno task build
+      - name: Install documentation dependencies
+        run: npm ci --prefix docs
+      - name: Build documentation site
+        run: npm run build --prefix docs
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v4
         with:

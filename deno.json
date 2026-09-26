@@ -11,6 +11,9 @@
     "check:renderer": "deno run tools/renderer-check.ts",
     "check:pack": "deno run -A tools/pack-check.ts",
     "check:manifest": "deno run -A tools/manifest-check.ts",
+    "docs:dev": "npm run dev --prefix docs",
+    "docs:build": "npm run build --prefix docs",
+    "docs:preview": "npm run preview --prefix docs",
     "fmt": "deno fmt",
     "lint": "deno lint"
   },

@@ -9,8 +9,8 @@ plain static assets that can be hosted on any static host.
 
 ## Prerequisites
 
-- Deno 2.x or newer (developed against Deno 2.9.5). Node.js is not required to run the tasks; `npm:esbuild` is fetched
-  and executed through Deno.
+- Deno 2.x or newer (developed against Deno 2.9.5). For app tasks, `npm:esbuild` is fetched and executed through Deno.
+- Node.js 22 or newer and `npm ci --prefix docs` for the documentation site tasks.
 - A local Google Chrome installation for `deno task smoke`, which drives it through `playwright-core`; the bundled
   Playwright Chromium is used as a fallback.
 
@@ -33,6 +33,9 @@ Run these from the repository root:
 - `deno task check:renderer` - in-process canvas projection/layer checks (`tools/renderer-check.ts`).
 - `deno task check:pack` - in-process `.inkforge` version-precedence checks (`tools/pack-check.ts`).
 - `deno task check:authoring` - drive headless Chrome through the authored tools/modal checks (`tools/authoring-check.ts`).
+- `deno task docs:dev` - serve the docs site locally with live reload.
+- `deno task docs:build` - build the docs site into `dist/docs/`.
+- `deno task docs:preview` - preview the generated docs site.
 - `deno task fmt` / `deno task lint` - format and lint the Deno sources.
 
 ## Deployment
@@ -46,6 +49,10 @@ Run these from the repository root:
 
 Host the contents of `dist/` on any static file host (or serve it locally with `deno task serve`). No build step or
 server runtime is needed on the host.
+
+GitHub Pages also publishes the Markdown guides as a VitePress site at
+[svaltek.github.io/inkforge/docs/](https://svaltek.github.io/inkforge/docs/). The Pages workflow builds both the app and
+docs into the same `dist/` artifact.
 
 ## Runtime dependencies
 
