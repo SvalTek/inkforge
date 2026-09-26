@@ -5,9 +5,9 @@ builds and tests it. There is no server runtime in production.
 
 ## Prerequisites
 
-- **Deno 2.x** or newer. Node.js is not required — `npm:` packages are fetched and run through Deno.
-- **Google Chrome**, for the browser-driven checks. They drive it through `playwright-core` and fall back to a bundled
-  Chromium if a system Chrome is not found.
+- **Deno 2.x** or newer for the application. The separate docs site needs Node.js 22+ and
+  `npm ci --prefix docs`.
+- **Chrome or Playwright Chromium** for the browser-driven checks. See [Build and test](build-and-test.md).
 
 ## Quick start
 

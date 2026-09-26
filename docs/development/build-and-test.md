@@ -55,7 +55,7 @@ Output is a set of plain static files. Host `dist/` on any static host; no build
 Four suites, two flavours. The browser ones prove the app works end to end; the in-process ones pin behaviour that is
 awkward to observe through a page.
 
-### `deno task smoke` — 23 assertions
+### `deno task smoke`
 
 Builds, serves, and drives Chrome. Captures console messages, page errors and dialogs, and fails on unexpected ones.
 
@@ -81,6 +81,8 @@ Builds, serves, and drives Chrome. Captures console messages, page errors and di
 | 6h | Markdown renders, and authored links are gated behind a confirmation dialog |
 | 7 | New project restores the starter |
 | 8 | A Lua timer repaints a bound meter with no command |
+| 9 | Save a run, restart without overwriting it, and resume its state |
+| 9a | Export a save as JSON, delete it, import it, and resume it |
 
 Assertion 1a exists because a Lua error on every tick is invisible in a screenshot — it was written to catch a real
 regression where the runtime leaked stack slots until it trapped. Assertion 8 covers the repaint model: a

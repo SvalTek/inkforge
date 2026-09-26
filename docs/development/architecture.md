@@ -22,9 +22,9 @@ Two views, one runtime:
 | Lua | `src/lua/bridge.ts`, `bindings.ts`, `lua-api.ts`, `facades/*.ts`, `invoke.ts`, `boundary.ts` | Bridge construction, host namespaces, the Lua-side canvas API, the seam |
 | Canvas | `src/canvas/runtime.ts`, `projection.ts`, `math.ts`, `easings.ts` | Scene/node model, hit-testing, drawing, animations, the frame loop |
 | UI | `src/ui/render.ts`, `actions.ts`, `modals.ts`, `tools.ts` | DOM painting, activation handling, modals, the tool rail |
-| Project | `src/project/project.ts`, `storage.ts`, `assets.ts`, `starter.ts` | Project identity, IndexedDB persistence, asset resolution, the starter |
+| Project | `src/project/project.ts`, `storage.ts`, `save-storage.ts`, `db.ts`, `assets.ts`, `starter.ts` | Project and run-save records in IndexedDB, asset resolution, the starter |
 | Pack | `src/import-export/pack.ts` | `.inkforge` export and import, version precedence |
-| Editor | `src/editor/editor.ts` | File tree, tabs, buffer sync, gutter |
+| Editor | `src/editor/editor.ts`, `tree.ts`, `codemirror.ts` | Nested file tree, creation and guarded deletion, tabs, buffer sync and language-aware editing |
 | Support | `src/vfs/vfs.ts`, `src/audio/manager.ts`, `src/deps/remote.ts`, `src/types/*` | Path resolution, audio, the remote YAML import, shared types |
 
 `src/types/` is the type model, split by concern (`scenario`, `ui`, `tools`, `canvas`, `engine`, `project`, …) and
@@ -37,8 +37,8 @@ there when you need to know what an author can write.
 
 1. Compose the scenario from the VFS (`composeScenario`) — this is where `!import` is followed.
 2. Validate it statically (`validateScenario`) — unknown condition and directive keys.
-3. Build the runtime: state from `player.state`, inventory from `player.inventory`, the tool registry from
-   `scenario.tools`, UI elements from `scenario.ui.elements`.
+3. Build the runtime: state from authored defaults or a requested save snapshot, inventory, tools, UI elements, and modal
+   state. A resume is an explicit choice; a normal start begins a fresh run.
 4. `bootRuntime()` — construct the canvas host, then the Lua engine, then cross-check every authored Lua reference
    against the loaded script.
 5. Enter the start location and render.
@@ -114,11 +114,16 @@ pointer capture and listeners across a repaint.
 
 ## Persistence
 
-Projects live in IndexedDB. The editor buffer is synced into the project VFS and persisted on a debounce, so edits
-survive a reload. Exporting flushes pending edits first. The scenario library lists stored scenarios; the bundled starter
-is pinned and cannot be replaced by an import.
+Projects and their separate run saves live in IndexedDB. The editor buffer is synced into the project VFS and persisted
+on a debounce, so edits survive a reload. Project transitions and exporting flush pending edits first. The bundled
+starter is pinned against deletion; a newer pack with the same project ID can update it while retaining that pin. A save
+is written and resumed only on explicit player actions, and deleting a project also deletes its saves.
 
-Nothing leaves the browser. The only network access at runtime is the YAML parser, which is loaded as a remote ES
+The explorer derives folders from VFS paths. Empty folders use a hidden marker that is omitted from packs. The editor
+protects the required `scenario.yaml` and `scripts/main.lua` files, and the `scripts` folder containing the entry file,
+from deletion.
+
+Project sources and saves remain in browser storage unless explicitly exported. The YAML parser is loaded as a remote ES
 module (see `src/deps/remote.ts`) — the Lua runtime's WASM is inlined into the bundle at build time instead.
 
 ## Adding things
