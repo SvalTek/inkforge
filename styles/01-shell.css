@@ -179,6 +179,7 @@ button:hover {
 }
 
 .explorer {
+  position: relative;
   border-right: 1px solid var(--line);
   padding: 18px 12px;
   display: flex;
@@ -203,19 +204,17 @@ button:hover {
 
 .tree {
   display: grid;
-  align-content: start;
   gap: 3px;
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
 }
 
 .docs-card {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
   display: flex;
   align-items: center;
   gap: 9px;
-  flex: 0 0 auto;
-  margin-top: 12px;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 5px;
