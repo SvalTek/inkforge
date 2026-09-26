@@ -121,8 +121,6 @@ export async function build(options: BuildOptions = {}): Promise<void> {
     plugins: [...denoPlugins()],
   });
 
-  await Deno.copyFile(INDEX_HTML, join(DIST, "index.html"));
-
   const templateCount = await copyDir(TEMPLATES, join(DIST, "templates"));
 
   const styleFiles = await listStyleFiles();
@@ -142,6 +140,20 @@ export async function build(options: BuildOptions = {}): Promise<void> {
   // this and nothing is reordered.
   const style = minify ? (await transform(css, { loader: "css", minify: true, charset: "utf8" })).code : css;
   await Deno.writeTextFile(join(DIST, "style.css"), style);
+
+  // Give the stylesheet a content-based URL so browsers don't keep an older
+  // cached copy after CSS changes. GitHub Pages serves style.css at a stable
+  // path, and its cache can otherwise hide newly deployed styles.
+  const styleHash = Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(style))),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
+  const indexHtml = await Deno.readTextFile(INDEX_HTML);
+  const versionedIndex = indexHtml.replace('href="style.css"', `href="style.css?v=${styleHash}"`);
+  if (versionedIndex === indexHtml) {
+    throw new Error(`Stylesheet link not found in ${INDEX_HTML}; expected href="style.css"`);
+  }
+  await Deno.writeTextFile(join(DIST, "index.html"), versionedIndex);
 
   console.log("Styles concatenated in order:");
   for (const file of styleFiles) {
