@@ -149,3 +149,44 @@ try {
   await Deno.remove(join(markerRoot, "scripts"));
   await Deno.remove(markerRoot);
 }
+
+// The packer must follow scenario.scripts.main instead of requiring the
+// conventional path, and refuse a manifest that omits the configured entry.
+const customRoot = await Deno.makeTempDir({ prefix: "inkforge-custom-script-pack-" });
+const customOutput = join(customRoot, "custom.inkforge");
+try {
+  await Deno.mkdir(join(customRoot, "chapter"));
+  await Deno.writeTextFile(
+    join(customRoot, "scenario.yaml"),
+    "startLocation: gate\nscripts:\n  main: chapter/entry.lua\nlocations:\n  gate:\n    text: Hello\n",
+  );
+  await Deno.writeTextFile(join(customRoot, "chapter", "entry.lua"), "-- custom entry\n");
+  const manifest = {
+    format: "inkforge-pack",
+    packVersion: 2,
+    project: { id: "custom-script-pack", version: "1.0.0" },
+    files: ["scenario.yaml", "chapter/entry.lua"],
+  };
+  await Deno.writeTextFile(join(customRoot, "manifest.json"), JSON.stringify(manifest));
+  await packageFolder({ folder: customRoot, output: customOutput, force: false });
+  const packed = unzipSync(await Deno.readFile(customOutput));
+  assert(packed["chapter/entry.lua"] !== undefined, "packer omitted the configured entry");
+  assert(packed["scripts/main.lua"] === undefined, "packer required an unused default entry");
+
+  manifest.files = ["scenario.yaml"];
+  await Deno.writeTextFile(join(customRoot, "manifest.json"), JSON.stringify(manifest));
+  let rejected = false;
+  try {
+    await packageFolder({ folder: customRoot, output: customOutput, force: false });
+  } catch (error) {
+    rejected = (error as Error).message.includes("configured Lua entry script: chapter/entry.lua");
+  }
+  assert(rejected, "packer accepted a manifest missing its configured entry");
+} finally {
+  await Deno.remove(customOutput).catch(() => {});
+  await Deno.remove(join(customRoot, "manifest.json"));
+  await Deno.remove(join(customRoot, "scenario.yaml"));
+  await Deno.remove(join(customRoot, "chapter", "entry.lua"));
+  await Deno.remove(join(customRoot, "chapter"));
+  await Deno.remove(customRoot);
+}

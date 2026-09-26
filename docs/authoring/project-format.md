@@ -4,21 +4,21 @@ An Inkforge project is a flat set of text files plus an `assets/` folder, bundle
 Inside the studio the same files are held in a virtual file system, so paths always use forward slashes regardless of
 the host operating system.
 
-## The two required files
+## Required entry files
 
-Every project must contain:
+Every project must contain `scenario.yaml` and the Lua entry file named by its composed `scripts.main` field:
 
 | Path | Purpose |
 |---|---|
 | `scenario.yaml` | The entry point. The composer starts here and follows `!import`s. |
-| `scripts/main.lua` | The Lua entry file. |
+| `scripts/main.lua` by default | The Lua entry file. Set `scripts.main` in `scenario.yaml` to use another project-relative path. |
 
-These are the only fixed names. Everything else — `locations.yml`, `ui.yml`, `modals.yml`, anything — is a convention
-you can rearrange freely, because `scenario.yaml` names what it imports.
+Only `scenario.yaml` has a fixed name. Everything else — the entry script, `locations.yml`, `ui.yml`, `modals.yml`,
+anything — can be rearranged if the scenario points to it.
 
-A project that is missing either file is rejected at import with
-`Package must include scenario.yaml and scripts/main.lua`.
-The Author explorer does not offer deletion for either file or for the `scripts` folder containing `main.lua`.
+A pack without `scenario.yaml` is rejected with `Package must include scenario.yaml`. A pack whose manifest omits the
+configured Lua entry file is rejected with `Package must include configured Lua entry script: <path>`.
+The Author explorer protects `scenario.yaml`, the configured entry script, and any folder containing that script.
 
 ## `manifest.json`
 

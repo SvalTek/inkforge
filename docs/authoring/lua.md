@@ -1,7 +1,7 @@
 # Lua
 
-Scripts live in `scripts/`. The entry file is `scenario.scripts.main`, defaulting to `scripts/main.lua`. Every other
-`.lua` file in the project is available to `require`.
+Lua files can live in project folders. The entry file is `scenario.scripts.main`, defaulting to `scripts/main.lua`.
+Every other `.lua` file in the project is available to `require`.
 
 ## Lifecycle
 

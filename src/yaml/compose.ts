@@ -80,6 +80,16 @@ export async function composeScenario(vfs: Vfs): Promise<Scenario> {
   return (await (await openComposer(vfs)).load("scenario.yaml")) as Scenario;
 }
 
+/** The script booted for this scenario; the conventional path is only a default. */
+export function mainScriptPath(scenario: Scenario): string {
+  const path = scenario.scripts?.main ?? "scripts/main.lua";
+  if (
+    typeof path !== "string" || !path || path.startsWith("/") || path.includes("\\") ||
+    path.split("/").some((segment) => !segment || segment === "." || segment === "..")
+  ) throw new Error(`Invalid Lua entry script path: ${String(path)}`);
+  return path;
+}
+
 /**
  * The front matter alone, for describing a project without running it.
  *
