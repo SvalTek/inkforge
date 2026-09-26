@@ -18,6 +18,7 @@ you can rearrange freely, because `scenario.yaml` names what it imports.
 
 A project that is missing either file is rejected at import with
 `Package must include scenario.yaml and scripts/main.lua`.
+The Author explorer does not offer deletion for either file or for the `scripts` folder containing `main.lua`.
 
 ## `manifest.json`
 
@@ -112,7 +113,7 @@ Anything under `assets/` is treated as binary rather than source. The supported 
 | `.wav` | `audio/wav` |
 
 Any other extension under `assets/` is refused — on import, `Unsupported asset type: <path>`, and on upload through the
-**+** button, `● Unsupported asset type: <name>`. The `+` button also refuses to overwrite: `● Asset already exists:
+**↑ Asset** button, `● Unsupported asset type: <name>`. The upload button also refuses to overwrite: `● Asset already exists:
 <path>`.
 
 Assets are referenced by their project path. An `image` element uses `src: assets/map.svg`; audio uses

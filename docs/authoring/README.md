@@ -61,13 +61,17 @@ The Author view's file tree is a real nested hierarchy. You can create folders a
 
 - **+ New** in the explorer header opens a dialog for creating a folder, YAML file, or Lua file at the project root.
 - **+** on any folder row opens the same dialog, scoped to that folder.
+- **×** at the end of a file, folder, or asset row opens a confirmation dialog. Deleting a folder also deletes everything inside it.
+
+The required `scenario.yaml` and `scripts/main.lua` files cannot be deleted. The `scripts` folder is protected because it
+contains `main.lua`; other files inside it can still be removed.
 
 The dialog validates names: no path separators, no leading dots, no duplicates, and files must use a supported extension
 (`.yaml`, `.yml`, or `.lua`). A name typed without an extension gets the default for the chosen type.
 
 Empty folders are allowed. The explorer records them with a hidden marker that survives saves but is filtered from
 exports, so an empty folder does not travel with a `.inkforge` pack. Adding a file to an empty folder removes the marker
-automatically.
+automatically. Removing the last file from a folder restores the marker so the empty folder stays visible.
 
 Assets are uploaded separately via the **↑ Asset** button, which accepts the supported image and audio types. See
 [Project format](project-format.md) for the full list.
