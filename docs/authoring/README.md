@@ -63,6 +63,9 @@ The Author view's file tree is a real nested hierarchy. You can create folders a
 - **+** on any folder row opens the same dialog, scoped to that folder.
 - **×** at the end of a file, folder, or asset row opens a confirmation dialog. Deleting a folder also deletes everything inside it.
 
+The required `scenario.yaml` and `scripts/main.lua` files cannot be deleted. The `scripts` folder is protected because it
+contains `main.lua`; other files inside it can still be removed.
+
 The dialog validates names: no path separators, no leading dots, no duplicates, and files must use a supported extension
 (`.yaml`, `.yml`, or `.lua`). A name typed without an extension gets the default for the chosen type.
 

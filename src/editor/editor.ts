@@ -1,7 +1,7 @@
 import type { AppContext } from "../app/context.ts";
 import { normalizeProject } from "../project/project.ts";
 import { badgeForLanguage, languageForPath } from "./language.ts";
-import { buildFileTree, folderPaths, type TreeEntry } from "./tree.ts";
+import { buildFileTree, containsRequiredFile, folderPaths, type TreeEntry } from "./tree.ts";
 
 /** The tab set the editor opens with, matching the original's two static tabs. */
 export const DEFAULT_OPEN_FILES: readonly string[] = ["scenario.yaml", "scripts/main.lua"];
@@ -44,8 +44,8 @@ function renderEntry(app: AppContext, entry: TreeEntry, depth: number): HTMLElem
     button.textContent = entry.name;
     button.style.paddingLeft = `${8 + depth * INDENT_PX}px`;
     button.onclick = () => app.switchFile(entry.path);
-    const remove = deleteButton(app, "file", entry.path);
-    row.append(button, remove);
+    row.append(button);
+    if (!containsRequiredFile("file", entry.path)) row.append(deleteButton(app, "file", entry.path));
     return [row];
   }
 
@@ -69,7 +69,8 @@ function renderEntry(app: AppContext, entry: TreeEntry, depth: number): HTMLElem
   add.textContent = "+";
   add.onclick = () => app.openCreateDialog(entry.path);
 
-  row.append(toggle, add, deleteButton(app, "folder", entry.path));
+  row.append(toggle, add);
+  if (!containsRequiredFile("folder", entry.path)) row.append(deleteButton(app, "folder", entry.path));
   if (!open) return [row];
   return [row, ...entry.children.flatMap((child) => renderEntry(app, child, depth + 1))];
 }

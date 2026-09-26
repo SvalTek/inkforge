@@ -18,6 +18,7 @@ you can rearrange freely, because `scenario.yaml` names what it imports.
 
 A project that is missing either file is rejected at import with
 `Package must include scenario.yaml and scripts/main.lua`.
+The Author explorer does not offer deletion for either file or for the `scripts` folder containing `main.lua`.
 
 ## `manifest.json`
 

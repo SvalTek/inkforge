@@ -17,6 +17,15 @@ import { isAssetPath } from "../project/assets.ts";
 /** Reserved basename that records an empty folder's existence in the VFS. */
 export const FOLDER_MARKER = ".inkforge-dir";
 
+/** Deleting either entry point, or a folder containing one, would break the project. */
+const REQUIRED_FILES = ["scenario.yaml", "scripts/main.lua"] as const;
+
+export function containsRequiredFile(kind: "file" | "folder", path: string): boolean {
+  return kind === "file"
+    ? REQUIRED_FILES.some((required) => required === path)
+    : REQUIRED_FILES.some((required) => required.startsWith(`${path}/`));
+}
+
 /** The things the Author view can create. Assets arrive through the upload button. */
 export type CreateKind = "folder" | "yaml" | "lua";
 
@@ -233,6 +242,7 @@ export function createEntry(
 
 /** Remove a file or an entire folder subtree, retaining an empty parent folder. */
 export function removeEntry(vfs: Record<string, string>, kind: "file" | "folder", path: string): string[] {
+  if (containsRequiredFile(kind, path)) return [];
   const removed = kind === "file"
     ? (vfs[path] === undefined ? [] : [path])
     : Object.keys(vfs).filter((key) => key.startsWith(`${path}/`));

@@ -39,7 +39,13 @@ import {
   syncEditor as syncEditorImpl,
 } from "../editor/editor.ts";
 import { createCodeEditor } from "../editor/codemirror.ts";
-import { createEntry as createEntryImpl, type CreateKind, type CreateResult, removeEntry } from "../editor/tree.ts";
+import {
+  containsRequiredFile,
+  createEntry as createEntryImpl,
+  type CreateKind,
+  type CreateResult,
+  removeEntry,
+} from "../editor/tree.ts";
 import { installEditorHarness } from "../editor/harness.ts";
 import { render as renderDom } from "../ui/render.ts";
 import { runToolAction as runToolActionImpl, runUiAction as runUiActionImpl } from "../ui/actions.ts";
@@ -506,6 +512,7 @@ export function createApp(): AppContext {
   }
 
   function deleteExplorerEntry(kind: "file" | "folder" | "asset", path: string): void {
+    if (kind !== "asset" && containsRequiredFile(kind, path)) return;
     const exists = kind === "asset"
       ? app.project.assets[path] !== undefined
       : kind === "file"
@@ -536,6 +543,7 @@ export function createApp(): AppContext {
     if (!pendingDelete) return;
     const { kind, path } = pendingDelete;
     cancelDeleteExplorerEntry();
+    if (kind !== "asset" && containsRequiredFile(kind, path)) return;
 
     if (kind === "asset") {
       delete app.project.assets[path];
