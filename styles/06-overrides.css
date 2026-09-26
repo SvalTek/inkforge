@@ -644,6 +644,30 @@
   grid-template-rows: 86px minmax(0, auto) auto;
 }
 
+.delete-window {
+  width: min(440px, 100%);
+}
+
+.delete-body {
+  padding: 21px 25px;
+  color: #d8cabb;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.delete-body p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.create-actions .delete-confirm,
+.create-actions .delete-confirm:hover {
+  border-color: #bb6060;
+  background: #9f4248;
+  color: #fff;
+  font-weight: 700;
+}
+
 .create-body {
   min-height: 0;
   overflow-y: auto;
@@ -751,8 +775,10 @@
 }
 
 #createOverlay button:focus-visible,
+#deleteOverlay button:focus-visible,
 .pane-head button:focus-visible,
-.folder-add:focus-visible {
+.folder-add:focus-visible,
+.entry-delete:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
 }

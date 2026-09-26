@@ -10,7 +10,7 @@ import type {
 import { DEFAULT_SAVE_SLOT, SAVE_LIMITS, saveFileStem } from "../types/save.ts";
 import { bootRuntime } from "./boot.ts";
 import { bindEvents } from "./events.ts";
-import { queryDom, $all } from "./dom.ts";
+import { $all, queryDom } from "./dom.ts";
 import { applyUi as applyUiState } from "../engine/ui-state.ts";
 import { createEngine } from "../engine/engine.ts";
 import { createOutput, flushView as flushViewImpl } from "../engine/events.ts";
@@ -29,6 +29,7 @@ import {
 } from "../project/storage.ts";
 import { loadStarterProject } from "../project/starter.ts";
 import {
+  clearEditor,
   closeFile as closeFileImpl,
   DEFAULT_OPEN_FILES,
   openInEditor,
@@ -38,7 +39,7 @@ import {
   syncEditor as syncEditorImpl,
 } from "../editor/editor.ts";
 import { createCodeEditor } from "../editor/codemirror.ts";
-import { createEntry as createEntryImpl, type CreateKind, type CreateResult } from "../editor/tree.ts";
+import { createEntry as createEntryImpl, type CreateKind, type CreateResult, removeEntry } from "../editor/tree.ts";
 import { installEditorHarness } from "../editor/harness.ts";
 import { render as renderDom } from "../ui/render.ts";
 import { runToolAction as runToolActionImpl, runUiAction as runUiActionImpl } from "../ui/actions.ts";
@@ -60,6 +61,7 @@ export function createApp(): AppContext {
   // through the DOM.
   let createTarget = "";
   let createKind: CreateKind = "folder";
+  let pendingDelete: { kind: "file" | "folder" | "asset"; path: string } | null = null;
   const reportMediaError = (message: string) => {
     dom.diagnostics.textContent = `● ${message}`;
     dom.diagnostics.style.color = "#ee7c78";
@@ -106,6 +108,9 @@ export function createApp(): AppContext {
     setCreateKind,
     submitCreate,
     createEntry,
+    deleteExplorerEntry,
+    cancelDeleteExplorerEntry,
+    confirmDeleteExplorerEntry,
     previewAsset,
     closeFile,
     renderFileTree,
@@ -498,6 +503,70 @@ export function createApp(): AppContext {
     renderFileTree();
     schedulePersist();
     return result;
+  }
+
+  function deleteExplorerEntry(kind: "file" | "folder" | "asset", path: string): void {
+    const exists = kind === "asset"
+      ? app.project.assets[path] !== undefined
+      : kind === "file"
+      ? app.project.vfs[path] !== undefined
+      : Object.keys(app.project.vfs).some((key) => key.startsWith(`${path}/`));
+    if (!exists) return;
+    pendingDelete = { kind, path };
+    dom.deleteTitle.textContent = `Delete ${kind}?`;
+    const count = kind === "folder"
+      ? Object.keys(app.project.vfs).filter((key) => key.startsWith(`${path}/`) && !key.endsWith("/.inkforge-dir"))
+        .length
+      : 0;
+    dom.deleteDescription.textContent = kind === "folder"
+      ? `Delete ${path} and everything inside it${
+        count ? ` (${count} file${count === 1 ? "" : "s"})` : ""
+      }? This cannot be undone.`
+      : `Delete ${path}? This cannot be undone.`;
+    dom.deleteOverlay.classList.remove("hidden");
+    dom.deleteCancel.focus();
+  }
+
+  function cancelDeleteExplorerEntry(): void {
+    pendingDelete = null;
+    dom.deleteOverlay.classList.add("hidden");
+  }
+
+  function confirmDeleteExplorerEntry(): void {
+    if (!pendingDelete) return;
+    const { kind, path } = pendingDelete;
+    cancelDeleteExplorerEntry();
+
+    if (kind === "asset") {
+      delete app.project.assets[path];
+      if (app.activeAsset === path) {
+        app.activeAsset = null;
+        dom.assetPreview.replaceChildren();
+        dom.assetPreview.classList.add("hidden");
+        dom.editorWrap.classList.remove("hidden");
+      }
+      app.assetResolver.remove(path);
+    } else {
+      // Flush the live buffer before removing VFS keys. Once tabs are updated,
+      // later debounced saves must have no path through which to restore them.
+      if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.editor.getValue();
+      const removed = new Set(removeEntry(app.project.vfs, kind, path));
+      const previousIndex = app.openFiles.indexOf(app.current);
+      app.openFiles = app.openFiles.filter((openPath) => !removed.has(openPath));
+      if (removed.has(app.current)) {
+        app.current = app.openFiles[Math.min(Math.max(previousIndex, 0), app.openFiles.length - 1)] ?? "";
+        if (app.current) openInEditor(app, app.current);
+        else clearEditor(app);
+      }
+      if (kind === "folder") {
+        for (const folder of app.expandedFolders) {
+          if (folder === path || folder.startsWith(`${path}/`)) app.expandedFolders.delete(folder);
+        }
+      }
+      renderTabs();
+    }
+    renderFileTree();
+    schedulePersist();
   }
 
   function renderTabs(): void {

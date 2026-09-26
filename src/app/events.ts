@@ -70,6 +70,15 @@ export function bindEvents(app: AppContext): void {
   dom.createClose.onclick = () => dom.createOverlay.classList.add("hidden");
   dom.createCancel.onclick = () => dom.createOverlay.classList.add("hidden");
   dom.createSubmit.onclick = () => app.submitCreate();
+  dom.deleteClose.onclick = () => app.cancelDeleteExplorerEntry();
+  dom.deleteCancel.onclick = () => app.cancelDeleteExplorerEntry();
+  dom.deleteConfirm.onclick = () => app.confirmDeleteExplorerEntry();
+  dom.deleteOverlay.onclick = (event) => {
+    if (event.target === dom.deleteOverlay) app.cancelDeleteExplorerEntry();
+  };
+  dom.deleteOverlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") app.cancelDeleteExplorerEntry();
+  });
   dom.createName.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();

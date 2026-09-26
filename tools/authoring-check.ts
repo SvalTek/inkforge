@@ -178,6 +178,15 @@ async function main(): Promise<void> {
     assert(await page.locator("#assetPreview audio").count() === 1, "imported audio asset preview missing");
     await page.locator("#assetInput").setInputFiles(wavPath);
     await waitFor(page, "#diagnostics", "Asset already exists");
+    await page.locator('.file-row:has(.file[data-file="assets/click.wav"]) .entry-delete').click();
+    assert(await page.locator("#deleteOverlay").isVisible(), "asset deletion confirmation did not open");
+    assert(
+      (await page.locator("#deleteDescription").textContent())?.includes("assets/click.wav"),
+      "asset path missing",
+    );
+    await page.locator("#deleteConfirm").click();
+    assert(await page.locator('.file[data-file="assets/click.wav"]').count() === 0, "deleted asset remains in tree");
+    assert(!(await page.locator("#assetPreview").isVisible()), "deleted asset preview remains open");
     await page.locator('.file[data-file="scenario.yaml"]').click();
     assert(await page.locator('.file[data-file="modals.yml"]').count() === 1, "modals.yml missing from Author tree");
     assert(await page.locator('.file[data-file="tools.yml"]').count() === 1, "tools.yml missing from Author tree");
@@ -194,7 +203,9 @@ async function main(): Promise<void> {
     // Open the create dialog from the root `+ New` button.
     await page.locator("#createNew").click();
     assert(await page.locator("#createOverlay").isVisible(), "create dialog did not open");
-    const createHeight = await page.locator(".create-window").evaluate((node) => node.getBoundingClientRect().height);
+    const createHeight = await page.locator("#createOverlay .create-window").evaluate((node) =>
+      node.getBoundingClientRect().height
+    );
     assert(createHeight < 400, `create dialog inherited an oversized height (${createHeight}px)`);
     // Default type from root is "folder".
     assert(
@@ -352,6 +363,78 @@ async function main(): Promise<void> {
     assert(
       manifestFiles.includes("rooms/gate.yaml"),
       "created file missing from export manifest",
+    );
+
+    // === File and folder deletion ===
+    const gateDelete = page.locator('.file-row:has(.file[data-file="rooms/gate.yaml"]) .entry-delete');
+    await gateDelete.click();
+    assert(await page.locator("#deleteOverlay").isVisible(), "file deletion confirmation did not open");
+    await page.locator("#deleteCancel").click();
+    assert(await page.locator('.file[data-file="rooms/gate.yaml"]').count() === 1, "Cancel deleted the file");
+    await gateDelete.click();
+    await page.locator("#deleteConfirm").click();
+    assert(await page.locator('.file[data-file="rooms/gate.yaml"]').count() === 0, "deleted file remains in tree");
+    assert(await page.locator('.tab[data-file="rooms/gate.yaml"]').count() === 0, "deleted file tab remains open");
+
+    await page.locator('.folder[data-folder="rooms/deep"] > .entry-delete').click();
+    await page.locator("#deleteConfirm").click();
+    const afterNestedDelete = await page.evaluate(() =>
+      (globalThis as { inkforgeApp?: { project: { vfs: Record<string, string> } } }).inkforgeApp?.project.vfs ?? {}
+    );
+    assert(afterNestedDelete["rooms/deep/.inkforge-dir"] === undefined, "deleted nested marker remains");
+    assert(afterNestedDelete["rooms/.inkforge-dir"] !== undefined, "empty parent folder lost its marker");
+
+    await page.locator('.folder[data-folder="rooms"] > .entry-delete').click();
+    await page.locator("#deleteConfirm").click();
+    assert(await page.locator('.folder[data-folder="rooms"]').count() === 0, "deleted folder remains in tree");
+
+    await page.locator('.folder[data-folder="really-long-folder"] > .entry-delete').click();
+    assert(
+      (await page.locator("#deleteDescription").textContent())?.includes("1 file"),
+      "folder confirmation omitted descendant count",
+    );
+    await page.locator("#deleteConfirm").click();
+    assert(
+      await page.locator('.file[data-file="really-long-folder/inside.yaml"]').count() === 0,
+      "folder deletion left its file in the tree",
+    );
+    assert(
+      await page.locator('.tab[data-file="really-long-folder/inside.yaml"]').count() === 0,
+      "folder deletion left its active file tab open",
+    );
+    const afterDelete = await page.evaluate(() =>
+      (globalThis as { inkforgeApp?: { project: { vfs: Record<string, string> } } }).inkforgeApp?.project.vfs ?? {}
+    );
+    assert(!Object.keys(afterDelete).some((path) => path.startsWith("rooms/")), "folder subtree remains in VFS");
+    assert(
+      !Object.keys(afterDelete).some((path) => path.startsWith("really-long-folder/")),
+      "active folder subtree remains in VFS",
+    );
+    await page.waitForFunction(
+      async () => {
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          const request = indexedDB.open("inkforge-project-library");
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const project = await new Promise<{ vfs: Record<string, string>; assets: Record<string, unknown> } | undefined>(
+          (resolve, reject) => {
+            const request = db.transaction("projects", "readonly").objectStore("projects").get(
+              "renderer-stage-showcase",
+            );
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          },
+        );
+        db.close();
+        return project?.vfs["scenario.yaml"] !== undefined &&
+          !Object.keys(project.vfs).some((path) =>
+            path.startsWith("rooms/") || path.startsWith("really-long-folder/")
+          ) &&
+          project.assets["assets/click.wav"] === undefined;
+      },
+      undefined,
+      { timeout: TIMEOUT },
     );
 
     await page.locator('.nav[data-view="play"]').click();

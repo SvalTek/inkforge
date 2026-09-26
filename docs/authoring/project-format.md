@@ -112,7 +112,7 @@ Anything under `assets/` is treated as binary rather than source. The supported 
 | `.wav` | `audio/wav` |
 
 Any other extension under `assets/` is refused — on import, `Unsupported asset type: <path>`, and on upload through the
-**+** button, `● Unsupported asset type: <name>`. The `+` button also refuses to overwrite: `● Asset already exists:
+**↑ Asset** button, `● Unsupported asset type: <name>`. The upload button also refuses to overwrite: `● Asset already exists:
 <path>`.
 
 Assets are referenced by their project path. An `image` element uses `src: assets/map.svg`; audio uses

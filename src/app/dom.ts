@@ -71,6 +71,12 @@ export interface DomRefs {
   createClose: HTMLButtonElement;
   createCancel: HTMLButtonElement;
   createSubmit: HTMLButtonElement;
+  deleteOverlay: HTMLElement;
+  deleteTitle: HTMLElement;
+  deleteDescription: HTMLElement;
+  deleteClose: HTMLButtonElement;
+  deleteCancel: HTMLButtonElement;
+  deleteConfirm: HTMLButtonElement;
   /** The editor's mount point; CodeMirror owns everything inside it. */
   code: HTMLElement;
   cursor: HTMLElement;
@@ -164,6 +170,12 @@ export function queryDom(): DomRefs {
     createClose: get("#closeCreate"),
     createCancel: get("#createCancel"),
     createSubmit: get("#createSubmit"),
+    deleteOverlay: get("#deleteOverlay"),
+    deleteTitle: get("#deleteTitle"),
+    deleteDescription: get("#deleteDescription"),
+    deleteClose: get("#closeDelete"),
+    deleteCancel: get("#deleteCancel"),
+    deleteConfirm: get("#deleteConfirm"),
     code: get("#code"),
     cursor: get("#cursor"),
     diagnostics: get("#diagnostics"),

@@ -30,19 +30,23 @@ const INDENT_PX = 12;
 /**
  * Render one entry, recursing into folders the author has open.
  *
- * A folder is a row of two buttons: the name toggles it, and a trailing `+`
- * creates inside it. The indent is the hierarchy — the old tree printed whole
+ * A folder is a row of controls: the name toggles it, `+` creates inside it,
+ * and `×` opens deletion confirmation. The indent is the hierarchy — the old tree printed whole
  * paths on flat rows under a hardcoded root, which read as a list, not a tree.
  */
 function renderEntry(app: AppContext, entry: TreeEntry, depth: number): HTMLElement[] {
   if (entry.kind === "file") {
+    const row = document.createElement("div");
+    row.className = "file-row";
     const button = document.createElement("button");
     button.className = entry.path === app.current ? "file active" : "file";
     button.dataset.file = entry.path;
     button.textContent = entry.name;
     button.style.paddingLeft = `${8 + depth * INDENT_PX}px`;
     button.onclick = () => app.switchFile(entry.path);
-    return [button];
+    const remove = deleteButton(app, "file", entry.path);
+    row.append(button, remove);
+    return [row];
   }
 
   const open = app.expandedFolders.has(entry.path);
@@ -65,9 +69,20 @@ function renderEntry(app: AppContext, entry: TreeEntry, depth: number): HTMLElem
   add.textContent = "+";
   add.onclick = () => app.openCreateDialog(entry.path);
 
-  row.append(toggle, add);
+  row.append(toggle, add, deleteButton(app, "folder", entry.path));
   if (!open) return [row];
   return [row, ...entry.children.flatMap((child) => renderEntry(app, child, depth + 1))];
+}
+
+function deleteButton(app: AppContext, kind: "file" | "folder" | "asset", path: string): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "entry-delete";
+  button.textContent = "×";
+  button.title = `Delete ${kind} ${path}`;
+  button.setAttribute("aria-label", button.title);
+  button.onclick = () => app.deleteExplorerEntry(kind, path);
+  return button;
 }
 
 /** Rebuild the Author explorer from the currently loaded project VFS. */
@@ -99,6 +114,8 @@ export function renderFileTree(app: AppContext): void {
     };
     for (const path of app.assetsExpanded ? assetPaths : []) {
       const asset = app.project.assets[path];
+      const row = document.createElement("div");
+      row.className = "file-row";
       const button = document.createElement("button");
       button.className = path === app.activeAsset ? "file active asset-file" : "file asset-file";
       button.dataset.file = path;
@@ -106,7 +123,8 @@ export function renderFileTree(app: AppContext): void {
       button.textContent = `◈ ${path.slice("assets/".length)}`;
       button.style.paddingLeft = "20px";
       button.onclick = () => app.previewAsset(path);
-      tree.append(button);
+      row.append(button, deleteButton(app, "asset", path));
+      tree.append(row);
     }
   }
 }

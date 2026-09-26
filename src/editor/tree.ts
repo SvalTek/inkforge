@@ -230,3 +230,18 @@ export function createEntry(
   }
   return { ok: true, path, marker, kind };
 }
+
+/** Remove a file or an entire folder subtree, retaining an empty parent folder. */
+export function removeEntry(vfs: Record<string, string>, kind: "file" | "folder", path: string): string[] {
+  const removed = kind === "file"
+    ? (vfs[path] === undefined ? [] : [path])
+    : Object.keys(vfs).filter((key) => key.startsWith(`${path}/`));
+  if (removed.length === 0) return [];
+  for (const key of removed) delete vfs[key];
+
+  const parent = path.slice(0, path.lastIndexOf("/"));
+  if (parent && !Object.keys(vfs).some((key) => key.startsWith(`${parent}/`))) {
+    vfs[`${parent}/${FOLDER_MARKER}`] = "";
+  }
+  return removed;
+}

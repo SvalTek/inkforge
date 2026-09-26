@@ -57,6 +57,10 @@ export interface AppContext {
   submitCreate(): void;
   /** Create and, for a file, open it. Returns the outcome for the dialog to show. */
   createEntry(target: string, kind: CreateKind, name: string): CreateResult;
+  /** Open the deletion confirmation for a source file, folder, or asset. */
+  deleteExplorerEntry(kind: "file" | "folder" | "asset", path: string): void;
+  cancelDeleteExplorerEntry(): void;
+  confirmDeleteExplorerEntry(): void;
   previewAsset(path: string): void;
   closeFile(path: string): void;
   renderFileTree(): void;
