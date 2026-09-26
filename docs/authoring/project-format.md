@@ -138,7 +138,9 @@ total. Exceeding any of these reports the specific limit that was hit rather tha
 ## Export and import
 
 **Export .inkforge** writes the current project — every VFS file plus every asset — as a ZIP with a generated
-`manifest.json`. The download is named after the project title, sanitised for a filesystem.
+`manifest.json`. The download is named after the project title, sanitised for a filesystem. Empty folders created in the
+Author view are recorded with a hidden marker that survives saves but is filtered from exports, so a pack contains only
+real files and assets.
 
 **Import pack** validates the manifest, checks the version against any stored project with the same id, and then either
 declines it or installs it and starts it. Source files must be valid UTF-8; a file that is not is reported as

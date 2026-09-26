@@ -1,6 +1,7 @@
 import type { AppContext } from "../app/context.ts";
 import { normalizeProject } from "../project/project.ts";
 import { badgeForLanguage, languageForPath } from "./language.ts";
+import { buildFileTree, folderPaths, type TreeEntry } from "./tree.ts";
 
 /** The tab set the editor opens with, matching the original's two static tabs. */
 export const DEFAULT_OPEN_FILES: readonly string[] = ["scenario.yaml", "scripts/main.lua"];
@@ -23,34 +24,69 @@ export function clearEditor(app: AppContext): void {
   app.dom.format.textContent = "";
 }
 
+/** One level of explorer indentation, in pixels. */
+const INDENT_PX = 12;
+
+/**
+ * Render one entry, recursing into folders the author has open.
+ *
+ * A folder is a row of two buttons: the name toggles it, and a trailing `+`
+ * creates inside it. The indent is the hierarchy — the old tree printed whole
+ * paths on flat rows under a hardcoded root, which read as a list, not a tree.
+ */
+function renderEntry(app: AppContext, entry: TreeEntry, depth: number): HTMLElement[] {
+  if (entry.kind === "file") {
+    const button = document.createElement("button");
+    button.className = entry.path === app.current ? "file active" : "file";
+    button.dataset.file = entry.path;
+    button.textContent = entry.name;
+    button.style.paddingLeft = `${8 + depth * INDENT_PX}px`;
+    button.onclick = () => app.switchFile(entry.path);
+    return [button];
+  }
+
+  const open = app.expandedFolders.has(entry.path);
+  const row = document.createElement("div");
+  row.className = open ? "folder open" : "folder";
+  row.dataset.folder = entry.path;
+
+  const toggle = document.createElement("button");
+  toggle.className = "folder-toggle";
+  toggle.dataset.folderToggle = entry.path;
+  toggle.textContent = `${open ? "⌄" : "›"} ${entry.name}`;
+  toggle.style.paddingLeft = `${4 + depth * INDENT_PX}px`;
+  toggle.onclick = () => app.toggleFolder(entry.path);
+
+  const add = document.createElement("button");
+  add.className = "folder-add";
+  add.dataset.folderAdd = entry.path;
+  add.title = `Add a file or folder in ${entry.name}`;
+  add.setAttribute("aria-label", add.title);
+  add.textContent = "+";
+  add.onclick = () => app.openCreateDialog(entry.path);
+
+  row.append(toggle, add);
+  if (!open) return [row];
+  return [row, ...entry.children.flatMap((child) => renderEntry(app, child, depth + 1))];
+}
+
 /** Rebuild the Author explorer from the currently loaded project VFS. */
 export function renderFileTree(app: AppContext): void {
   const tree = app.dom.tree;
-  tree.replaceChildren();
-
-  const folder = document.createElement("div");
-  folder.className = "folder";
-  folder.append("⌄ ");
-  const name = document.createElement("b");
-  name.textContent = "adventure";
-  folder.append(name);
-  tree.append(folder);
-
-  const paths = Object.keys(app.project.vfs);
-  for (const path of paths.filter((entry) => !entry.startsWith("assets/"))) {
-    const button = document.createElement("button");
-    button.className = path === app.current ? "file active" : "file";
-    button.dataset.file = path;
-    button.textContent = `◇ ${path}`;
-    button.onclick = () => app.switchFile(path);
-    tree.append(button);
+  // A project arriving from anywhere — boot, library, import, new — starts with
+  // every folder open, so a fresh project never looks emptier than the old flat
+  // list did. Collapses made afterwards stick for the rest of that project.
+  if (app.explorerProjectId !== app.project.identity.id) {
+    app.expandedFolders = new Set(folderPaths(buildFileTree(app.project.vfs)));
+    app.explorerProjectId = app.project.identity.id;
   }
+  tree.replaceChildren(...buildFileTree(app.project.vfs).flatMap((entry) => renderEntry(app, entry, 0)));
 
   const assetPaths = Object.keys(app.project.assets).sort();
   const assetCount = assetPaths.length;
   if (assetCount > 0) {
     const assets = document.createElement("button");
-    assets.className = "file";
+    assets.className = "file asset-group";
     assets.dataset.file = "assets";
     assets.textContent = `${app.assetsExpanded ? "⌄" : "›"} assets `;
     const count = document.createElement("em");
@@ -68,6 +104,7 @@ export function renderFileTree(app: AppContext): void {
       button.dataset.file = path;
       button.title = `${asset.mime} · ${asset.size.toLocaleString()} bytes`;
       button.textContent = `◈ ${path.slice("assets/".length)}`;
+      button.style.paddingLeft = "20px";
       button.onclick = () => app.previewAsset(path);
       tree.append(button);
     }

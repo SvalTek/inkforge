@@ -47,6 +47,21 @@ export function bindEvents(app: AppContext): void {
   };
   dom.newBtn.onclick = () => void app.newProject();
   dom.addFile.onclick = () => dom.assetInput.click();
+  dom.createNew.onclick = () => app.openCreateDialog("");
+  dom.createClose.onclick = () => dom.createOverlay.classList.add("hidden");
+  dom.createCancel.onclick = () => dom.createOverlay.classList.add("hidden");
+  dom.createSubmit.onclick = () => app.submitCreate();
+  dom.createName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      app.submitCreate();
+    } else if (event.key === "Escape") {
+      dom.createOverlay.classList.add("hidden");
+    }
+  });
+  for (const button of [...document.querySelectorAll<HTMLButtonElement>("#createOverlay [data-create-kind]")]) {
+    button.onclick = () => app.setCreateKind((button.dataset.createKind as "folder" | "yaml" | "lua") ?? "folder");
+  }
   dom.assetInput.onchange = () => {
     const files = [...(dom.assetInput.files || [])];
     for (const file of files) {

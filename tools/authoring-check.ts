@@ -163,6 +163,143 @@ async function main(): Promise<void> {
         .includes("Stage Journal"),
       "modals.yml could not be opened",
     );
+
+    // === Folder and file creation ===
+    // Open the create dialog from the root `+ New` button.
+    await page.locator("#createNew").click();
+    assert(await page.locator("#createOverlay").isVisible(), "create dialog did not open");
+    // Default type from root is "folder".
+    assert(
+      await page.locator('#createOverlay [data-create-kind="folder"]').evaluate((node) =>
+        node.classList.contains("active")
+      ),
+      "root create dialog did not default to folder",
+    );
+    // Type a folder name and submit.
+    await page.locator("#createName").fill("rooms");
+    await page.locator("#createSubmit").click();
+    assert(!(await page.locator("#createOverlay").isVisible()), "create dialog did not close after folder creation");
+    // The folder should appear in the tree.
+    assert(
+      await page.locator('.folder[data-folder="rooms"]').count() === 1,
+      "created folder missing from tree",
+    );
+    // The folder should be expanded by default.
+    assert(
+      await page.locator('.folder[data-folder="rooms"]').evaluate((node) => node.classList.contains("open")),
+      "created folder is not expanded",
+    );
+    // The VFS should have a marker for the empty folder.
+    const vfsAfterFolder = await page.evaluate(() => {
+      const app = (globalThis as { inkforgeApp?: { project: { vfs: Record<string, string> } } }).inkforgeApp;
+      return app?.project.vfs ?? {};
+    });
+    assert(
+      vfsAfterFolder["rooms/.inkforge-dir"] !== undefined,
+      "empty folder marker missing from VFS",
+    );
+
+    // Create a YAML file inside the folder.
+    await page.locator('.folder[data-folder="rooms"] .folder-add').click();
+    assert(await page.locator("#createOverlay").isVisible(), "folder create dialog did not open");
+    // Default type from a folder is "yaml".
+    assert(
+      await page.locator('#createOverlay [data-create-kind="yaml"]').evaluate((node) =>
+        node.classList.contains("active")
+      ),
+      "folder create dialog did not default to yaml",
+    );
+    await page.locator("#createName").fill("gate");
+    await page.locator("#createSubmit").click();
+    assert(!(await page.locator("#createOverlay").isVisible()), "create dialog did not close after file creation");
+    // The file should appear nested under the folder.
+    assert(
+      await page.locator('.file[data-file="rooms/gate.yaml"]').count() === 1,
+      "created file missing from tree",
+    );
+    // The file should be in a tab and active in the editor.
+    assert(
+      await page.locator('.tab[data-file="rooms/gate.yaml"]').count() === 1,
+      "created file did not open in a tab",
+    );
+    assert(
+      await page.locator('.tab[data-file="rooms/gate.yaml"]').evaluate((node) => node.classList.contains("active")),
+      "created file tab is not active",
+    );
+    // The marker should be gone now that the folder has a real file.
+    const vfsAfterFile = await page.evaluate(() => {
+      const app = (globalThis as { inkforgeApp?: { project: { vfs: Record<string, string> } } }).inkforgeApp;
+      return app?.project.vfs ?? {};
+    });
+    assert(
+      vfsAfterFile["rooms/.inkforge-dir"] === undefined,
+      "empty folder marker was not removed after adding a file",
+    );
+    assert(
+      vfsAfterFile["rooms/gate.yaml"] !== undefined,
+      "created file missing from VFS",
+    );
+
+    // Test validation: try to create a duplicate file.
+    await page.locator('.folder[data-folder="rooms"] .folder-add').click();
+    await page.locator("#createName").fill("gate");
+    await page.locator("#createSubmit").click();
+    assert(await page.locator("#createOverlay").isVisible(), "dialog closed despite duplicate error");
+    const errorText = await page.locator("#createError").textContent();
+    assert(errorText?.includes("already exists"), `duplicate error missing or wrong: ${errorText}`);
+    await page.locator("#createCancel").click();
+
+    // Test validation: try an invalid extension.
+    await page.locator('.folder[data-folder="rooms"] .folder-add').click();
+    await page.locator('#createOverlay [data-create-kind="yaml"]').click();
+    await page.locator("#createName").fill("test.txt");
+    await page.locator("#createSubmit").click();
+    assert(await page.locator("#createOverlay").isVisible(), "dialog closed despite extension error");
+    const extError = await page.locator("#createError").textContent();
+    assert(extError?.includes("Only"), `extension error missing or wrong: ${extError}`);
+    await page.locator("#createCancel").click();
+
+    // Test nested folder creation.
+    await page.locator('.folder[data-folder="rooms"] .folder-add').click();
+    await page.locator('#createOverlay [data-create-kind="folder"]').click();
+    await page.locator("#createName").fill("deep");
+    await page.locator("#createSubmit").click();
+    assert(
+      await page.locator('.folder[data-folder="rooms/deep"]').count() === 1,
+      "nested folder missing from tree",
+    );
+    const vfsAfterNested = await page.evaluate(() => {
+      const app = (globalThis as { inkforgeApp?: { project: { vfs: Record<string, string> } } }).inkforgeApp;
+      return app?.project.vfs ?? {};
+    });
+    assert(
+      vfsAfterNested["rooms/deep/.inkforge-dir"] !== undefined,
+      "nested empty folder marker missing",
+    );
+
+    // Test that the marker is filtered from pack export.
+    await page.locator("#exportBtn").click();
+    // The export is a download; we can't easily intercept it in playwright-core,
+    // but we can check the manifest by evaluating the export logic directly.
+    const manifestFiles = await page.evaluate(() => {
+      const app = (globalThis as { inkforgeApp?: { project: { vfs: Record<string, string>; assets: Record<string, unknown> } } }).inkforgeApp;
+      if (!app) return [];
+      const vfsKeys = Object.keys(app.project.vfs).filter((key) => !key.endsWith("/.inkforge-dir") && key !== ".inkforge-dir");
+      return [...vfsKeys, ...Object.keys(app.project.assets)].sort();
+    });
+    assert(
+      !manifestFiles.includes("rooms/.inkforge-dir"),
+      "empty folder marker leaked into export manifest",
+    );
+    assert(
+      !manifestFiles.includes("rooms/deep/.inkforge-dir"),
+      "nested empty folder marker leaked into export manifest",
+    );
+    assert(
+      manifestFiles.includes("rooms/gate.yaml"),
+      "created file missing from export manifest",
+    );
+
     await page.locator('.nav[data-view="play"]').click();
 
     const toolIds = await page.locator("#toolRail [data-tool]").evaluateAll((nodes) =>

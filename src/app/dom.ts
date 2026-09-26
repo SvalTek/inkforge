@@ -55,6 +55,15 @@ export interface DomRefs {
   editorWrap: HTMLElement;
   assetPreview: HTMLElement;
   addFile: HTMLButtonElement;
+  createNew: HTMLButtonElement;
+  createOverlay: HTMLElement;
+  createTitle: HTMLElement;
+  createLabel: HTMLElement;
+  createName: HTMLInputElement;
+  createError: HTMLElement;
+  createClose: HTMLButtonElement;
+  createCancel: HTMLButtonElement;
+  createSubmit: HTMLButtonElement;
   /** The editor's mount point; CodeMirror owns everything inside it. */
   code: HTMLElement;
   cursor: HTMLElement;
@@ -133,6 +142,15 @@ export function queryDom(): DomRefs {
     editorWrap: get(".editor-wrap"),
     assetPreview: get("#assetPreview"),
     addFile: get("#addFile"),
+    createNew: get("#createNew"),
+    createOverlay: get("#createOverlay"),
+    createTitle: get("#createTitle"),
+    createLabel: get("#createLabel"),
+    createName: get("#createName"),
+    createError: get("#createError"),
+    createClose: get("#closeCreate"),
+    createCancel: get("#createCancel"),
+    createSubmit: get("#createSubmit"),
     code: get("#code"),
     cursor: get("#cursor"),
     diagnostics: get("#diagnostics"),
