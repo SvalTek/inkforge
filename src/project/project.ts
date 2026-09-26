@@ -1,17 +1,5 @@
 import { assetFromValue, isAssetPath } from "./assets.ts";
-import type { ProjectData, ProjectIdentity, RawProjectData } from "../types/index.ts";
-
-export const TEMPLATE_PATHS: readonly string[] = [
-  "scenario.yaml",
-  "state.yml",
-  "player.yml",
-  "ui.yml",
-  "definitions.yml",
-  "instances.yml",
-  "locations.yml",
-  "scripts/main.lua",
-  "scripts/threshold.lua",
-];
+import type { ProjectData, ProjectIdentity, RawProjectData, ScenarioMeta } from "../types/index.ts";
 
 const DEFAULT_IDENTITY: ProjectIdentity = { id: "local-project", title: "Untitled Adventure", version: "0.1.0" };
 
@@ -48,4 +36,26 @@ export function normalizeProject(project: RawProjectData): ProjectData {
 
 export function projectTitle(project: ProjectData): string {
   return project.identity.title || project.identity.id;
+}
+
+/**
+ * The library card's description line: the work's own front matter, then when
+ * the record was last written.
+ *
+ * The version shown is `meta.version`, not the manifest's — a card describes
+ * the work, and `project.version` is a record of the files that decides whether
+ * an import lands. The two are independent, so the card would otherwise show a
+ * number that moves for reasons the author never chose.
+ *
+ * Segments are dropped rather than left empty, so a project with no description
+ * reads `v1.0 · Updated …` instead of opening on a separator.
+ */
+export function projectCardMeta(project: ProjectData, meta: ScenarioMeta | undefined): string {
+  const description = meta?.description?.trim();
+  const version = meta?.version?.trim();
+  return [
+    description,
+    version ? `v${version}` : "",
+    `Updated ${new Date(project.updatedAt).toLocaleString()}`,
+  ].filter(Boolean).join(" · ");
 }

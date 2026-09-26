@@ -8,17 +8,17 @@ local oblique_needle
 local elapsed = 0
 
 local function hide_previews()
-  game.ui.hide("showcase_flat")
-  game.ui.hide("showcase_iso")
-  game.ui.hide("showcase_oblique")
-  game.ui.hide("showcase_mixed")
+  GameUI.hide("showcase_flat")
+  GameUI.hide("showcase_iso")
+  GameUI.hide("showcase_oblique")
+  GameUI.hide("showcase_mixed")
 end
 
 local function show_preview(id, label)
   hide_previews()
-  game.ui.show(id)
-  game.state.set("activePreview", id:gsub("showcase_", ""))
-  game.output("Preview: " .. label)
+  GameUI.show(id)
+  GameState.set("activePreview", id:gsub("showcase_", ""))
+  GameOutput.add("Preview: " .. label)
 end
 
 function show_flat()
@@ -38,39 +38,39 @@ function show_mixed()
 end
 
 function open_map()
-  game.output("Map tool action dispatched to Lua.")
+  GameOutput.add("Map tool action dispatched to Lua.")
 end
 
 function hide_runtime_tool()
-  game.tool.hide("lua_tool")
-  game.output("Lua-registered tool hidden. Use the author restart to reset runtime state.")
+  GameTools.hide("lua_tool")
+  GameOutput.add("Lua-registered tool hidden. Use the author restart to reset runtime state.")
 end
 
 function show_runtime_tool()
-  game.tool.show("lua_tool")
-  game.output("Lua-registered tool shown.")
+  GameTools.show("lua_tool")
+  GameOutput.add("Lua-registered tool shown.")
 end
 
 function open_lua_panel()
-  game.output("Lua-registered tool action dispatched.")
+  GameOutput.add("Lua-registered tool action dispatched.")
 end
 
 function remove_runtime_tool()
-  game.tool.remove("lua_tool")
-  game.output("Lua-registered tool removed.")
+  GameTools.remove("lua_tool")
+  GameOutput.add("Lua-registered tool removed.")
 end
 
 function disable_map_tool()
-  game.tool.disable("map_tool")
-  game.output("Map tool disabled.")
+  GameTools.disable("map_tool")
+  GameOutput.add("Map tool disabled.")
 end
 
 function enable_map_tool()
-  game.tool.enable("map_tool")
-  game.output("Map tool enabled.")
+  GameTools.enable("map_tool")
+  GameOutput.add("Map tool enabled.")
 end
 
-game.ui.create({
+GameUI.create({
   id = "showcase_intro",
   type = "text",
   location = "output",
@@ -80,7 +80,7 @@ game.ui.create({
 })
 
 local function preview_button(id, label, callback)
-  game.ui.create({
+  GameUI.create({
     id = id,
     type = "button",
     location = "output",
@@ -94,14 +94,14 @@ preview_button("iso_button", "Isometric / depth", "show_iso")
 preview_button("oblique_button", "Oblique / pseudo-3D", "show_oblique")
 preview_button("mixed_button", "Mixed world + VN overlay", "show_mixed")
 
-game.tool.register({
+GameTools.register({
   id = "lua_tool",
   label = "Lua tool",
   icon = "⚙",
   action = "open_lua_panel"
 })
 
-flat_scene = game.canvas.create({
+flat_scene = GameCanvas.create({
   id = "showcase_flat",
   accessibleLabel = "Flat layered composition preview",
   viewport = { width = 900, height = 600, fit = "contain" },
@@ -138,7 +138,7 @@ flat_scene = game.canvas.create({
 })
 flat_glow = flat_scene:node("flat_glow")
 
-iso_scene = game.canvas.create({
+iso_scene = GameCanvas.create({
   id = "showcase_iso",
   accessibleLabel = "Isometric depth and elevation preview",
   viewport = { width = 900, height = 600, fit = "contain",
@@ -167,7 +167,7 @@ iso_scene = game.canvas.create({
 })
 iso_beacon = iso_scene:node("iso_beacon")
 
-oblique_scene = game.canvas.create({
+oblique_scene = GameCanvas.create({
   id = "showcase_oblique",
   accessibleLabel = "Oblique pseudo 3D machinery preview",
   viewport = { width = 900, height = 600, fit = "contain",
@@ -196,7 +196,7 @@ oblique_scene = game.canvas.create({
 })
 oblique_needle = oblique_scene:node("machine_needle")
 
-mixed_scene = game.canvas.create({
+mixed_scene = GameCanvas.create({
   id = "showcase_mixed",
   accessibleLabel = "Mixed projected world and VN overlay preview",
   viewport = { width = 900, height = 600, fit = "contain",
@@ -226,36 +226,36 @@ mixed_scene = game.canvas.create({
 })
 
 function inspect_flat()
-  game.output("Flat scene clicked: the core is ordinary screen-space geometry inside ordered layers.")
+  GameOutput.add("Flat scene clicked: the core is ordinary screen-space geometry inside ordered layers.")
   flat_glow:tween({ opacity = 0.38, scale = 1.25 }, { duration = 0.24, yoyo = true, repeat_count = 1, easing = "ease_out_cubic" })
 end
 
 function inspect_iso(event)
-  game.output("Isometric marker at world " .. math.floor(event.worldX + 0.5) .. "," .. math.floor(event.worldY + 0.5) .. ".")
+  GameOutput.add("Isometric marker at world " .. math.floor(event.worldX + 0.5) .. "," .. math.floor(event.worldY + 0.5) .. ".")
   iso_beacon:tween({ scale = 1.45, opacity = 0.55 }, { duration = 0.2, yoyo = true, repeat_count = 1, easing = "ease_out_cubic" })
 end
 
 function inspect_oblique()
-  game.output("Oblique gear clicked: its shape is still 2D canvas geometry, just skewed and elevated.")
+  GameOutput.add("Oblique gear clicked: its shape is still 2D canvas geometry, just skewed and elevated.")
   oblique_needle:tween({ rotation = 24 }, { duration = 0.35, yoyo = true, repeat_count = 1, easing = "ease_in_out_sine" })
 end
 
 function inspect_mixed(event)
-  game.output("Mixed scene marker: projected world " .. math.floor(event.worldX + 0.5) .. "," .. math.floor(event.worldY + 0.5) .. " beneath a screen-space VN stage.")
+  GameOutput.add("Mixed scene marker: projected world " .. math.floor(event.worldX + 0.5) .. "," .. math.floor(event.worldY + 0.5) .. " beneath a screen-space VN stage.")
 end
 
 hide_previews()
-game.ui.show("showcase_flat")
+GameUI.show("showcase_flat")
 
-game.timer.every(2.8, function()
+timers.setInterval(function()
   if flat_glow then flat_glow:tween({ scale = 1.12, opacity = 0.2 }, { duration = 0.28, yoyo = true, repeat_count = 1, easing = "ease_in_out_sine" }) end
-end)
+end, 2800)
 
-game.timer.every(3.4, function()
+timers.setInterval(function()
   elapsed = elapsed + 3.4
   if iso_beacon then iso_beacon:set({ opacity = 0.74 + math.sin(elapsed) * 0.2 }) end
-end)
+end, 3400)
 
-function update(dt)
+function Update(dt)
   elapsed = elapsed + dt
 end

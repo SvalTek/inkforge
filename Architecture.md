@@ -137,23 +137,23 @@ declarations that must NOT be ported (see section 13).
 | --- | --- | --- |
 | `src/main.ts` | Browser entry point: `createApp()`, then `app.initialise()` exactly once. | `app.js:68` (immediate `initialiseProject()` call), `app.js:1` |
 | `src/app/context.ts` | `AppContext` / `AppView` types: the shared app surface (`dom`, `project`, `scenario`, `runtime`, `canvas`, `lua`, `engine`, `output`, `current`, `openFiles`) and the facade method signatures. | derived (section 5) |
-| `src/app/dom.ts` | `queryDom` (typed element map, including the `.tabs` container) and the `$` / `$all` DOM query helpers. | `app.js:1` |
-| `src/app/app.ts` | `createApp`: builds the single `AppContext` facade (`initialise`, the consolidated `start`, `restart`, `showView`, `switchFile`, `syncEditor`, `lineNumbers`, `persist`, `render`, `runUiAction`, `newProject`, `exportPack`, `importPack`), and binds events once. | `app.js:2`–`app.js:5`, `app.js:66`–`app.js:75` |
+| `src/app/dom.ts` | `queryDom` (typed element map, including the `.tabs` container) and the `$all` DOM query helper. | `app.js:1` |
+| `src/app/app.ts` | `createApp`: builds the single `AppContext` facade (`initialise`, the consolidated `start`, `showView`, `switchFile`, `syncEditor`, `lineNumbers`, `persist`/`schedulePersist`, `render`, `runUiAction`, `newProject`, `exportPack`, `importPack`), and binds events once. | `app.js:2`–`app.js:5`, `app.js:66`–`app.js:75` |
 | `src/app/boot.ts` | `bootRuntime`: construct `InkforgeCanvasRuntime`, tear down the prior canvas/Lua runtime, call `createLuaEngine`, wire `setUpdate` and the canvas/timer/afterFrame hooks. | `app.js:258`–`app.js:288` (live `bootLua` body) |
 | `src/app/events.ts` | All DOM event wiring: `#code` input/keyup/scroll, `.file` (tabs are bound by `renderTabs`), `.nav`, command forms, restart/run, export/import/new, inventory close. | `app.js:32` (dead), `app.js:72` (live), `app.js:33`–`app.js:41` |
-| `src/engine/events.ts` | `emit` and `createOutput` (push an output event and set `runtime.canvasViewDirty`). | `app.js:11` (dead), `app.js:246` (live) |
+| `src/engine/events.ts` | `createOutput` (push an output event and set `runtime.canvasViewDirty`). | `app.js:246` (live) |
 | `src/engine/conditions.ts` | `check(condition, runtime)` predicate evaluator (`and`/`or`/`not`/`hasItem`/`var` comparisons). | `app.js:12` |
 | `src/engine/directives.ts` | `lines()` normalizer, `itemName`, `move`, and the `execute(list, deps)` directive interpreter. | `app.js:9`, `app.js:13`, `app.js:15` |
 | `src/engine/ui-state.ts` | `applyUi`, `resolveField`, `uiFields`, `uiElement` (UI override resolution). | `app.js:14`, `app.js:18`–`app.js:20` |
 | `src/engine/engine.ts` | `createEngine`: builds the `EngineApi` facade (`check`/`move`/`execute`/`available`/`dispatch`) over `conditions.ts` and `directives.ts`. | `app.js:13`, `app.js:16`, `app.js:17` |
-| `src/project/project.ts` | `TEMPLATE_PATHS` and `normalizeProject` (identity, text VFS, typed assets, and legacy migration normalization). | derived |
+| `src/project/project.ts` | `normalizeProject` (identity, text VFS, typed assets, and legacy migration normalization). | derived |
 | `src/project/starter.ts` | `TEMPLATE_BASE` and `loadStarterProject`: fetch the bundled manifest and load text/binary entries into a pinned project. | derived |
 | `src/project/storage.ts` | IndexedDB project-library records, active-project localStorage key, and one-time v1 migration. | derived |
 | `src/project/assets.ts` | Supported asset MIME mapping, data/blob normalization, shared object-URL resolver, and URL lifecycle. | derived |
 | `src/audio/manager.ts` | HTML audio lifecycle manager for project-local audio assets. | derived |
 | `src/vfs/vfs.ts` | `resolveProjectPath`: import path resolution and root-escape protection. | `app.js:61`, `app.js:62` |
 | `src/yaml/loader.ts` | Lazy dynamic import of `yaml@2.6.0`. | `app.js:6` |
-| `src/yaml/compose.ts` | `composeScenario` plus the recursive `resolve`/`load` for `!import`/`!mixin`/`<<`. | `app.js:62`, `app.js:64`–`app.js:65` |
+| `src/yaml/compose.ts` | `composeScenario` plus the recursive `resolve`/`load` for `!import`/`!mixin`/`<<`; `readScenarioMeta` reads the front matter alone, for the project library cards. | `app.js:62`, `app.js:64`–`app.js:65` |
 | `src/lua/loader.ts` | `loadWasmoon`: dynamic import of the remote `wasmoon@1.16.0` ESM build. | `app.js:265` |
 | `src/lua/lua-api.ts` | Assembles the byte-preserved `CANVAS_LUA_API` bootstrap from the shared layer and facade modules. | `app.js:98`–`app.js:244` |
 | `src/lua/shared.ts` | Shared Lua JSON serialization and callback registry used by the facades. | derived from `app.js:98`–`:131` |
@@ -170,10 +170,10 @@ declarations that must NOT be ported (see section 13).
 | `src/canvas/math.ts` | Canvas point mapping, local point, hit tests, matrix multiply/invert/transform. | `canvas-runtime.js:470`–`canvas-runtime.js:559` |
 | `src/canvas/projection.ts` | Flat, isometric, and oblique viewport projections; forward/inverse point mapping, depth keys, and projected node transforms. | new renderer foundation |
 | `src/canvas/easings.ts` | Easing table attached as `InkforgeCanvasRuntime.easings`. | `canvas-runtime.js:562`–`canvas-runtime.js:570` |
-| `src/editor/editor.ts` | `lineNumbers` (gutter), `updateCursor` (readout), `syncEditor` (flush + persist), the path-based `switchFile`, and the dynamic open-tab management: `DEFAULT_OPEN_FILES`, `tabLabel`, `renderTabs`, `closeFile` (section 15(iv)). | `app.js:28`, `app.js:33`, `app.js:41`, `app.js:71`, `app.js:72` |
+| `src/editor/editor.ts` | `lineNumbers` (gutter), `updateCursor` (readout), `syncEditor` (flush + debounced `schedulePersist`), the path-based `switchFile`, and the dynamic open-tab management: `DEFAULT_OPEN_FILES`, `tabLabel`, `renderTabs`, `closeFile` (section 15(iv)). | `app.js:28`, `app.js:33`, `app.js:41`, `app.js:71`, `app.js:72` |
 | `src/ui/render.ts` | `render`, `renderUi`, `renderInventory`, `inspectItem`, `openInventory`. | `app.js:22` (dead), `app.js:247` (live), `app.js:23`–`app.js:26` |
 | `src/ui/actions.ts` | `runUiAction` dispatch (inventory/command/instructions/Lua callback). | `app.js:21` |
-| `src/import-export/pack.ts` | `exportPack` and `importPack` (`.inkforge`). | `app.js:37`–`app.js:39` |
+| `src/import-export/pack.ts` | `exportPack` and `importPack` (`.inkforge`), SemVer precedence (`compareVersions`), and `PACK_LIMITS` archive bounds. | `app.js:37`–`app.js:39` |
 | `src/types/index.ts` | Barrel re-export of the type model. | derived (section 5) |
 | `src/types/project.ts` | `Project`, `ProjectVfs`, persisted shape. | `app.js:3`, `app.js:61` |
 | `src/types/vfs.ts` | VFS map type and path helpers. | `app.js:61`–`app.js:62` |
@@ -190,8 +190,9 @@ declarations that must NOT be ported (see section 13).
 | `tools/dev.ts` | Watch/rebuild + serve orchestration. | new (tooling) |
 | `tools/serve.ts` | `deno task serve` entry (serves an existing `dist/`). | new (tooling) |
 | `tools/server.ts` | Deno static file server (correct MIME types, `no-store` caching). | new (tooling) |
-| `tools/package.ts` | Manifest-backed folder packer for version-1 `.inkforge` files; validates canonical files and UTF-8 VFS content. | new (tooling) |
+| `tools/package.ts` | Manifest-backed folder packer for version-2 `.inkforge` files; validates canonical files and UTF-8 VFS content. | new (tooling) |
 | `tools/smoke.ts` | Playwright smoke harness: build, serve, drive headless Chrome, assert the checks. | new (tooling) |
+| `tools/pack-check.ts` | In-process SemVer precedence checks for `.inkforge` manifest versions. | new (tooling) |
 | `deno.json` | Tasks, imports, `compilerOptions` (`lib: ["dom","dom.iterable","dom.asynciterable","esnext","deno.ns"]`), and the `fmt`/`lint` excludes. | new (tooling) |
 | `index.html` | Application shell, DOM ids/classes; `<script type="module" src="/assets/main.js">`. | `index.html:1`–`index.html:15` |
 | `styles/*.css` | Ordered CSS partials; concatenated to `dist/style.css`. | `style.css:1`–`style.css:18` (section 12) |
@@ -318,8 +319,8 @@ no camera abstraction. Projection is the logical-coordinate-to-viewport mapping.
 ### Class responsibilities
 
 - Construction/destruction: `constructor(host, hooks)` (`:2`), `destroy()` (`:14`).
-- Main loop: `setUpdate` (`:25`), `schedule` (`:30`), `tick` (`:35`), `hasClockWork` (`:47`),
-  `resetClock` (`:52`). `dt` is clamped to `[0, 0.1]` seconds (`:37`).
+- Main loop: `setUpdate` (`:25`), `schedule` (`:30`), `tick` (`:35`), `hasClockWork` (`:47`).
+  `dt` is clamped to `[0, 0.1]` seconds (`:37`).
 - Command dispatch: `command(command)` switch over `scene.create`, `scene.clear`,
   `scene.remove`, `node.add`, `node.set`, `node.translate`, `node.remove`, `event.set`,
   `event.remove`, `animation.create`, `animation.keyframes`, `animation.control` (`:56`–`:90`).
@@ -494,7 +495,7 @@ string embedded in the dead `bootLua` at `app.js:78`–`app.js:95` is **dead** a
 
 ### VFS
 
-- `TEMPLATE_PATHS` (`app.js:60`) lists the nine starter files:
+- The bundled starter manifest (`templates/lantern-below/manifest.json`) lists the nine starter files:
   `scenario.yaml`, `state.yml`, `player.yml`, `ui.yml`, `definitions.yml`,
   `instances.yml`, `locations.yml`, `scripts/main.lua`, `scripts/threshold.lua`.
 - `normalizeProject(project)` (`src/project/project.ts`) normalizes source text into
@@ -586,6 +587,11 @@ the imported value at that position (deeply, because `resolve` recurses).
 - UI: `#surfaceHeader` top flat sidebar buttons; `#gameHud` lower flat meters
   (`<div><span>label</span><b>v / max</b><i><em style="width:pct%"></em></i></div>`);
   `#uiOutput` output buttons/text; canvas surfaces via `runtime.canvasEngine.mountSurfaces`.
+- Authored strings (scenario text, labels, commands, event payloads, inventory item ids, and
+  error messages) are treated as untrusted: the renderer builds every node with
+  `textContent`/`dataset` and never interpolates values into `innerHTML`, so markup is shown
+  literally and cannot become active elements. The element structure, class names, and
+  `data-cmd`/`data-ui`/`data-slot`/`data-meter` attributes above are unchanged.
 
 ### Inventory overlay (`app.js:24`–`:26`)
 
@@ -620,7 +626,7 @@ the imported value at that position (deeply, because `resolve` recurses).
   state. `inkforge-project-v1` is migrated once, then removed. The bundled
   Lantern Below project is seeded as a pinned record; imports do not overwrite
   other library records.
-- The top-bar Load project flow renders an application-owned library modal with
+- The top-bar Load scenario flow renders an application-owned library modal with
   title, author, semantic version, updated time, active marker, load, and delete
   actions. The pinned starter cannot be deleted; deleting the active project
   selects the pinned starter first, then another available record.
@@ -716,9 +722,11 @@ Concatenation order is exactly `01 -> 02 -> 03 -> 04 -> 05 -> 06` into `dist/sty
   A mismatch means the cascade order or encoding changed; fix before proceeding.
 - No partial may be reordered, reformatted, or deduplicated.
 - `tools/build.ts` strips trailing newlines from each partial and joins them with a single
-  `\n` plus one trailing `\n`, reproducing the source bytes exactly. Verified output:
-  `dist/style.css` = 19184 bytes, SHA-256
-  `AA0375982F7889A1B0AA00E44AE375E56669378BE7B60E47643EF519D9501676`.
+  `\n` plus one trailing `\n`, preserving the partials' bytes. The renderer/viewport stage
+  (section 17) extended the cascade beyond the original `../inkforge-local/style.css`, so the
+  built artifact is no longer byte-identical to that source. Current measured output:
+  `dist/style.css` = 23849 bytes, SHA-256
+  `04F558AF4ECC7FF3AF0213B185598325DDDFFC3E1368C8D2B313846CA17EFE32`.
 
 ---
 
@@ -805,7 +813,9 @@ defect.
 - Runtime-generated classes: `choice`, `entry`, `event`, `slot`, `occupied`, `ui-text`,
   `game-canvas`.
 - `data-file`, `data-view`, `data-cmd`, `data-ui`, `data-slot`, `data-scene` attributes and
-  their exact values.
+  their exact values. `data-meter` carries a HUD meter's authored id, and is the only hook by
+  which a stylesheet can single one row out; it is separate from `data-ui` because
+  `renderUi()` reads that one as "control carrying an activate action" and binds a click.
 
 ### Visual
 
@@ -979,10 +989,9 @@ the original faithfully but then replaces the static markup at runtime.
 - `src/app/events.ts` binds only `.file` clicks; tabs are bound by `renderTabs`. The
   `assets` explorer row remains a no-op.
 
-No CSS changed. The existing `.tab i{font-style:normal;color:#777;margin-left:10px}` is
-already clickable (no `pointer-events:none`, non-zero size), so `dist/style.css` remains
-byte-for-byte identical to `../inkforge-local/style.css` (SHA-256
-`AA0375982F7889A1B0AA00E44AE375E56669378BE7B60E47643EF519D9501676`, 19184 bytes).
+No CSS changed for the tab enhancement itself. (The later renderer/viewport stage did change
+the cascade beyond the original `../inkforge-local/style.css`; see sections 12 and 17 for the
+current `dist/style.css` size and hash.)
 
 ### Rationale
 
@@ -1123,8 +1132,10 @@ The browser runtime now treats projects as independent durable records rather
 than one mutable scenario. `createApp().initialise()` loads the bundled manifest,
 migrates the old `inkforge-project-v1` localStorage record once, seeds the pinned
 Lantern Below record when absent, selects the active ID, and starts that record.
-Project replacement is an explicit activation boundary: pending editor content is
-flushed before load/import/export/new/delete, accepted imports are stored before
+Project replacement is an explicit activation boundary: keystroke saves are
+debounced (`PERSIST_DEBOUNCE_MS` in `src/app/app.ts`) so the editor does not
+write IndexedDB on every input, and any pending save is flushed by `persist()`
+before load/import/export/new/delete. Accepted imports are stored before
 activation, and failed validation/storage leaves the current project active.
 
 The stable source-pack contract is:
@@ -1140,8 +1151,14 @@ The stable source-pack contract is:
 
 `fflate` supplies ZIP encoding/decoding in the browser and in
 `tools/package.ts`. Semantic versions decide replacement for an existing project
-ID; equal and older packages are reported and ignored. New projects are stored as
-generated-ID copies and never overwrite the starter or another record.
+ID using full SemVer precedence (`x.y.z[-prerelease]`, so a stable release such as
+`1.0.0` outranks its prerelease `1.0.0-beta`); equal and older packages are
+reported and ignored. Untrusted archives are bounded by `PACK_LIMITS`
+(`src/import-export/pack.ts`): compressed upload size, entry count, per-entry
+uncompressed size, and combined uncompressed size are checked while expanding,
+and an exceeded limit reports a clear error instead of storing the package. New
+projects are stored as generated-ID copies and never overwrite the starter or
+another record.
 
 Only the following project-local assets are durable: SVG/PNG/JPEG/WebP images and
 MP3/OGG/WAV audio. An asset record contains its relative path, MIME, size, and

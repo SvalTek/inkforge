@@ -5,7 +5,7 @@
     "id": "renderer-stage-showcase",
     "title": "Renderer Stage Showcase",
     "author": "Inkforge",
-    "version": "0.1.0"
+    "version": "0.1.2"
   },
   "files": [
   "scenario.yaml",

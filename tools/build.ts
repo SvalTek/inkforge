@@ -1,6 +1,7 @@
-import { build as esbuild } from "esbuild";
-import { join } from "node:path";
-import { DIST, INDEX_HTML, SRC, STYLES, TEMPLATES } from "./paths.ts";
+import { build as esbuild, transform } from "esbuild";
+import { denoPlugins } from "@luca/esbuild-deno-loader";
+import { join, relative } from "node:path";
+import { DIST, INDEX_HTML, ROOT, SRC, STYLES, TEMPLATES } from "./paths.ts";
 
 export interface BuildOptions {
   minify?: boolean;
@@ -51,6 +52,38 @@ async function listStyleFiles(): Promise<string[]> {
   return files.sort();
 }
 
+/**
+ * Build the `wasmUri` data URI for the Lua runtime.
+ *
+ * wasmoon's Emscripten glue would otherwise resolve `glue.wasm` relative to its
+ * own script URL, which breaks once the runtime is bundled into the app. An
+ * inlined data URI makes the bundle self-contained: nothing extra to ship,
+ * nothing to go stale, and no way for the load to fail.
+ *
+ * `wasmoon` is resolved through the import map, so the version is whatever
+ * `deno.json` pins rather than a second copy of the version number here.
+ */
+async function wasmDataUri(): Promise<string> {
+  const glue = new URL("glue.wasm", import.meta.resolve("wasmoon"));
+  let bytes: Uint8Array;
+  try {
+    bytes = await Deno.readFile(glue);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) {
+      throw new Error(`wasmoon glue.wasm not found at ${glue.href} — check the "wasmoon" entry in deno.json.`);
+    }
+    throw error;
+  }
+
+  // Chunked to stay under the argument-spread limit for large binaries.
+  const chunkSize = 8192;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return `data:application/octet-stream;base64,${btoa(binary)}`;
+}
+
 export async function build(options: BuildOptions = {}): Promise<void> {
   const minify = options.minify ?? true;
   const sourcemap = options.sourcemap ?? false;
@@ -58,8 +91,14 @@ export async function build(options: BuildOptions = {}): Promise<void> {
   await removeDir(DIST);
   await Deno.mkdir(join(DIST, "assets"), { recursive: true });
 
+  const wasmUri = await wasmDataUri();
+
   await esbuild({
-    entryPoints: [join(SRC, "main.ts")],
+    // The Deno resolver plugin handles entry points as specifiers, so this must
+    // be a project-relative path (or a URL) — an absolute Windows path is
+    // mangled into a bogus URL and fails to resolve.
+    entryPoints: [relative(ROOT, join(SRC, "main.ts"))],
+    absWorkingDir: ROOT,
     bundle: true,
     format: "esm",
     platform: "browser",
@@ -68,6 +107,18 @@ export async function build(options: BuildOptions = {}): Promise<void> {
     sourcemap,
     minify,
     logLevel: "info",
+    // esbuild does not read `deno.json`, so `experimentalDecorators` must be
+    // restated here. Without it esbuild emits standard TC39 decorators, whose
+    // `(value, context)` signature does not match the legacy
+    // `(target, propertyKey, descriptor)` form WebLuaBridge's `@LuaBinding`
+    // expects — the bindings then register no methods and install nothing.
+    tsconfigRaw: { compilerOptions: { experimentalDecorators: true } },
+    // The Lua runtime's WASM binary, inlined so the bundle is self-contained.
+    define: { __INKFORGE_WASM_URI__: JSON.stringify(wasmUri) },
+    // Resolve `https:`, `npm:` and `jsr:` specifiers (and the `deno.json`
+    // import map) through Deno's module graph and global cache, so the app can
+    // depend on WebLuaBridge by pinned commit without vendoring it.
+    plugins: [...denoPlugins()],
   });
 
   await Deno.copyFile(INDEX_HTML, join(DIST, "index.html"));
@@ -82,10 +133,15 @@ export async function build(options: BuildOptions = {}): Promise<void> {
   for (const file of styleFiles) {
     parts.push(await Deno.readTextFile(join(STYLES, file)));
   }
-  await Deno.writeTextFile(
-    join(DIST, "style.css"),
-    parts.map((part) => part.replace(/\n+$/, "")).join("\n") + "\n",
-  );
+  const css = parts.map((part) => part.replace(/\n+$/, "")).join("\n") + "\n";
+
+  // The partials are formatted to be read by a person; minifying here is what
+  // keeps that free at runtime. `charset: "utf8"` leaves literal punctuation
+  // (em dashes, the ◇ glyph) alone instead of escaping it into \2014-style
+  // codes. Concatenating in filename order is the cascade, so it happens before
+  // this and nothing is reordered.
+  const style = minify ? (await transform(css, { loader: "css", minify: true, charset: "utf8" })).code : css;
+  await Deno.writeTextFile(join(DIST, "style.css"), style);
 
   console.log("Styles concatenated in order:");
   for (const file of styleFiles) {

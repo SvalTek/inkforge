@@ -2,6 +2,7 @@ meta:
   title: Renderer Stage Showcase
   author: Inkforge
   version: 0.1.0
+  description: "The canvas reference: flat, isometric and oblique scenes in one project."
 startLocation: showcase
 state: !import state.yml
 player: !import player.yml

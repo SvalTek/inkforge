@@ -1,0 +1,288 @@
+/* ==========================================================================
+   07-markdown.css — authored prose
+
+   Authored text is rendered by src/ui/markdown.ts into elements carrying
+   `.md-inline` (a one-line string, inline constructs only) or `.md-block` (a
+   `|` YAML block scalar, full markdown). Everything here is scoped to a
+   markdown host, so no app element picks up a rule meant for authored prose.
+
+   This file loads last, which is what lets it re-state an earlier rule for
+   markdown hosts only — see the transcript highlight below.
+   ========================================================================== */
+
+/* Inline constructs ------------------------------------------------------ */
+
+.md-inline strong,
+.md-block strong {
+  font-weight: 700;
+  color: #f5dfb4;
+}
+
+.md-inline code,
+.md-block code {
+  font: .88em ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: #221f2c;
+  border: 1px solid #37323f;
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #f0d9a8;
+}
+
+.md-inline s,
+.md-block s {
+  color: #8d8578;
+}
+
+/* Links keep a real href so hovering previews the destination and the address
+   can be copied; the click itself is intercepted in src/ui/link-guard.ts and
+   routed through a confirmation dialog before anything opens. */
+.md-link {
+  color: var(--cyan);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.md-link:hover {
+  color: #a8e6e2;
+}
+
+/* Block constructs ------------------------------------------------------- */
+
+.md-block > *:first-child {
+  margin-top: 0;
+}
+
+.md-block > *:last-child {
+  margin-bottom: 0;
+}
+
+.md-block p {
+  margin: 0 0 10px;
+}
+
+.md-block h1,
+.md-block h2,
+.md-block h3 {
+  margin: 16px 0 7px;
+  font-family: Georgia, serif;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: #f1e2c8;
+}
+
+.md-block h1 {
+  font-size: 1.34em;
+}
+
+.md-block h2 {
+  font-size: 1.18em;
+}
+
+.md-block h3 {
+  font-size: 1.04em;
+}
+
+.md-block ul,
+.md-block ol {
+  margin: 7px 0 11px;
+  padding-left: 24px;
+}
+
+.md-block li {
+  margin: 3px 0;
+}
+
+.md-block li::marker {
+  color: #a37e48;
+}
+
+.md-block blockquote {
+  margin: 9px 0 11px;
+  padding-left: 14px;
+  border-left: 2px solid #6b5334;
+  color: #c3b6a4;
+  font-style: italic;
+}
+
+.md-block hr {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid #3b3340;
+}
+
+.md-block pre {
+  margin: 9px 0 12px;
+  padding: 13px 15px;
+  background: #12111a;
+  border: 1px solid #2f2b3a;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.md-block pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #d8d2e4;
+  font-size: .86em;
+}
+
+.md-block table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 9px 0 12px;
+  font-size: .92em;
+}
+
+.md-block th,
+.md-block td {
+  border: 1px solid #37323f;
+  padding: 6px 9px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.md-block th {
+  background: #1b1926;
+  color: #f1e2c8;
+}
+
+/* Transcript entries ----------------------------------------------------- */
+
+/* A `|` block entry is a document, not a line. The transcript's "newest line"
+   highlight (02-play.css) assumes one paragraph per entry, so a block entry
+   keeps its own type scale and takes the gold on its closing block instead.
+   These selectors are deliberately as long as the ones they have to outrank. */
+.entry .entry-body p,
+.entry:last-child .entry-body p,
+.hero-terminal .entry .entry-body p,
+.hero-terminal .entry:last-child .entry-body p {
+  margin: 0 0 10px;
+  color: inherit;
+  font-size: inherit;
+}
+
+.entry .entry-body {
+  color: #e9e5e0;
+}
+
+.entry.system .entry-body {
+  color: #a7c0c3;
+}
+
+.hero-terminal .entry .entry-body {
+  color: #eee8df;
+}
+
+.hero-terminal .entry.system .entry-body {
+  color: #c2d4d2;
+}
+
+.entry:last-child .entry-body > :last-child,
+.hero-terminal .entry:last-child .entry-body > :last-child {
+  color: #f2bb68;
+}
+
+/* Kickers ---------------------------------------------------------------- */
+
+/* Kickers read as labels, not prose, so they are italic everywhere rather than
+   markdown-capable: the emphasis is the style, not the author's choice. */
+#inventoryKicker,
+#itemKicker,
+.authored-modal-window > header span {
+  font-style: italic;
+}
+
+/* External-link confirmation --------------------------------------------- */
+
+/* It lives outside #modalHost, which repaints from runtime state, so it needs
+   its own host above the authored modal layer. */
+#linkGuardHost {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.link-guard-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(6, 6, 10, .86);
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  pointer-events: auto;
+}
+
+.link-guard-window {
+  width: min(560px, 100%);
+  background: linear-gradient(135deg, #12100f, #171313);
+  border: 1px solid #564130;
+  box-shadow: 0 24px 80px #000;
+  padding: 29px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.link-guard-kicker {
+  font: italic 10px Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: .15em;
+  color: #b49872;
+}
+
+.link-guard-window h2 {
+  margin: 0;
+  font: 24px Georgia, serif;
+  color: #efe0ca;
+}
+
+.link-guard-label {
+  margin: 0;
+  color: #b5a695;
+  font: 14px/1.5 Georgia, serif;
+}
+
+.link-guard-url {
+  display: block;
+  padding: 12px 14px;
+  background: #0c0b10;
+  border: 1px solid #443426;
+  border-radius: 5px;
+  color: #f0d9a8;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+  user-select: all;
+}
+
+.link-guard-warning {
+  margin: 0;
+  color: #c9a98a;
+  font: 13px/1.55 Georgia, serif;
+}
+
+.link-guard-actions {
+  display: flex;
+  gap: 9px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.link-guard-open {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.link-guard-open:hover {
+  background: #2a2113;
+}
+
+@media (max-width: 660px) {
+  .link-guard-overlay {
+    padding: 10px;
+  }
+
+  .link-guard-window {
+    padding: 20px;
+  }
+}

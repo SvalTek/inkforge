@@ -20,13 +20,6 @@ export function isAssetPath(path: string): boolean {
   return path.startsWith("assets/") && Boolean(assetMime(path));
 }
 
-export function assetKind(path: string): "image" | "audio" | "unknown" {
-  const mime = assetMime(path) || "";
-  if (mime.startsWith("image/")) return "image";
-  if (mime.startsWith("audio/")) return "audio";
-  return "unknown";
-}
-
 function dataUrlBlob(value: string, fallbackMime: string): Blob | undefined {
   if (!value.startsWith("data:")) return undefined;
   const comma = value.indexOf(",");

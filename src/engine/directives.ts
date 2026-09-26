@@ -8,12 +8,30 @@ import type {
   Scenario,
 } from "../types/index.ts";
 import { check } from "./conditions.ts";
+import { markViewDirty } from "./events.ts";
+import { addItem, adjustState, removeItem, setLocation, setState } from "./state.ts";
 
 export interface DirectiveDeps {
   runtime: EngineRuntime;
   getScenario(): Scenario | null;
   output: OutputFn;
   applyUi: ApplyUiFn;
+  /**
+   * Run a named Lua function with the given params.
+   *
+   * The engine is synchronous except for this: `call`/`emit` are the only
+   * directives that reach into Lua, and the bridge is async. Awaiting them
+   * inline keeps authored ordering correct — a statement after `call:` runs
+   * after it, not before it.
+   */
+  invokeLua(name: string, params: Record<string, unknown>): Promise<void>;
+  /**
+   * Emit a named event to Lua subscribers.
+   *
+   * Synchronous in practice, but typed as possibly-async so the inline `await`
+   * in `execute` keeps its ordering guarantee if that ever stops being true.
+   */
+  emitEvent(name: string, data: Record<string, unknown>): void | Promise<void>;
 }
 
 export function lines(value: DirectiveList | undefined): Directive[] {
@@ -26,20 +44,34 @@ export function itemName(scenario: Scenario | null, id: string): string {
   return definition.name || id;
 }
 
-export function move(id: string, deps: DirectiveDeps): void {
+export async function move(id: string, deps: DirectiveDeps): Promise<void> {
   const scenario = deps.getScenario();
   const location = scenario?.locations?.[id];
   if (!location) {
     deps.output(`Unknown location: ${id}`, "error");
     return;
   }
-  deps.runtime.location = id;
-  deps.runtime.conversation = null;
-  deps.runtime.events.push({ type: "location:enter", locationId: id });
-  execute(location.text, deps);
+  setLocation(deps.runtime, id);
+  await execute(location.text, deps);
 }
 
-export function execute(list: DirectiveList | undefined, deps: DirectiveDeps): void {
+/** The recognised directive keys, used for validation diagnostics. */
+export const DIRECTIVE_KEYS = [
+  "text",
+  "set",
+  "inc",
+  "dec",
+  "give",
+  "remove",
+  "goto",
+  "ui",
+  "if",
+  "end",
+  "call",
+  "emit",
+] as const;
+
+export async function execute(list: DirectiveList | undefined, deps: DirectiveDeps): Promise<void> {
   for (const x of lines(list)) {
     if (typeof x === "string") {
       deps.output(x);
@@ -51,45 +83,50 @@ export function execute(list: DirectiveList | undefined, deps: DirectiveDeps): v
       continue;
     }
     if (x.set) {
-      Object.assign(deps.runtime.state, x.set);
+      for (const [path, value] of Object.entries(x.set)) setState(deps.runtime, path, value);
       continue;
     }
     if (x.inc || x.dec) {
       const p = (x.inc || x.dec) as IncDecSpec;
       const k = p.var || Object.keys(p)[0];
       const by = p.by ?? (p.var ? 1 : p[k]);
-      deps.runtime.state[k] = (Number(deps.runtime.state[k]) || 0) + (x.inc ? (by as number) : -(by as number));
+      adjustState(deps.runtime, k, x.inc ? Number(by) : -Number(by));
       continue;
     }
     if (x.give) {
       const id = typeof x.give === "string" ? x.give : x.give.id;
-      if (id && !deps.runtime.inventory.includes(id)) {
-        deps.runtime.inventory.push(id);
-        deps.runtime.events.push({ type: "inventory:add", itemId: id });
-      }
+      if (id) addItem(deps.runtime, id);
       continue;
     }
     if (x.remove) {
-      const id = (typeof x.remove === "string" ? x.remove : x.remove.id) as string;
-      deps.runtime.inventory = deps.runtime.inventory.filter((v) => v !== id);
-      deps.runtime.events.push({ type: "inventory:remove", itemId: id });
+      removeItem(deps.runtime, (typeof x.remove === "string" ? x.remove : x.remove.id) as string);
       continue;
     }
     if (x.goto) {
-      move(x.goto, deps);
+      await move(x.goto, deps);
       continue;
     }
     if (x.ui) {
       deps.applyUi(x.ui);
       continue;
     }
+    if (x.call) {
+      await deps.invokeLua(x.call, x.params || {});
+      continue;
+    }
+    if (x.emit) {
+      await deps.emitEvent(x.emit, x.data || {});
+      continue;
+    }
     if (x.if) {
-      execute(check(x.if, deps.runtime) ? x.then : x.else, deps);
+      await execute(check(x.if, deps.runtime) ? x.then : x.else, deps);
       continue;
     }
     if (x.end) {
       deps.runtime.over = true;
       deps.runtime.events.push({ type: "game:over" });
+      // `over` drops every remaining choice, so the list on screen is stale.
+      markViewDirty(deps.runtime);
     }
   }
 }

@@ -2,6 +2,7 @@ meta:
   title: Lantern Below
   author: Inkforge
   version: 0.1.0
+  description: "A short two-room story: take the lantern, light it, and read the passage."
 startLocation: entry
 state: !import state.yml
 player: !import player.yml

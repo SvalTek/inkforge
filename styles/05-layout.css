@@ -1,1 +1,58 @@
-.app{height:100dvh;min-height:0;grid-template-rows:74px minmax(0,1fr);overflow:hidden}.workspace{min-height:0;height:100%;overflow:hidden}.explorer,.editor,.runtime{min-height:0;overflow:hidden}.editor-wrap{min-height:0}.editor-wrap textarea{min-height:0}.runtime .terminal{min-height:0}.runtime .events{min-height:0}.runtime #eventLog{height:100%}.play-view{height:100%;min-height:0}@media(max-width:1000px){.app{height:auto;min-height:100dvh;overflow:auto}.workspace{height:auto;overflow:visible}}
+/* ==========================================================================
+   05-layout.css — height plumbing
+
+   The shell is exactly one viewport tall and clips, so every pane inside it has
+   to be allowed to shrink: a grid or flex track whose content is bigger than
+   the track will otherwise push the whole app taller than the window instead of
+   scrolling inside its own box. `min-height: 0` is what grants that permission,
+   and this file collects the ones the shell needs so the chain is readable in
+   one place.
+
+   `.app` also owns the top-level rows here: a fixed header and one flexible row
+   for whichever view is showing.
+   ========================================================================== */
+
+.app {
+  height: 100dvh;
+  min-height: 0;
+  grid-template-rows: 74px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+/* Author view */
+
+.workspace {
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.explorer,
+.editor,
+.runtime {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.editor-wrap {
+  min-height: 0;
+}
+
+.runtime .terminal {
+  min-height: 0;
+}
+
+.runtime .events {
+  min-height: 0;
+}
+
+.runtime #eventLog {
+  height: 100%;
+}
+
+/* Play view */
+
+.play-view {
+  height: 100%;
+  min-height: 0;
+}

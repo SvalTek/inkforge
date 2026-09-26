@@ -1,6 +1,6 @@
 local threshold = require("scripts/threshold")
 
-game.ui.create({
+GameUI.create({
   id = "focus",
   type = "meter",
   location = "hud",
@@ -11,7 +11,7 @@ game.ui.create({
   }
 })
 
-local scene = game.canvas.create({
+local scene = GameCanvas.create({
   id = "entry_scene",
   accessibleLabel = "Stone entry",
   viewport = { width = 960, height = 720, fit = "contain" },
@@ -111,7 +111,7 @@ local flame = scene:node("flame")
 local elapsed = 0
 
 function inspect_lantern(event)
-  game.output("The lantern's hood is warm. Its flame leans toward the passage.")
+  GameOutput.add("The lantern's hood is warm. Its flame leans toward the passage.")
   glow:tween(
     { opacity = 0.34, scale = 1.12 },
     { duration = 0.18, yoyo = true, repeat_count = 1, easing = "ease_out_cubic" }
@@ -122,7 +122,7 @@ function listen_at_threshold()
   threshold.listen()
 end
 
-game.ui.create({
+GameUI.create({
   id = "listen",
   type = "button",
   location = "output",
@@ -134,14 +134,14 @@ game.ui.create({
   }
 })
 
-game.timer.every(2.4, function()
+timers.setInterval(function()
   flame:tween(
     { scale = 1.16, opacity = 0.72 },
     { duration = 0.22, yoyo = true, repeat_count = 1, easing = "ease_in_out_sine" }
   )
-end)
+end, 2400)
 
-function update(dt)
+function Update(dt)
   elapsed = elapsed + dt
   glow:set({ opacity = 0.18 + math.sin(elapsed * 1.7) * 0.025 })
 end

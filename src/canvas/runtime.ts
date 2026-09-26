@@ -27,16 +27,14 @@ import type {
   CanvasScene,
   CanvasSceneSpec,
   CanvasSpace,
-  CanvasTimer,
   CanvasTweenAnimation,
-  CanvasUpdate,
   CanvasViewport,
   CanvasViewState,
   Matrix,
   Point,
-  TimerCommand,
 } from "../types/canvas.ts";
 import type { ResolvedUiElement } from "../types/ui.ts";
+import { asArray } from "../lua/boundary.ts";
 
 type CreateTweenCommand = Extract<CanvasCommand, { op: "animation.create" }>;
 type CreateKeyframesCommand = Extract<CanvasCommand, { op: "animation.keyframes" }>;
@@ -47,10 +45,8 @@ export class InkforgeCanvasRuntime implements CanvasHost {
   host: HTMLElement;
   hooks: CanvasHooks;
   scenes: Map<string, CanvasScene>;
-  timers: Map<string, CanvasTimer>;
   animations: Map<string, CanvasAnimation>;
   images: Map<string, { image: HTMLImageElement; ready: boolean; failed: boolean }>;
-  update: CanvasUpdate | null;
   frameId: number | null;
   lastFrame: number;
   resizeObserver: ResizeObserver | null;
@@ -59,10 +55,8 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     this.host = host;
     this.hooks = hooks;
     this.scenes = new Map();
-    this.timers = new Map();
     this.animations = new Map();
     this.images = new Map();
-    this.update = null;
     this.frameId = null;
     this.lastFrame = 0;
     this.resizeObserver = typeof ResizeObserver === "function" ? new ResizeObserver(() => this.draw()) : null;
@@ -75,16 +69,13 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.scenes.clear();
-    this.timers.clear();
     this.animations.clear();
     this.images.clear();
-    this.update = null;
     this.host.replaceChildren();
   }
 
-  setUpdate(callback: CanvasUpdate | null): void {
-    this.update = typeof callback === "function" ? callback : null;
-    if (this.update) this.schedule();
+  requestFrame(): void {
+    this.schedule();
   }
 
   schedule(): void {
@@ -92,25 +83,25 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     this.frameId = requestAnimationFrame((time) => this.tick(time));
   }
 
+  /**
+   * One animation frame.
+   *
+   * The main loop (authored `Update`, timers) belongs to the bridge; this only
+   * advances tweens/keyframes and paints, and reschedules itself while there is
+   * animation work left.
+   */
   tick(time: number): void {
     this.frameId = null;
     const dt = this.lastFrame ? Math.min(Math.max((time - this.lastFrame) / 1000, 0), 0.1) : 0;
     this.lastFrame = time;
-    this.advanceTimers(dt);
-    this.hooks.callLua?.(this.update as Parameters<NonNullable<CanvasHooks["callLua"]>>[0], dt);
     this.advanceAnimations(dt);
     this.draw();
     this.hooks.afterFrame?.();
-    if (this.update || this.hasClockWork()) this.schedule();
+    if (this.hasAnimationWork()) this.schedule();
   }
 
-  hasClockWork(): boolean {
-    return [...this.timers.values()].some((timer) => timer.active && !timer.paused) ||
-      [...this.animations.values()].some((animation) => !animation.paused);
-  }
-
-  resetClock(): void {
-    this.lastFrame = performance.now();
+  hasAnimationWork(): boolean {
+    return [...this.animations.values()].some((animation) => !animation.paused);
   }
 
   command(command: CanvasCommand): void {
@@ -186,7 +177,7 @@ export class InkforgeCanvasRuntime implements CanvasHost {
       pointerNode: null,
     };
     this.scenes.set(scene.id, scene);
-    for (const node of spec.nodes || []) this.addNode(scene, node);
+    for (const node of asArray<CanvasNode>(spec.nodes)) this.addNode(scene, node);
     this.hooks.ensureSurface?.(scene.id, scene.accessibleLabel);
     this.schedule();
     return scene;
@@ -208,7 +199,7 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     delete node.children;
     if (!scene.nodes.has(node.id)) scene.order.push(node.id);
     scene.nodes.set(node.id, node);
-    for (const child of source.children || []) this.addNode(scene, child, node.id);
+    for (const child of asArray<CanvasNode>(source.children)) this.addNode(scene, child, node.id);
     return node;
   }
 
@@ -223,38 +214,93 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     }
   }
 
+  /**
+   * Reconcile the host against the authored surfaces.
+   *
+   * Rebuilt by key rather than `host.replaceChildren()`: a canvas element that
+   * survives the render keeps its backing store, its pointer capture and its
+   * bound listeners, so a repaint triggered mid-drag no longer cancels the drag.
+   * The key is `type:id`, so a surface whose id is reused for a different type
+   * is replaced rather than mistaken for the old one.
+   */
   mountSurfaces(surfaceElements: ResolvedUiElement[]): void {
-    this.host.replaceChildren();
+    const existing = new Map<string, HTMLElement>();
+    for (const child of [...this.host.children]) {
+      const key = (child as HTMLElement).dataset.surfaceKey;
+      if (key) existing.set(key, child as HTMLElement);
+    }
+
+    const seen = new Set<string>();
     for (const element of surfaceElements) {
+      if (element.type !== "text" && element.type !== "canvas") continue;
+      const key = `${element.type}:${element.id}`;
+      seen.add(key);
+      const previous = existing.get(key);
+
       if (element.type === "text") {
-        const text = document.createElement("div");
-        text.className = "ui-text";
+        let text = previous;
+        if (!text) {
+          const node = document.createElement("div");
+          node.className = "ui-text";
+          node.dataset.surfaceKey = key;
+          this.host.append(node);
+          text = node;
+        }
         text.textContent = (element.values.text || "") as string;
-        this.host.append(text);
         continue;
       }
-      if (element.type !== "canvas") continue;
-      const canvas = document.createElement("canvas");
-      canvas.className = "game-canvas";
+
+      let canvas = previous instanceof HTMLCanvasElement ? previous : null;
+      if (!canvas) {
+        canvas = document.createElement("canvas");
+        canvas.className = "game-canvas";
+        canvas.dataset.surfaceKey = key;
+        this.host.append(canvas);
+      }
       canvas.dataset.scene = element.id;
       canvas.setAttribute("aria-label", (element.values.label || element.accessibleLabel || element.id) as string);
-      this.host.append(canvas);
       const scene = this.scenes.get(element.id);
-      if (scene) this.bind(canvas, scene);
+      if (scene && scene.canvas !== canvas) this.bind(canvas, scene);
+    }
+
+    // A surface the author removed has no element left to reconcile against.
+    for (const [key, node] of existing) {
+      if (!seen.has(key)) node.remove();
     }
     this.draw();
   }
 
+  /**
+   * Attach a canvas element to its scene.
+   *
+   * Idempotent: `mountSurfaces` reuses elements across renders, so listeners are
+   * installed once and resolve their scene by id at event time. A scene replaced
+   * under the same id therefore cannot leave the element wired to a dead object.
+   */
   bind(canvas: HTMLCanvasElement, scene: CanvasScene): void {
     scene.canvas = canvas;
     scene.context = canvas.getContext("2d");
-    canvas.style.touchAction = "none";
-    canvas.addEventListener("pointermove", (event) => this.pointerMove(scene, event));
-    canvas.addEventListener("pointerdown", (event) => this.pointerDown(scene, event));
-    canvas.addEventListener("pointerup", (event) => this.pointerUp(scene, event));
-    canvas.addEventListener("pointercancel", () => {
-      scene.pointerNode = null;
-    });
+    if (canvas.dataset.bound !== "true") {
+      canvas.dataset.bound = "true";
+      canvas.style.touchAction = "none";
+      const current = (): CanvasScene | undefined => this.scenes.get(canvas.dataset.scene ?? "");
+      canvas.addEventListener("pointermove", (event) => {
+        const active = current();
+        if (active) this.pointerMove(active, event);
+      });
+      canvas.addEventListener("pointerdown", (event) => {
+        const active = current();
+        if (active) this.pointerDown(active, event);
+      });
+      canvas.addEventListener("pointerup", (event) => {
+        const active = current();
+        if (active) this.pointerUp(active, event);
+      });
+      canvas.addEventListener("pointercancel", () => {
+        const active = current();
+        if (active) active.pointerNode = null;
+      });
+    }
     this.drawScene(scene);
   }
 
@@ -308,11 +354,10 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     point: Point,
     local: Point,
   ): boolean {
-    const binding = node?.events?.[type];
-    const callback = typeof binding === "string" ? binding : binding?.callback;
-    if (!callback) return false;
+    // Lua owns the callbacks; JS only needs to know the event is bound.
+    if (!node?.events?.[type]) return false;
     const world = scene.projection.unproject(point, 0);
-    this.hooks.event?.(callback, {
+    this.hooks.canvasEvent?.({
       sceneId: scene.id,
       nodeId: node.id,
       type,
@@ -331,55 +376,6 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     } as CanvasPointerEvent);
     this.draw();
     return true;
-  }
-
-  timer(command: TimerCommand): void {
-    if (command.op === "create") {
-      const delay = Math.max(0, Number(command.delay) || 0);
-      this.timers.set(command.id, {
-        id: command.id,
-        delay,
-        remaining: command.immediate ? 0 : delay,
-        callback: command.callback,
-        repeating: Boolean(command.repeating),
-        repeatCount: command.repeatCount == null ? -1 : Number(command.repeatCount),
-        iteration: 0,
-        active: true,
-        paused: false,
-      });
-    } else {
-      const timer = this.timers.get(command.id);
-      if (!timer) return;
-      if (command.op === "pause") timer.paused = true;
-      if (command.op === "resume") timer.paused = false;
-      if (command.op === "restart") {
-        Object.assign(timer, { remaining: timer.delay, iteration: 0, active: true, paused: false });
-      }
-      if (command.op === "cancel") this.timers.delete(timer.id);
-    }
-    this.schedule();
-  }
-
-  timerRemaining(id: string): number {
-    return this.timers.get(id)?.remaining ?? 0;
-  }
-
-  timerActive(id: string): boolean {
-    return Boolean(this.timers.get(id)?.active);
-  }
-
-  advanceTimers(dt: number): void {
-    for (const timer of [...this.timers.values()]) {
-      if (!timer.active || timer.paused) continue;
-      timer.remaining -= dt;
-      if (timer.remaining > 0) continue;
-      timer.iteration += 1;
-      this.hooks.timer?.(timer.callback as string, timer.id, timer.iteration);
-      if (!this.timers.has(timer.id)) continue;
-      const repeat = timer.repeating && (timer.repeatCount < 0 || timer.iteration <= timer.repeatCount);
-      if (repeat) timer.remaining += Math.max(timer.delay, 0.001);
-      else this.timers.delete(timer.id);
-    }
   }
 
   createTween(command: CreateTweenCommand): void {
@@ -407,7 +403,9 @@ export class InkforgeCanvasRuntime implements CanvasHost {
   }
 
   createKeyframes(command: CreateKeyframesCommand): void {
-    const frames = [...(command.keyframes || [])].sort((a, b) => Number(a.at || 0) - Number(b.at || 0));
+    const frames = [...asArray<CanvasKeyframe>(command.keyframes)].sort((a, b) =>
+      Number(a.at || 0) - Number(b.at || 0)
+    );
     if (!frames.length) return;
     const options = (command.options || {}) as CanvasAnimationOptions;
     this.animations.set(command.id, {
@@ -618,7 +616,7 @@ export class InkforgeCanvasRuntime implements CanvasHost {
       context.arc(0, 0, Number(node.radius || 0), 0, Math.PI * 2);
       this.fillStroke(context, node);
     } else if (node.type === "line" || node.type === "path") {
-      const points = node.points || [];
+      const points = asArray<CanvasPointInput>(node.points);
       if (!points.length) return;
       context.beginPath();
       context.moveTo(this.px(points[0]), this.py(points[0]));
@@ -727,9 +725,9 @@ export class InkforgeCanvasRuntime implements CanvasHost {
       inside = Math.hypot(local.x - Number(hit.x || 0), local.y - Number(hit.y || 0)) <=
         Number(hit.radius ?? node.radius ?? 0) + padding;
     } else if (type === "path" && (hit.points || node.points)) {
-      inside = this.polygon((hit.points || node.points) as CanvasPointInput[], local.x, local.y);
+      inside = this.polygon(asArray<CanvasPointInput>(hit.points || node.points), local.x, local.y);
     } else if (type === "line") {
-      const points = hit.points || node.points || [],
+      const points = asArray<CanvasPointInput>(hit.points || node.points),
         tolerance = Number(hit.tolerance || node.lineWidth || 1) / 2 + padding;
       inside = points.slice(1).some((end, index) =>
         this.segmentDistance(
@@ -769,5 +767,3 @@ export class InkforgeCanvasRuntime implements CanvasHost {
     return transformPoint(matrix, x, y);
   }
 }
-
-export default InkforgeCanvasRuntime;

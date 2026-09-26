@@ -30,6 +30,9 @@ Run these from the repository root:
 - `deno task serve` - serve an existing `dist/` build on `http://localhost:4173/` without rebuilding. Pass `--port <n>`
   to change the port.
 - `deno task smoke` - build, serve, and drive headless Chrome through the smoke checks (`tools/smoke.ts`).
+- `deno task check:renderer` - in-process canvas projection/layer checks (`tools/renderer-check.ts`).
+- `deno task check:pack` - in-process `.inkforge` version-precedence checks (`tools/pack-check.ts`).
+- `deno task check:authoring` - drive headless Chrome through the authored tools/modal checks (`tools/authoring-check.ts`).
 - `deno task fmt` / `deno task lint` - format and lint the Deno sources.
 
 ## Deployment
@@ -46,9 +49,17 @@ server runtime is needed on the host.
 
 ## Runtime dependencies
 
-The YAML parser (`yaml@2.6.0`) and the Lua runtime (`wasmoon@1.16.0`) are still loaded from jsDelivr at runtime through
-dynamic `import()` of remote CDN URLs. A network connection is therefore required when the app runs in the browser.
-These remote imports are intentionally not bundled.
+The bundle is self-contained except for one import: the YAML parser (`yaml@2.6.0`) is loaded from jsDelivr at runtime
+through a dynamic `import()` of a remote CDN URL (`src/deps/remote.ts`), deliberately kept out of the bundle by passing
+the URL as a non-literal specifier. That import requires a network connection when the app runs in the browser.
+
+Everything else is resolved and bundled at build time:
+
+- `wasmoon@1.16.0` (the Lua runtime) is bundled by esbuild, and its `glue.wasm` is base64-encoded into a data URI that
+  `tools/build.ts` injects as the `__INKFORGE_WASM_URI__` define — so there is no separate `.wasm` file to ship and no
+  way for it to go stale or fail to load.
+- `WebLuaBridge` is referenced by a pinned commit URL in the `deno.json` import map and resolved by the esbuild Deno
+  loader plugin at build time, so the pin is honoured without vendoring the source.
 
 ## Project layout
 
@@ -57,6 +68,7 @@ These remote imports are intentionally not bundled.
 - `styles/` - ordered CSS partials, concatenated into `dist/style.css`
 - `templates/lantern-below/` - the starter project, copied verbatim into the build
 - `templates/*/manifest.json` - required project file lists used by the packer
+- `docs/` - authoring guides (`docs/authoring/`) and development notes (`docs/development/`)
 - `tools/` - Deno build, dev/preview/static servers, shared paths and the Playwright smoke harness
 - `deno.json` - task definitions and TypeScript configuration
 - `dist/` - generated production output (not committed)

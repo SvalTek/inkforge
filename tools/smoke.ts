@@ -1,8 +1,12 @@
 import { build } from "./build.ts";
-import { DIST } from "./paths.ts";
+import { bumpVersion } from "./package.ts";
+import { DIST, TEMPLATES } from "./paths.ts";
 import { serveStatic } from "./server.ts";
 import { unzipSync, zipSync } from "fflate";
-import type { Browser, BrowserContext, ConsoleMessage, Dialog, Page } from "playwright-core";
+import { join } from "node:path";
+import { readScenarioMeta } from "../src/yaml/compose.ts";
+import type { EditorHarness } from "../src/editor/harness.ts";
+import type { Browser, BrowserContext, ConsoleMessage, Dialog, Page, Request } from "playwright-core";
 
 /**
  * Inkforge production smoke harness.
@@ -107,6 +111,131 @@ async function textOf(page: Page, selector: string): Promise<string> {
   return await page.evaluate((sel: string) => document.querySelector(sel)?.textContent ?? "", selector);
 }
 
+/**
+ * Read the Author view's buffer.
+ *
+ * The old `#code` textarea is gone; the editor is CodeMirror, which renders only
+ * the lines currently in view, so reading `.cm-content` would silently truncate
+ * on a long file. The app publishes its buffer as `globalThis.inkforgeEditor`
+ * for exactly this purpose (see `src/editor/harness.ts`). A `page.evaluate`
+ * callback is serialised into the page, so the cast has to be written inline
+ * rather than through a shared helper.
+ */
+async function editorValue(page: Page): Promise<string> {
+  return await page.evaluate(() => (globalThis as { inkforgeEditor?: EditorHarness }).inkforgeEditor?.getValue() ?? "");
+}
+
+/**
+ * Wait for the Author view's buffer to hold `needle`.
+ *
+ * A click's handler runs on the page's main thread, and a `page.evaluate` read
+ * can be served before that thread has run it: the click resolves when the
+ * browser has queued the event, not when the app has reacted to it. Reading
+ * straight after a click is therefore a race, and one this suite loses whenever
+ * the machine is busy — the file click lands, and the read that follows still
+ * sees the previous file. Waiting for the value the check is about removes the
+ * race without changing what is asserted.
+ */
+async function waitForEditorContains(page: Page, needle: string, timeout = 5_000): Promise<void> {
+  await page.waitForFunction(
+    (value: string) =>
+      (globalThis as { inkforgeEditor?: EditorHarness }).inkforgeEditor?.getValue().includes(value) ?? false,
+    needle,
+    { timeout },
+  );
+}
+
+/**
+ * Replace the buffer wholesale, as the old `#code.fill()` did.
+ *
+ * This models an author's edit rather than a programmatic file switch: the
+ * harness hook runs the same change path typing does, so `#saved`,
+ * `schedulePersist` and the export flush are all still exercised.
+ */
+async function fillEditor(page: Page, text: string): Promise<void> {
+  await page.evaluate(
+    (value: string) => (globalThis as { inkforgeEditor?: EditorHarness }).inkforgeEditor?.setValue(value),
+    text,
+  );
+}
+
+/**
+ * Wait out CodeMirror's `interactionDelay` before acting on a completion popup.
+ *
+ * `acceptCompletion` and `closeCompletion` both refuse to act until 75 ms have
+ * passed since the popup opened, so that the keystroke which opened it cannot
+ * also accept or dismiss it. A person never acts inside that window — they have
+ * to see the list first — but a check presses Enter the instant the `li` exists,
+ * which lands inside the window on a fast machine and outside it on a slow one.
+ * That is the whole of the flake this wait removes; the delay is CodeMirror's,
+ * not the app's, and the app does not change to suit the test.
+ */
+async function settleCompletion(page: Page): Promise<void> {
+  await page.waitForTimeout(150);
+}
+
+/**
+ * Assert the editor's gutter numbers a document's final line.
+ *
+ * The gutter is virtualised along with the content, so its element count is the
+ * *visible* line count rather than the file's, and CodeMirror adds one hidden
+ * spacer element that sizes the column from the widest number ("999" for a
+ * three-digit file). Scroll to the end and wait for the last line's number to
+ * appear — which is what the old `#gutter` text comparison was really checking.
+ */
+async function assertGutterReaches(page: Page, lastLine: number, timeout = 5_000): Promise<void> {
+  await page.locator(".cm-scroller").evaluate((scroller) => {
+    scroller.scrollTop = scroller.scrollHeight;
+  });
+  await page.waitForFunction(
+    (last: number) =>
+      [...document.querySelectorAll<HTMLElement>(".cm-gutterElement")].some((element) =>
+        element.style.visibility !== "hidden" && element.textContent?.trim() === String(last)
+      ),
+    lastLine,
+    { timeout },
+  );
+}
+
+/**
+ * Move the mouse over a token in the editor, for hover assertions.
+ *
+ * The coordinates come from a DOM `Range` over the token's own text node — the
+ * only reliable way to land on a word in a virtualised, token-split editor.
+ * CodeMirror resolves the hover from the pointer's position, so a real mouse
+ * move is what it takes.
+ */
+async function hoverToken(page: Page, lineText: string, token: string): Promise<void> {
+  // The line has to be rendered before it has a position: CodeMirror only puts
+  // the lines in view into the DOM, and a `setValue` does not oblige it to
+  // redraw on the same tick. A line that never appears still fails, on the
+  // timeout below.
+  await page.waitForFunction(
+    (text: string) => [...document.querySelectorAll(".cm-line")].some((node) => node.textContent?.includes(text)),
+    lineText,
+    { timeout: 5_000 },
+  );
+  const point = await page.evaluate(({ line, word }: { line: string; word: string }) => {
+    const target = [...document.querySelectorAll<HTMLElement>(".cm-line")].find((node) =>
+      node.textContent?.includes(line)
+    );
+    if (!target) return null;
+    const walker = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const index = (node.textContent ?? "").indexOf(word);
+      if (index < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, index);
+      range.setEnd(node, index + word.length);
+      const box = range.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    }
+    return null;
+  }, { line: lineText, word: token });
+  assert(point, `no editable occurrence of ${token} on the line containing ${lineText}`);
+  await page.mouse.move(point.x, point.y);
+}
+
 async function waitForText(page: Page, selector: string, text: string, timeout = BOOT_TIMEOUT): Promise<void> {
   await page.waitForFunction(
     ({ selector, text }: { selector: string; text: string }) =>
@@ -188,6 +317,37 @@ function silentWav(): Uint8Array {
   view.setUint32(40, dataLength, true);
   bytes.fill(128, 44);
   return bytes;
+}
+
+/**
+ * The pack version ladder this suite walks, derived from what the export carries.
+ *
+ * The starter's version belongs to the template, not to this file: hardcoding the
+ * steps would make the next template bump turn the first import into a no-op —
+ * an equal version is declined — and fail check 6 for entirely the wrong reason.
+ */
+function packLadder(base: string, step: number): string {
+  let version = base;
+  for (let index = 0; index < step; index += 1) version = bumpVersion(version, "patch");
+  return version;
+}
+
+/** The version of the pinned project as the library holds it. */
+async function storedProjectVersion(page: Page): Promise<string> {
+  return await page.evaluate(() =>
+    new Promise<string>((resolve, reject) => {
+      const request = indexedDB.open("inkforge-project-library");
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const all = request.result.transaction("projects", "readonly").objectStore("projects").getAll();
+        all.onsuccess = () => {
+          const rows = all.result as Array<{ identity: { version: string }; pinned?: boolean }>;
+          resolve(rows.find((row) => row.pinned)?.identity.version ?? "");
+        };
+        all.onerror = () => reject(all.error);
+      };
+    })
+  );
 }
 
 async function exportPack(page: Page): Promise<PackShape> {
@@ -332,14 +492,54 @@ async function main(): Promise<void> {
         `#surfaceHeader has Inventory; #gameHud="${short(hud, 90)}"`;
     });
 
+    await runCheck("1a. Main loop ticks clean (no per-tick Lua errors)", async () => {
+      // The bridge's fixed-rate loop runs `Update(dt)` every 16ms, and a failure
+      // there is reported to the transcript rather than thrown, so it raises no
+      // console or page error. A leaked Lua stack slot used to kill the state
+      // after ~40 ticks, which showed up only as a growing pile of transcript
+      // entries. Idle for long enough to expose that, and assert it stays quiet.
+      await page.waitForTimeout(3000);
+      const state = await page.evaluate(() => {
+        const entries = [...document.querySelectorAll("#heroTerminal .entry")];
+        return {
+          total: entries.length,
+          errors: entries.filter((node) => node.classList.contains("error")).length,
+          diagnostics: (document.querySelector("#diagnostics")?.textContent ?? "").trim(),
+        };
+      });
+      assert(state.errors === 0, `${state.errors} error entries after idle ticking: ${state.diagnostics}`);
+      assert(state.diagnostics.includes("Ready"), `diagnostics after idle ticking: ${state.diagnostics}`);
+      return `${state.total} transcript entries, 0 errors after 3s idle; diagnostics="${state.diagnostics}"`;
+    });
+
     await runCheck("2. Lua/Wasmoon boot + require()", async () => {
       await waitForText(page, "#gameHud", "Focus", CANVAS_TIMEOUT);
       await waitForText(page, "#uiOutput", "Listen at the threshold", CANVAS_TIMEOUT);
       const hud = await textOf(page, "#gameHud");
       assert(hud.includes("3 / 5"), `Focus meter value missing: ${short(hud, 120)}`);
+
+      // A meter row is anonymous without the authored id, and a skin rule keyed
+      // to an id that never reaches the DOM is dead in silence — the focus meter
+      // sat on the default fill for as long as the hook was missing. So this
+      // reads the rendered colour rather than the attribute: losing the hook
+      // makes the two meters match, which is the failure, however it happened.
+      const fills = await page.evaluate(() => {
+        const fillOf = (selector: string) => {
+          const fill = document.querySelector(`${selector} em`);
+          return fill ? getComputedStyle(fill).backgroundColor : "";
+        };
+        return {
+          focus: fillOf('#gameHud [data-meter="focus"]'),
+          plain: fillOf("#gameHud > div:not([data-meter='focus'])"),
+        };
+      });
+      assert(fills.focus && fills.plain, `meter id hook missing: ${JSON.stringify(fills)}`);
+      assert(fills.focus !== fills.plain, `focus meter is not styled apart from the default: ${fills.focus}`);
+
       await page.locator('#uiOutput button[data-ui="listen"]').click();
       await waitForText(page, "#heroTerminal", "Water moves somewhere beyond the stone.");
-      return `#gameHud gained Focus meter ("${short(hud, 90)}"); clicked "Listen at the threshold"; ` +
+      return `#gameHud gained Focus meter ("${short(hud, 90)}"), carrying its authored id into the DOM ` +
+        `(fill ${fills.focus} against the default ${fills.plain}); clicked "Listen at the threshold"; ` +
         `#heroTerminal gained "Water moves somewhere beyond the stone."`;
     });
 
@@ -370,48 +570,68 @@ async function main(): Promise<void> {
       assert(authorVisible && !playVisible, `authorView visible=${authorVisible}, playView visible=${playVisible}`);
 
       await page.locator('.file[data-file="state.yml"]').first().click();
-      const stateFormat = await textOf(page, "#format");
-      assert(stateFormat === "YAML", `#format=${stateFormat}`);
-      const stateCode = await page.locator("#code").inputValue();
+      await waitForTextEquals(page, "#format", "YAML");
+      await waitForEditorContains(page, "lampLit: false");
+      const stateCode = await editorValue(page);
       assert(stateCode.includes("lampLit: false"), "state.yml does not contain lampLit: false");
 
       await page.locator('.file[data-file="scripts/main.lua"]').first().click();
-      const luaFormat = await textOf(page, "#format");
-      assert(luaFormat === "LUA", `#format=${luaFormat}`);
-      const luaCode = await page.locator("#code").inputValue();
+      await waitForTextEquals(page, "#format", "LUA");
+      await waitForEditorContains(page, 'require("scripts/threshold")');
+      const luaCode = await editorValue(page);
       assert(luaCode.includes('require("scripts/threshold")'), "main.lua does not contain the require call");
 
-      const gutterLines = (await textOf(page, "#gutter")).split("\n").length;
       const codeLines = luaCode.split("\n").length;
-      assert(gutterLines === codeLines, `#gutter lines ${gutterLines} != #code lines ${codeLines}`);
-      await page.locator("#code").press("ArrowDown");
+      await assertGutterReaches(page, codeLines);
+      await page.locator(".cm-content").press("ArrowDown");
       const cursor = await textOf(page, "#cursor");
       assert(/^Ln \d+, Col \d+$/.test(cursor), `#cursor="${cursor}"`);
 
       // `#` is not a Lua comment; appending it would make the script unparseable and
       // break the restart in assertion 5. Use Lua's line-comment syntax so the edit is
       // still a persisted, non-leaking marker while the script stays valid.
-      await page.locator("#code").fill(`${luaCode}\n-- smoke-edit`);
+      await fillEditor(page, `${luaCode}\n-- smoke-edit`);
       const saved = await textOf(page, "#saved");
       assert(saved === "saved locally", `#saved=${saved}`);
       await waitForStoredText(page, "smoke-edit", "scripts/main.lua");
 
       await page.locator('.file[data-file="scenario.yaml"]').first().click();
-      const scenarioCode = await page.locator("#code").inputValue();
+      await waitForTextEquals(page, "#format", "YAML");
+      await waitForEditorContains(page, "startLocation: entry");
+      const scenarioCode = await editorValue(page);
       assert(scenarioCode.includes("startLocation: entry"), "scenario.yaml lost startLocation: entry");
       assert(!scenarioCode.includes("smoke-edit"), "the main.lua edit leaked into scenario.yaml");
       return `#authorView shown, #playView hidden; state.yml=YAML/lampLit:false; main.lua=LUA/require; ` +
-        `gutter=${gutterLines} lines matches #code; #cursor="${cursor}"; ` +
+        `gutter numbering reaches line ${codeLines}; #cursor="${cursor}"; ` +
         `edit persisted (#saved="saved locally", IndexedDB contains smoke-edit); scenario.yaml intact`;
     });
 
     await runCheck("4a. Editor tabs: opening a file appends and activates a tab", async () => {
       await page.locator('.nav[data-view="author"]').click();
       // Test 4 opened state.yml on top of the two default tabs; close that extra,
-      // non-active tab so this check starts from the original two-tab set.
+      // non-active tab so this check starts from the original two-tab set. The
+      // tab bar is read through a wait, not once: the view has just been switched
+      // to, and a single read can be served before it has rendered.
+      await page.waitForFunction(
+        () => document.querySelectorAll(".tabs .tab").length >= 2,
+        undefined,
+        { timeout: 5_000 },
+      );
       if ((await page.locator(".tabs .tab").count()) > 2) {
         await page.locator('.tab[data-file="state.yml"] i').click();
+        await page.waitForFunction(
+          () => document.querySelectorAll('.tab[data-file="state.yml"]').length === 0,
+          undefined,
+          { timeout: 5_000 },
+        );
       }
+      await page.waitForFunction(
+        () =>
+          document.querySelectorAll(".tabs .tab").length === 2 &&
+          document.querySelectorAll('.tab[data-file="scenario.yaml"].active').length === 1,
+        undefined,
+        { timeout: 5_000 },
+      );
       const defaultCount = await page.locator(".tabs .tab").count();
       assert(defaultCount === 2, `expected 2 default tabs, found ${defaultCount}`);
       assert(
@@ -419,20 +639,31 @@ async function main(): Promise<void> {
         "scenario.yaml is not the active tab after startup",
       );
       await page.locator('.file[data-file="instances.yml"]').first().click();
+      await page.waitForFunction(
+        () => document.querySelectorAll(".tabs .tab").length === 3,
+        undefined,
+        { timeout: 5_000 },
+      );
       const count = await page.locator(".tabs .tab").count();
       assert(count === 3, `expected 3 tabs after opening instances.yml, found ${count}`);
       assert(
         (await page.locator('.tab[data-file="instances.yml"].active').count()) === 1,
         "the instances.yml tab is not active",
       );
-      const code = await page.locator("#code").inputValue();
-      assert(code.includes("entry_lantern"), "instances.yml content was not loaded into #code");
+      await waitForEditorContains(page, "entry_lantern");
+      const code = await editorValue(page);
+      assert(code.includes("entry_lantern"), "instances.yml content was not loaded into the editor");
       return `started from the 2 default tabs; clicking instances.yml appended a third tab, ` +
         `marked it active, and loaded its content ("entry_lantern")`;
     });
 
     await runCheck("4b. Editor tabs: closing the active tab switches to a remaining tab", async () => {
       await page.locator('.tab[data-file="instances.yml"] i').click();
+      await page.waitForFunction(
+        () => document.querySelectorAll(".tabs .tab").length === 2,
+        undefined,
+        { timeout: 5_000 },
+      );
       const count = await page.locator(".tabs .tab").count();
       assert(count === 2, `expected 2 tabs after closing instances.yml, found ${count}`);
       assert(
@@ -443,6 +674,7 @@ async function main(): Promise<void> {
         (await page.locator('.tab[data-file="scripts/main.lua"].active').count()) === 1,
         "closing the active tab did not activate the nearest remaining tab (scripts/main.lua)",
       );
+      await waitForTextEquals(page, "#format", "LUA");
       const format = await textOf(page, "#format");
       assert(format === "LUA", `#format=${format} after switching to scripts/main.lua`);
       return `clicking the instances.yml × removed the tab (2 left) and activated the nearest ` +
@@ -451,28 +683,44 @@ async function main(): Promise<void> {
 
     await runCheck("4c. Editor tabs: reopening after close restores VFS content", async () => {
       await page.locator('.file[data-file="instances.yml"]').first().click();
+      await page.waitForFunction(
+        () => document.querySelectorAll(".tabs .tab").length === 3,
+        undefined,
+        { timeout: 5_000 },
+      );
       const count = await page.locator(".tabs .tab").count();
       assert(count === 3, `expected 3 tabs after reopening instances.yml, found ${count}`);
-      const code = await page.locator("#code").inputValue();
+      await waitForEditorContains(page, "entry_lantern");
+      const code = await editorValue(page);
       assert(code.includes("entry_lantern"), "instances.yml content was lost when its tab was closed");
       return `reopening instances.yml from the explorer created its tab again and restored its ` +
         `content ("entry_lantern") — closing a tab does not delete VFS data`;
     });
 
     await runCheck("4d. Editor tabs: closing the last tab clears the editor and reopen restores", async () => {
+      // Each close is waited for, not assumed: the count is read through a wait,
+      // so the loop cannot exit on a read that ran before the handler did.
       while ((await page.locator(".tabs .tab").count()) > 0) {
+        const before = await page.locator(".tabs .tab").count();
         await page.locator(".tabs .tab i").first().click();
+        await page.waitForFunction(
+          (previous: number) => document.querySelectorAll(".tabs .tab").length < previous,
+          before,
+          { timeout: 5_000 },
+        );
       }
-      const emptyCode = await page.locator("#code").inputValue();
+      const emptyCode = await editorValue(page);
       const emptyFormat = await textOf(page, "#format");
-      assert(emptyCode === "", `#code was not cleared: "${short(emptyCode)}"`);
+      assert(emptyCode === "", `the editor was not cleared: "${short(emptyCode)}"`);
       assert(emptyFormat === "", `#format was not cleared: "${emptyFormat}"`);
       assert(
         (await page.locator(".file.active").count()) === 0,
         "an explorer file is still active after the last tab was closed",
       );
       await page.locator('.file[data-file="scenario.yaml"]').first().click();
-      const code = await page.locator("#code").inputValue();
+      await waitForTextEquals(page, "#format", "YAML");
+      await waitForEditorContains(page, "startLocation: entry");
+      const code = await editorValue(page);
       const format = await textOf(page, "#format");
       assert(code.includes("startLocation: entry"), "scenario.yaml content was lost after closing every tab");
       assert(format === "YAML", `#format=${format} after reopening scenario.yaml`);
@@ -480,8 +728,119 @@ async function main(): Promise<void> {
         (await page.locator(".tabs .tab").count()) === 1,
         "reopening scenario.yaml did not create a tab",
       );
-      return `closing every tab left 0 tabs with #code="" and #format="", and no active explorer ` +
+      return `closing every tab left 0 tabs with an empty editor and #format="", and no active explorer ` +
         `file; reopening scenario.yaml restored "startLocation: entry" (YAML) in a fresh active tab`;
+    });
+
+    await runCheck("4e. Rapid edits are flushed before export", async () => {
+      await page.locator('.nav[data-view="author"]').click();
+      await page.locator('.file[data-file="scripts/main.lua"]').first().click();
+      // Read `base` only once main.lua is really in the buffer. The click resolves
+      // when the browser has queued the event, not when the app has reacted, so a
+      // read straight after it can still return the *previous* file — and a check
+      // that then writes `base` back would overwrite main.lua with scenario.yaml.
+      await waitForEditorContains(page, 'require("scripts/threshold")');
+      const base = await editorValue(page);
+      await fillEditor(page, `${base}\n-- rapid-edit-1`);
+      await fillEditor(page, `${base}\n-- rapid-edit-2`);
+      await fillEditor(page, `${base}\n-- rapid-edit-3`);
+      const pack = await exportPack(page);
+      const script = asText(pack, "scripts/main.lua");
+      assert(script.includes("-- rapid-edit-3"), "the last rapid edit was not flushed before export");
+      return "three rapid edits were followed immediately by Export; the exported scripts/main.lua " +
+        "contains the final edit, proving pending saves flush before export";
+    });
+
+    await runCheck("4f. Lua completion and hover come from the API manifest", async () => {
+      await page.locator('.nav[data-view="author"]').click();
+      await page.locator('.file[data-file="scripts/main.lua"]').first().click();
+      // Read `base` only once main.lua is really in the buffer. The click resolves
+      // when the browser has queued the event, not when the app has reacted, so a
+      // read straight after it can still return the *previous* file — and a check
+      // that then writes `base` back would overwrite main.lua with scenario.yaml.
+      await waitForEditorContains(page, 'require("scripts/threshold")');
+      const base = await editorValue(page);
+
+      try {
+        // Typed, not filled: completion has to respond to real keystrokes. The
+        // buffer is restored at the end, so the probe text never reaches the
+        // script the later checks restart with.
+        await page.locator(".cm-content").click();
+        await page.keyboard.press("Control+End");
+        await page.keyboard.type("\n-- smoke-assist\nlocal function smoke_assist()\n  ");
+        await page.keyboard.type("GameState.");
+        await page.waitForSelector(".cm-tooltip-autocomplete li", { timeout: 5_000 });
+        await settleCompletion(page);
+        const members = await page.locator(".cm-tooltip-autocomplete li .cm-completionLabel").evaluateAll((nodes) =>
+          nodes.map((node) => node.textContent ?? "")
+        );
+        assert(members.includes("get") && members.includes("set"), `GameState. offered: ${members.join(",")}`);
+        const memberInfo = await page.locator(".cm-completionInfo").first().textContent() ?? "";
+        assert(
+          memberInfo.includes("state value"),
+          `the completion panel carries no description: "${short(memberInfo)}"`,
+        );
+
+        // A member is inserted with its parentheses, so the author can type the
+        // arguments straight into them. Read from the buffer rather than from
+        // `.cm-activeLine`: which line CodeMirror marks active is a rendering
+        // detail, and the buffer is what the check is actually about.
+        await page.keyboard.press("Enter");
+        const accepted = await editorValue(page);
+        assert(
+          accepted.includes("GameState.get()"),
+          `accepting the member produced ${short(accepted.slice(-140))}`,
+        );
+
+        // The lifecycle functions are offered at statement start, where nothing
+        // but our manifest can know them.
+        await page.keyboard.press("Control+End");
+        await page.keyboard.type("\n");
+        await page.keyboard.type("OnIn");
+        await page.waitForSelector(".cm-tooltip-autocomplete li", { timeout: 5_000 });
+        await settleCompletion(page);
+        const lifecycles = await page.locator(".cm-tooltip-autocomplete li .cm-completionLabel").evaluateAll((nodes) =>
+          nodes.map((node) => node.textContent ?? "")
+        );
+        assert(lifecycles.includes("OnInit"), `OnIn offered: ${lifecycles.join(",")}`);
+        await page.keyboard.press("Escape");
+
+        // Hover gives the same descriptions without the popup, from the same
+        // table, and the segment under the pointer decides the depth: the
+        // namespace on `GameState`, the method on `get`. The probe is its own
+        // short buffer because CodeMirror renders only the lines in view, so a
+        // line appended to the end of `base` would have no DOM to hover — and
+        // `base` is restored below regardless.
+        await fillEditor(page, 'local function smoke_assist()\n  local oil = GameState.get("oil")\nend');
+        await hoverToken(page, "GameState.get", "GameState");
+        await page.waitForSelector(".cm-tooltip .lua-doc-signature", { timeout: 5_000 });
+        const namespaceSignature = await page.locator(".cm-tooltip .lua-doc-signature").first().textContent() ?? "";
+        const namespaceDoc = await page.locator(".cm-tooltip .lua-doc-summary").first().textContent() ?? "";
+        assert(
+          namespaceSignature === "GameState" && namespaceDoc.includes("Reading and writing state"),
+          `hovering GameState showed "${short(namespaceSignature)}" / "${short(namespaceDoc)}"`,
+        );
+        await hoverToken(page, "GameState.get", "get");
+        await page.waitForFunction(
+          () => document.querySelector(".cm-tooltip .lua-doc-signature")?.textContent === "GameState.get(path)",
+          undefined,
+          { timeout: 5_000 },
+        );
+        const memberDoc = await page.locator(".cm-tooltip .lua-doc-summary").first().textContent() ?? "";
+        assert(memberDoc.includes("state value"), `hovering get showed "${short(memberDoc)}"`);
+
+        await fillEditor(page, base);
+        assert(await editorValue(page) === base, "the probe text was not cleared from the buffer");
+        return `typing "GameState." offered ${members.join(",")} with a description and inserted GameState.get(); ` +
+          `"OnIn" offered ${lifecycles.join(",")}; hovering GameState/get showed ` +
+          `"${short(namespaceSignature)}" and "GameState.get(path)" with their descriptions`;
+      } finally {
+        // A safety net, not a tidy-up: an assertion above can throw with the
+        // probe still in the buffer, and checks 5 and 6 restart the runtime from
+        // this file — a stray `GameState.` fails the Lua load, so one real
+        // failure would report as three.
+        if (await editorValue(page) !== base) await fillEditor(page, base);
+      }
     });
 
     await runCheck("5. YAML project loading (!import composition)", async () => {
@@ -539,7 +898,7 @@ async function main(): Promise<void> {
 
         step("modify state.yml and import");
         const modified = structuredClone(packA);
-        modified.manifest.project.version = "0.1.1";
+        modified.manifest.project.version = packLadder(packA.manifest.project.version, 1);
         const modifiedState = asText(modified, "state.yml").replace("lampLit: false", "lampLit: true");
         modified.entries["state.yml"] = new TextEncoder().encode(modifiedState);
         assert(modifiedState.includes("lampLit: true"), "failed to modify state.yml");
@@ -565,7 +924,7 @@ async function main(): Promise<void> {
 
         step("re-import original pack and control the lampLit:false action");
         const controlPack = structuredClone(packA);
-        controlPack.manifest.project.version = "0.1.2";
+        controlPack.manifest.project.version = packLadder(packA.manifest.project.version, 2);
         await importPack(page, controlPack, "lampLit: false", "state.yml");
         await waitForTextEquals(page, "#storyTitle", "Stone Entry");
         await page.locator('.nav[data-view="play"]').click();
@@ -596,9 +955,9 @@ async function main(): Promise<void> {
     await runCheck("6a. Lua-authored projected scene + world pointer coordinates", async () => {
       assert(originalPack, "original pack was not captured");
       const projected = structuredClone(originalPack);
-      projected.manifest.project.version = "0.1.3";
+      projected.manifest.project.version = packLadder(originalPack.manifest.project.version, 3);
       const script = `-- projected-scene-fixture
-game.canvas.create({
+GameCanvas.create({
   id = 'projected_scene',
   viewport = {
     width = 320,
@@ -615,12 +974,12 @@ game.canvas.create({
     {
       id = 'target', type = 'marker', x = 3, y = 2, radius = 12, fill = '#e7c97a', layer = 'world',
       events = { pointer_down = function(event)
-        game.output('projected ' .. math.floor(event.worldX + 0.5) .. ',' .. math.floor(event.worldY + 0.5))
+        GameOutput.add('projected ' .. math.floor(event.worldX + 0.5) .. ',' .. math.floor(event.worldY + 0.5))
       end },
     },
     { id = 'overlay', type = 'rect', x = 8, y = 8, width = 90, height = 22, fill = '#182022', layer = 'overlay', space = 'screen' },
     { id = 'offscreen', type = 'rect', x = 50, y = 260, width = 80, height = 20, fill = '#ff0000', layer = 'overlay', space = 'screen',
-      events = { pointer_down = function() game.output('offscreen') end },
+      events = { pointer_down = function() GameOutput.add('offscreen') end },
     },
   },
 })
@@ -721,19 +1080,19 @@ game.canvas.create({
     await runCheck("6d. Binary audio asset preview and Lua lifecycle", async () => {
       assert(originalPack, "original pack was not captured");
       const audioPack = structuredClone(originalPack);
-      audioPack.manifest.project.version = "0.1.4";
+      audioPack.manifest.project.version = packLadder(originalPack.manifest.project.version, 4);
       audioPack.manifest.files.push("assets/click.wav");
       audioPack.entries["assets/click.wav"] = silentWav();
       const script = `local function add(id, label, callback)
-  game.ui.create({id=id, type='button', location='output', fields={{id='label', type='text', value=label}}, events={activate={callback=callback}}})
+  GameUI.create({id=id, type='button', location='output', fields={{id='label', type='text', value=label}}, events={activate={callback=callback}}})
 end
-function audio_play() game.audio.play('assets/click.wav', {id='click', loop=false, volume=0.8}) end
-function audio_pause() game.audio.pause('click') end
-function audio_resume() game.audio.resume('click') end
-function audio_volume() game.audio.set_volume('click', 0.5) end
-function audio_loop() game.audio.set_loop('click', true) end
-function audio_stop() game.audio.stop('click') end
-function audio_stop_all() game.audio.stop_all() end
+function audio_play() GameAudio.play('assets/click.wav', {id='click', loop=false, volume=0.8}) end
+function audio_pause() GameAudio.pause('click') end
+function audio_resume() GameAudio.resume('click') end
+function audio_volume() GameAudio.setVolume('click', 0.5) end
+function audio_loop() GameAudio.setLoop('click', true) end
+function audio_stop() GameAudio.stop('click') end
+function audio_stop_all() GameAudio.stopAll() end
 add('audio_play', 'Play audio', 'audio_play')
 add('audio_pause', 'Pause audio', 'audio_pause')
 add('audio_resume', 'Resume audio', 'audio_resume')
@@ -800,12 +1159,287 @@ add('audio_stop_all', 'Stop all', 'audio_stop_all')
       };
       await Deno.writeFile(path, zipSync(entries));
       await page.locator("#importFile").setInputFiles(path);
-      await waitForText(page, "#diagnostics", "already v0.1.4");
+      // The declined version is the one the library holds, which the earlier checks
+      // raised from the pack's own version; read it rather than restating the ladder.
+      const stored = await storedProjectVersion(page);
+      assert(stored && stored !== originalPack.manifest.project.version, `stored version did not advance: ${stored}`);
+      await waitForText(page, "#diagnostics", `already v${stored}`);
       assert(
         await page.locator("#title").textContent().then((value) => value?.includes("Lantern Below")),
         "older import changed active project",
       );
       return "an older package was declined and the active newer project remained loaded";
+    });
+
+    await runCheck("6f. Authored markup is rendered as text (XSS regression)", async () => {
+      const malicious = '<img src=x onerror="window.__xss=1">';
+      const scenario = `# xss-fixture
+meta:
+  title: '${malicious}'
+startLocation: entry
+state: {}
+player: {}
+locations:
+  entry:
+    title: '<script>window.__xss=1</script>'
+    text:
+      - '${malicious}'
+      - give: '${malicious}'
+    actions:
+      - id: 'evil">${malicious}'
+        label: '<b>bold</b>'
+        then:
+          - text: '<svg onload="window.__xss=1">'
+ui:
+  elements:
+    - id: xss_button
+      type: button
+      location: sidebar
+      fields:
+        - id: label
+          type: text
+          value: '${malicious}'
+    - id: xss_meter
+      type: meter
+      location: hud
+      fields:
+        - id: label
+          type: text
+          value: '${malicious}'
+        - id: value
+          type: state
+          path: hp
+        - id: max
+          type: state
+          path: hpMax
+`;
+      const pack: PackShape = {
+        manifest: {
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "xss-fixture", title: "XSS Fixture", version: "1.0.0" },
+          files: ["scenario.yaml", "scripts/main.lua"],
+        },
+        entries: {
+          "scenario.yaml": new TextEncoder().encode(scenario),
+          "scripts/main.lua": new TextEncoder().encode("-- xss-fixture\n"),
+        },
+      };
+      await importPack(page, pack, "xss-fixture", "scenario.yaml");
+      await waitForText(page, "#storyTitle", "window.__xss=1");
+      const state = await page.evaluate(() => {
+        const regions = [
+          "#heroTerminal",
+          "#heroChoices",
+          "#surfaceHeader",
+          "#gameHud",
+          "#uiOutput",
+          "#eventLog",
+          "#storyTitle",
+        ];
+        const active = regions.flatMap((region) => [
+          ...document.querySelectorAll(`${region} img, ${region} svg, ${region} script, ${region} iframe`),
+        ]);
+        const choice = document.querySelector<HTMLElement>("#heroChoices .choice");
+        return {
+          marker: (globalThis as typeof globalThis & { __xss?: number }).__xss,
+          active: active.length,
+          terminal: document.querySelector("#heroTerminal")?.textContent ?? "",
+          choiceText: choice?.textContent ?? "",
+          choiceCmd: choice?.getAttribute("data-cmd") ?? "",
+          choiceChildren: choice?.children.length ?? -1,
+          header: document.querySelector("#surfaceHeader")?.textContent ?? "",
+        };
+      });
+      assert(state.marker === undefined, `authored markup executed script (__xss=${state.marker})`);
+      assert(state.active === 0, `authored markup created ${state.active} active element(s)`);
+      assert(state.terminal.includes(malicious), "terminal did not render authored markup as literal text");
+      assert(state.choiceText.includes("<b>bold</b>"), "choice label was not rendered as literal text");
+      assert(state.choiceCmd === `@evil">${malicious}`, `choice data-cmd was altered: ${state.choiceCmd}`);
+      assert(state.choiceChildren === 0, "choice button gained child elements");
+      assert(state.header.includes(malicious), "sidebar label was not rendered as literal text");
+      return "malicious scenario text, action label/id, HUD/sidebar labels and inventory item id were all " +
+        "rendered as literal text with no active elements and no script execution";
+    });
+
+    await runCheck("6g. Authored error text is rendered as text", async () => {
+      const malicious = '<img src=x onerror="window.__xss=1">';
+      const pack: PackShape = {
+        manifest: {
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "xss-error-fixture", title: "XSS Error Fixture", version: "1.0.0" },
+          files: ["scenario.yaml", "scripts/main.lua"],
+        },
+        entries: {
+          "scenario.yaml": new TextEncoder().encode(`startLocation: entry\nx: !import '${malicious}.yml'\n`),
+          "scripts/main.lua": new TextEncoder().encode("-- xss-error-fixture\n"),
+        },
+      };
+      const dir = await Deno.makeTempDir({ prefix: "inkforge-smoke-xss-" });
+      const filePath = `${dir}\\pack.inkforge`;
+      await Deno.writeFile(
+        filePath,
+        zipSync({
+          ...pack.entries,
+          "manifest.json": new TextEncoder().encode(`${JSON.stringify(pack.manifest, null, 2)}\n`),
+        }),
+      );
+      await page.locator("#importFile").setInputFiles(filePath);
+      await waitForText(page, "#heroTerminal", "Imported file not found");
+      const state = await page.evaluate(() => ({
+        marker: (globalThis as typeof globalThis & { __xss?: number }).__xss,
+        active: document.querySelectorAll("#heroTerminal img, #heroTerminal script, #heroTerminal svg").length,
+        text: document.querySelector("#heroTerminal")?.textContent ?? "",
+      }));
+      assert(state.marker === undefined, `error text executed script (__xss=${state.marker})`);
+      assert(state.active === 0, `error text created ${state.active} active element(s)`);
+      assert(state.text.includes("Imported file not found"), "error text was not rendered");
+      return "a malicious !import path surfaced through the scenario error path as literal text " +
+        "with no active elements and no script execution";
+    });
+
+    await runCheck("6h. Markdown renders, and authored links are gated", async () => {
+      const pack: PackShape = {
+        manifest: {
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "markdown-fixture", title: "Markdown Fixture", version: "1.0.0" },
+          files: ["scenario.yaml", "scripts/main.lua"],
+        },
+        entries: {
+          "scenario.yaml": new TextEncoder().encode(`startLocation: entry
+state: {}
+player: {}
+locations:
+  entry:
+    title: 'Entry **bold**'
+    text:
+      - '- 3 gold coins lie here.'
+      - |
+        The note lists what to carry:
+        - a stub of candle
+        - a bent nail
+      - 'See [the vault](https://example.invalid/vault) or [bad](javascript:window.__xssLink=1).'
+`),
+          "scripts/main.lua": new TextEncoder().encode("-- markdown-fixture\n"),
+        },
+      };
+      await importPack(page, pack, "- 3 gold coins lie here.", "scenario.yaml");
+      await waitForText(page, "#heroTerminal", "3 gold coins lie here.");
+
+      // The transcript rule, both halves: a one-line string is prose even when it
+      // starts with a list marker, and a `|` block is a document.
+      const shapes = await page.evaluate(() => {
+        const entries = [...document.querySelectorAll("#heroTerminal .entry")];
+        const find = (needle: string) => entries.find((entry) => (entry.textContent ?? "").includes(needle));
+        const coins = find("3 gold coins");
+        const note = find("The note lists");
+        const anchors = [...document.querySelectorAll("#heroTerminal a.md-link")];
+        const title = document.querySelector("#storyTitle");
+        return {
+          marker: (globalThis as typeof globalThis & { __xssLink?: number }).__xssLink,
+          anchors: anchors.length,
+          href: anchors[0]?.getAttribute("href") ?? "",
+          coinsLists: coins?.querySelectorAll("ul, ol").length ?? -1,
+          coinsText: coins?.textContent ?? "",
+          noteItems: note?.querySelectorAll("ul > li").length ?? -1,
+          noteItemText: note?.querySelector("ul > li")?.textContent ?? "",
+          badLiteral: (document.querySelector("#heroTerminal")?.textContent ?? "")
+            .includes("javascript:window.__xssLink=1"),
+          titleText: title?.textContent ?? "",
+          titleStrong: title?.querySelectorAll("strong").length ?? -1,
+        };
+      });
+      assert(shapes.marker === undefined, `a javascript: link executed (__xssLink=${shapes.marker})`);
+      assert(shapes.anchors === 1, `expected one rendered link, found ${shapes.anchors}`);
+      assert(
+        shapes.href === "https://example.invalid/vault",
+        `the surviving anchor pointed at ${shapes.href}`,
+      );
+      assert(
+        shapes.badLiteral,
+        "the javascript: link was not left as literal markdown text",
+      );
+      assert(shapes.coinsLists === 0, `a one-line entry became a list: ${shapes.coinsText}`);
+      assert(
+        shapes.coinsText.includes("- 3 gold coins lie here."),
+        `the leading hyphen was consumed as a list marker: ${shapes.coinsText}`,
+      );
+      assert(
+        shapes.noteItems === 2,
+        `the '|' block entry did not render a real list (${shapes.noteItems} item(s))`,
+      );
+      assert(
+        shapes.noteItemText === "a stub of candle",
+        `the block list rendered ${shapes.noteItemText}`,
+      );
+      assert(
+        shapes.titleText === "Entry bold" && shapes.titleStrong === 1,
+        `the location title was not rendered as markdown: "${shapes.titleText}" / ${shapes.titleStrong} strong`,
+      );
+
+      // A link is captured, not followed: the app must stay where it is until the
+      // reader has seen the full URL and said yes.
+      const appUrl = page.url();
+      await page.locator("#heroTerminal a.md-link").click();
+      await page.waitForSelector("#linkGuardHost .link-guard-overlay");
+      assert(page.url() === appUrl, "clicking an authored link navigated the app");
+      const dialog = await page.evaluate(() => {
+        const overlay = document.querySelector("#linkGuardHost .link-guard-overlay");
+        return {
+          role: overlay?.getAttribute("role") ?? "",
+          modal: overlay?.getAttribute("aria-modal") ?? "",
+          url: overlay?.querySelector(".link-guard-url")?.textContent ?? "",
+          warning: overlay?.querySelector(".link-guard-warning")?.textContent ?? "",
+          focus: document.activeElement?.className ?? "",
+        };
+      });
+      assert(dialog.role === "dialog" && dialog.modal === "true", "the link dialog is not a modal dialog");
+      assert(
+        dialog.url === "https://example.invalid/vault",
+        `the dialog did not quote the full URL: "${dialog.url}"`,
+      );
+      assert(
+        dialog.warning.includes("leaves Inkforge") && dialog.warning.includes("recognise the address"),
+        `the dialog carried no warning: "${dialog.warning}"`,
+      );
+      assert(dialog.focus.includes("link-guard-cancel"), `Cancel did not take focus: "${dialog.focus}"`);
+
+      await page.locator("#linkGuardHost .link-guard-cancel").click();
+      assert(
+        await page.locator("#linkGuardHost .link-guard-overlay").count() === 0,
+        "Cancel did not close the dialog",
+      );
+      assert(page.url() === appUrl, "Cancel still navigated the app");
+
+      await page.locator("#heroTerminal a.md-link").click();
+      await page.waitForSelector("#linkGuardHost .link-guard-overlay");
+      // Asserted on the request, not on the new tab's URL: the fixture points at
+      // a reserved TLD that never resolves, so Chromium replaces the navigation
+      // with its own error page and the tab's URL stops being the destination.
+      // Both listeners are armed before the click — the request is already in
+      // flight by the time the popup event arrives, so arming after would miss it.
+      const openedPromise = context.waitForEvent("page", { timeout: 10_000 });
+      const requestPromise = context.waitForEvent("request", {
+        predicate: (request: Request) => request.url().startsWith("https://example.invalid/vault"),
+        timeout: 10_000,
+      });
+      await page.locator("#linkGuardHost .link-guard-open").click();
+      const [opened, request] = await Promise.all([openedPromise, requestPromise]);
+      await opened.close();
+      assert(
+        request.url().startsWith("https://example.invalid/vault"),
+        `confirming did not open the target: ${request.url()}`,
+      );
+      assert(page.url() === appUrl, "confirming navigated the app itself");
+      assert(
+        await page.locator("#linkGuardHost .link-guard-overlay").count() === 0,
+        "the dialog stayed open after confirming",
+      );
+      return "inline and block markdown rendered, a one-line entry stayed prose, a '|' block entry became a " +
+        "real list, a javascript: link stayed literal with no script run, and an https: link opened only after " +
+        "the confirmation dialog quoted its full URL";
     });
 
     await runCheck("7. New project restores the starter", async () => {
@@ -819,18 +1453,29 @@ add('audio_stop_all', 'Stop all', 'audio_stop_all')
       const projectTitle = await textOf(page, "#title");
       assert(projectTitle.includes("Copy"), `new project did not receive a copy identity: ${projectTitle}`);
       await page.locator('.nav[data-view="author"]').click();
-      const code = await page.locator("#code").inputValue();
-      assert(code.includes("startLocation: entry"), "#code does not contain startLocation: entry");
+      await waitForEditorContains(page, "startLocation: entry");
+      const code = await editorValue(page);
+      assert(code.includes("startLocation: entry"), "the new project's editor does not contain startLocation: entry");
       await page.locator("#loadBtn").click();
       await page.waitForFunction(() => document.querySelectorAll("#projectList .project-card").length >= 2, undefined, {
         timeout: BOOT_TIMEOUT,
       });
       const activeCard = page.locator("#projectList .project-card").filter({ hasText: "Active" });
       assert(await activeCard.count() === 1, "project library did not mark exactly one active project");
+      // The card describes the work, so its version and its description are the
+      // scenario's own front matter — never `project.version`, which moves on
+      // every pack. Both are read from the template the copy was made from, so a
+      // package bump cannot move them and this check cannot go stale.
+      const templateMeta = await readScenarioMeta({
+        "scenario.yaml": await Deno.readTextFile(join(TEMPLATES, "lantern-below", "scenario.yaml")),
+      });
+      assert(templateMeta?.description && templateMeta.version, "template front matter has no description/version");
+      const activeLine = (await activeCard.textContent()) ?? "";
       assert(
-        await activeCard.textContent().then((value) => value?.includes("Updated")),
-        "project card omitted updated time",
+        activeLine.includes(templateMeta.description) && activeLine.includes(`v${templateMeta.version}`),
+        `project card did not describe the work: ${activeLine}`,
       );
+      assert(activeLine.includes("Updated"), `project card omitted updated time: ${activeLine}`);
       await activeCard.locator("button", { hasText: "Delete" }).click();
       await page.waitForFunction(
         () =>
@@ -856,7 +1501,105 @@ add('audio_stop_all', 'Stop all', 'audio_stop_all')
         "active project did not persist across reload",
       );
       return `#newBtn created an independent starter copy (play title Stone Entry, project "${projectTitle}", ` +
-        `#code has startLocation: entry); library showed active/updated metadata, deleted the active copy to the pinned starter, and restored it after reload`;
+        `editor has startLocation: entry); the library card described the work from its own front matter, deleted ` +
+        `the active copy to the pinned starter, and restored it after reload`;
+    });
+
+    await runCheck("8. A Lua timer repaints a bound meter with no command", async () => {
+      // The repaint model in one assertion: a mutation marks the view dirty and
+      // the canvas frame hook flushes it. Nothing here issues a command, clicks a
+      // control or crosses a UI action boundary, so the meter can only move if a
+      // `GameState.set` made inside a Lua timer reached the DOM on its own.
+      const pack: PackShape = {
+        manifest: {
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "timer-repaint-fixture", title: "Timer Repaint", version: "1.0.0" },
+          files: ["scenario.yaml", "scripts/main.lua"],
+        },
+        entries: {
+          "scenario.yaml": new TextEncoder().encode(`meta:
+  title: Timer Repaint
+startLocation: entry
+state:
+  charge: 9
+  chargeMax: 9
+player: {}
+locations:
+  entry:
+    title: 'Timer Entry'
+    text:
+      - 'A cell hums.'
+ui:
+  elements:
+    - id: charge_meter
+      type: meter
+      location: hud
+      fields:
+        - id: label
+          type: text
+          value: 'Charge'
+        - id: value
+          type: state
+          path: charge
+        - id: max
+          type: state
+          path: chargeMax
+`),
+          "scripts/main.lua": new TextEncoder().encode(`-- timer-repaint-fixture
+function OnInit()
+  timers.setInterval(function()
+    GameState.set('charge', (GameState.get('charge') or 0) - 1)
+  end, 120)
+end
+`),
+        },
+      };
+      // A negative reading is still a reading: the regex is signed so a meter
+      // that has already run past zero keeps comparing as "lower".
+      const read = async () => {
+        const text = await textOf(page, "#gameHud");
+        return { text, value: Number(/(-?\d+)\s*\/\s*-?\d+/.exec(text)?.[1]) };
+      };
+      await page.locator("#closeProjects").click();
+      await importPack(page, pack, "timer-repaint-fixture", "scripts/main.lua");
+      await page.locator('.nav[data-view="play"]').click();
+      await waitForText(page, "#gameHud", "Charge");
+      const initial = await read();
+      assert(Number.isFinite(initial.value), `meter value unreadable: "${initial.text}"`);
+      await page.waitForFunction(
+        (from: number) => {
+          const text = document.querySelector("#gameHud")?.textContent ?? "";
+          const value = Number(/(-?\d+)\s*\/\s*-?\d+/.exec(text)?.[1]);
+          return Number.isFinite(value) && value < from;
+        },
+        initial.value,
+        { timeout: BOOT_TIMEOUT },
+      );
+      const after = await read();
+
+      // The other half of the model: a mutation costs one frame, not a spinning
+      // loop. This fixture has no canvas scene and no animation, so every frame
+      // counted below was caused by the timer's own dirty mark — ~8 over a
+      // second at a 120ms interval. A DOM rebuild per animation frame would
+      // count ~60.
+      await page.evaluate(() => {
+        const original = globalThis.requestAnimationFrame.bind(globalThis);
+        const state = { frames: 0 };
+        (globalThis as typeof globalThis & { __inkforgeFrames?: typeof state }).__inkforgeFrames = state;
+        globalThis.requestAnimationFrame = (callback: FrameRequestCallback) => {
+          state.frames += 1;
+          return original(callback);
+        };
+      });
+      await page.waitForTimeout(1000);
+      const frames = await page.evaluate(() =>
+        (globalThis as typeof globalThis & { __inkforgeFrames: { frames: number } }).__inkforgeFrames.frames
+      );
+      assert(frames <= 15, `${frames} frames in 1s of a static scene with a 120ms timer`);
+      return `a Lua timers.setInterval decremented a bound state var with no command or click: ` +
+        `#gameHud "${short(initial.text, 30)}" -> "${short(after.text, 30)}"; ${frames} frames in the ` +
+        `following second (one per mutation, not one per animation frame)`;
     });
   } finally {
     await context.close();

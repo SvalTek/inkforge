@@ -4,6 +4,7 @@
  * `queryDom` resolves every element the app touches once, keyed by purpose, so
  * the rest of the app never repeats raw selectors. `get` is the only typing aid
  * and throws on a malformed page; it is behaviour-neutral on a well-formed one.
+ * `$all` is the shared multi-element query used by the render layer.
  */
 export interface DomRefs {
   title: HTMLElement;
@@ -42,6 +43,8 @@ export interface DomRefs {
   itemDescription: HTMLElement;
   itemActions: HTMLElement;
   modalHost: HTMLElement;
+  /** Holds the external-link confirmation; outside `modalHost`, which repaints. */
+  linkGuardHost: HTMLElement;
   projectOverlay: HTMLElement;
   projectList: HTMLElement;
   closeProjects: HTMLButtonElement;
@@ -52,8 +55,8 @@ export interface DomRefs {
   editorWrap: HTMLElement;
   assetPreview: HTMLElement;
   addFile: HTMLButtonElement;
-  gutter: HTMLElement;
-  code: HTMLTextAreaElement;
+  /** The editor's mount point; CodeMirror owns everything inside it. */
+  code: HTMLElement;
   cursor: HTMLElement;
   diagnostics: HTMLElement;
   format: HTMLElement;
@@ -73,11 +76,6 @@ function get<T extends Element>(selector: string): T {
   const element = document.querySelector(selector);
   if (!element) throw new Error(`Missing element: ${selector}`);
   return element as T;
-}
-
-/** Query a single element, throwing when it is absent. */
-export function $(selector: string): HTMLElement {
-  return get<HTMLElement>(selector);
 }
 
 /** Query every matching element as an array. */
@@ -124,6 +122,7 @@ export function queryDom(): DomRefs {
     itemDescription: get("#itemDescription"),
     itemActions: get("#itemActions"),
     modalHost: get("#modalHost"),
+    linkGuardHost: get("#linkGuardHost"),
     projectOverlay: get("#projectOverlay"),
     projectList: get("#projectList"),
     closeProjects: get("#closeProjects"),
@@ -134,7 +133,6 @@ export function queryDom(): DomRefs {
     editorWrap: get(".editor-wrap"),
     assetPreview: get("#assetPreview"),
     addFile: get("#addFile"),
-    gutter: get("#gutter"),
     code: get("#code"),
     cursor: get("#cursor"),
     diagnostics: get("#diagnostics"),

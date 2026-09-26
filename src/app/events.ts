@@ -1,26 +1,25 @@
 import type { AppContext, AppView } from "./context.ts";
-import { updateCursor } from "../editor/editor.ts";
 import { assetFromBlob, assetMime } from "../project/assets.ts";
+import { installLinkGuard } from "../ui/link-guard.ts";
 
 /** Wire every DOM event handler to the app context. */
 export function bindEvents(app: AppContext): void {
   const dom = app.dom;
-  dom.code.oninput = () => app.syncEditor();
-  dom.code.onkeyup = () => updateCursor(app);
-  dom.code.onscroll = () => {
-    dom.gutter.scrollTop = dom.code.scrollTop;
-  };
+  // The editor is not bound here: `createCodeEditor` takes `onChange` and
+  // `onSelection` at mount, so the buffer, the caret readout and the scroll
+  // position are the editor's own concern rather than three DOM handlers.
+  installLinkGuard(dom.linkGuardHost);
   document.querySelectorAll<HTMLElement>(".nav").forEach((button) => {
     button.onclick = () => app.showView((button.dataset.view as AppView) ?? "play");
   });
   dom.heroCommand.onsubmit = (e) => {
     e.preventDefault();
-    app.engine?.dispatch(dom.heroInput.value);
+    void app.engine?.dispatch(dom.heroInput.value);
     dom.heroInput.value = "";
   };
   dom.commandForm.onsubmit = (e) => {
     e.preventDefault();
-    app.engine?.dispatch(dom.command.value);
+    void app.engine?.dispatch(dom.command.value);
     dom.command.value = "";
   };
   dom.restartHero.onclick = () => void app.start();

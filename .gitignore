@@ -1,3 +1,6 @@
 dist/
 node_modules/
 Plan.md
+.temp/
+.kilo/
+.playwright-cli/

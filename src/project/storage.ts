@@ -31,7 +31,7 @@ function database(): Promise<IDBDatabase> {
       }
     };
     open.onsuccess = () => resolve(open.result);
-    open.onerror = () => reject(open.error || new Error("Could not open project library"));
+    open.onerror = () => reject(open.error || new Error("Could not open scenario library"));
   });
 }
 

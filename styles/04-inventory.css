@@ -1,1 +1,199 @@
-.surface-scene-icon{position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);font-size:105px;color:#5e3c29;text-shadow:0 0 50px #9f5a31}.inventory-overlay{position:fixed;z-index:10;inset:0;background:rgba(6,6,10,.84);display:grid;place-items:center;padding:28px}.inventory-window{width:min(1120px,100%);min-height:min(650px,86vh);background:linear-gradient(135deg,#12100f,#171313);border:1px solid #564130;box-shadow:0 24px 80px #000;display:grid;grid-template-rows:86px 1fr}.inventory-window header{border-bottom:1px solid #4b392c;background:#151311;padding:0 29px}.inventory-window header span,.inventory-label{font-size:10px;letter-spacing:.15em;color:#b49872}.inventory-window header h2{margin:5px 0 0;font:28px Georgia,serif;color:#efe0ca}.inventory-window header button{margin-left:auto;color:#d2b98f;border-color:#604a35}.inventory-body{display:grid;grid-template-columns:1.45fr .8fr;min-height:0}.inventory-body>section{padding:31px;border-right:1px solid #4b392c}.inventory-label{display:flex;justify-content:space-between;margin-bottom:15px}.inventory-label b{font-size:11px;color:#d5b879}.inventory-slots{display:grid;grid-template-columns:repeat(4,minmax(80px,1fr));gap:12px}.slot{height:105px;position:relative;border:1px dashed #61503b;background:linear-gradient(145deg,#241f1a,#1b1815);border-radius:8px;color:#746653;font-size:22px}.slot span{position:absolute;top:9px;left:10px;color:#837564;font-size:10px}.slot.occupied{border-style:solid;border-color:#c48b45;background:radial-gradient(circle at 50% 46%,#5a3826,#241b17 69%);color:#f2bd69}.slot.occupied b{font-size:35px}.slot:hover{border-color:#ecc27c;background:#35291f}.item-inspector{padding:31px;background:#141110}.item-art{height:185px;display:grid;place-items:center;border:1px solid #443426;background:radial-gradient(circle,#4f3023,#181312 64%);font-size:80px;color:#efb666;text-shadow:0 0 26px #c56735}.item-inspector h3{font:28px Georgia,serif;margin:9px 0;color:#f1dfc5}.item-inspector>p:not(.eyebrow){color:#b5a695;font:15px/1.55 Georgia,serif}.item-actions{border-top:1px solid #49382a;padding-top:15px;color:#978675;font-size:12px}.item-actions button{border-color:#906640;color:#ebc58b}.item-actions button:hover{background:#553928}@media(max-width:700px){.inventory-overlay{padding:10px}.inventory-body{grid-template-columns:1fr}.inventory-body>section{border-right:0;border-bottom:1px solid #4b392c}.inventory-slots{grid-template-columns:repeat(3,1fr)}.item-inspector{padding:21px}.item-art{display:none}}
+/* ==========================================================================
+   04-inventory.css — the inventory overlay and the scenario library
+
+   Two overlays share the `.inventory-overlay` frame: the inventory (item slots
+   plus the inspector on the right) and the project library. Both are opened by
+   adding/removing `.hidden` from the section, which 01-shell.css defines.
+
+   The modal and tool chrome that sits alongside these lives in 06-overrides.css.
+   ========================================================================== */
+
+.inventory-overlay {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  background: rgba(6, 6, 10, .84);
+  display: grid;
+  place-items: center;
+  padding: 28px;
+}
+
+.inventory-window {
+  width: min(1120px, 100%);
+  min-height: min(650px, 86vh);
+  background: linear-gradient(135deg, #12100f, #171313);
+  border: 1px solid #564130;
+  box-shadow: 0 24px 80px #000;
+  display: grid;
+  grid-template-rows: 86px 1fr;
+}
+
+.inventory-window header {
+  border-bottom: 1px solid #4b392c;
+  background: #151311;
+  padding: 0 29px;
+}
+
+.inventory-window header span,
+.inventory-label {
+  font-size: 10px;
+  letter-spacing: .15em;
+  color: #b49872;
+}
+
+.inventory-window header h2 {
+  margin: 5px 0 0;
+  font: 28px Georgia, serif;
+  color: #efe0ca;
+}
+
+.inventory-window header button {
+  margin-left: auto;
+  color: #d2b98f;
+  border-color: #604a35;
+}
+
+/* Slots on the left, inspector on the right. */
+.inventory-body {
+  display: grid;
+  grid-template-columns: 1.45fr .8fr;
+  min-height: 0;
+}
+
+.inventory-body > section {
+  padding: 31px;
+  border-right: 1px solid #4b392c;
+}
+
+.inventory-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 15px;
+}
+
+.inventory-label b {
+  font-size: 11px;
+  color: #d5b879;
+}
+
+.inventory-slots {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(80px, 1fr));
+  gap: 12px;
+}
+
+/* `.occupied` is added by the renderer when a slot holds an item. */
+.slot {
+  height: 105px;
+  position: relative;
+  border: 1px dashed #61503b;
+  background: linear-gradient(145deg, #241f1a, #1b1815);
+  border-radius: 8px;
+  color: #746653;
+  font-size: 22px;
+}
+
+.slot span {
+  position: absolute;
+  top: 9px;
+  left: 10px;
+  color: #837564;
+  font-size: 10px;
+}
+
+.slot.occupied {
+  border-style: solid;
+  border-color: #c48b45;
+  background: radial-gradient(circle at 50% 46%, #5a3826, #241b17 69%);
+  color: #f2bd69;
+}
+
+.slot.occupied b {
+  font-size: 35px;
+}
+
+.slot:hover {
+  border-color: #ecc27c;
+  background: #35291f;
+}
+
+/* Inspector. `.eyebrow` is the kicker above the item name — the text is
+   italicised by 07-markdown.css, which owns the kicker treatment. */
+.item-inspector {
+  padding: 31px;
+  background: #141110;
+}
+
+.item-art {
+  height: 185px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #443426;
+  background: radial-gradient(circle, #4f3023, #181312 64%);
+  font-size: 80px;
+  color: #efb666;
+  text-shadow: 0 0 26px #c56735;
+}
+
+.item-inspector h3 {
+  font: 28px Georgia, serif;
+  margin: 9px 0;
+  color: #f1dfc5;
+}
+
+.eyebrow {
+  letter-spacing: .2em;
+  font-size: 10px;
+  color: #baaa90;
+  margin-top: 18px;
+}
+
+.item-inspector > .item-description {
+  color: #b5a695;
+  font: 15px/1.55 Georgia, serif;
+}
+
+.item-actions {
+  border-top: 1px solid #49382a;
+  padding-top: 15px;
+  color: #978675;
+  font-size: 12px;
+}
+
+.item-actions button {
+  border-color: #906640;
+  color: #ebc58b;
+}
+
+.item-actions button:hover {
+  background: #553928;
+}
+
+/* Narrow viewports ------------------------------------------------------- */
+
+@media (max-width: 700px) {
+  .inventory-overlay {
+    padding: 10px;
+  }
+
+  .inventory-body {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-body > section {
+    border-right: 0;
+    border-bottom: 1px solid #4b392c;
+  }
+
+  .inventory-slots {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .item-inspector {
+    padding: 21px;
+  }
+
+  .item-art {
+    display: none;
+  }
+}

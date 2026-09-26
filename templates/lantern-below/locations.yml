@@ -2,7 +2,11 @@ entry:
   title: Stone Entry
   text:
     - "Cold air rises from the passage ahead."
-    - "A brass lantern rests beside the threshold."
+    # The lantern line follows the item, so `look` after taking it does not
+    # promise something that is no longer there.
+    - if: { hasItem: entry_lantern }
+      then: "A pale ring in the dust is all that marks where the lantern stood."
+      else: "A brass lantern rests beside the threshold."
   items: [entry_lantern]
   exits:
     north: passage
@@ -10,6 +14,9 @@ passage:
   title: Narrow Passage
   text:
     - "The passage runs south to the stone entry."
+    # A condition in `text` may carry `then` alone; a false branch prints nothing.
+    - if: { var: lampLit }
+      then: "Lantern light moves on the walls, and the way south is easy to read."
   exits:
     south: entry
   actions:

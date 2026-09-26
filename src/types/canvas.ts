@@ -1,4 +1,3 @@
-import type { LuaCallback } from "./lua.ts";
 import type { ResolvedUiElement } from "./ui.ts";
 
 /** Affine 2D transform matrix, matching the runtime's `{a,b,c,d,e,f}` shape. */
@@ -236,32 +235,6 @@ export type CanvasCommand =
   }
   | { op: "animation.control"; id: string; action: CanvasAnimationAction };
 
-/** Timer command union mirroring the runtime `timer()` switch. */
-export type TimerCommand =
-  | {
-    op: "create";
-    id: string;
-    delay?: number;
-    callback?: string;
-    repeating?: boolean;
-    repeatCount?: number;
-    immediate?: boolean;
-  }
-  | { op: "pause" | "resume" | "restart" | "cancel"; id: string };
-
-/** Internal runtime timer record. */
-export interface CanvasTimer {
-  id: string;
-  delay: number;
-  remaining: number;
-  callback?: string;
-  repeating: boolean;
-  repeatCount: number;
-  iteration: number;
-  active: boolean;
-  paused: boolean;
-}
-
 /** Internal tween animation record. */
 export interface CanvasTweenAnimation {
   id: string;
@@ -300,10 +273,7 @@ export interface CanvasKeyframesAnimation {
 /** Internal animation record (tween or keyframes). */
 export type CanvasAnimation = CanvasTweenAnimation | CanvasKeyframesAnimation;
 
-/** Per-frame Lua update callback passed to `setUpdate`. */
-export type CanvasUpdate = (dt: number) => void;
-
-/** Event payload forwarded to Lua via `__canvas_event`. */
+/** Event payload forwarded to Lua as the `canvas:event` bus payload. */
 export interface CanvasPointerEvent {
   sceneId: string;
   nodeId: string;
@@ -326,22 +296,25 @@ export interface CanvasPointerEvent {
 
 /** Host hooks the runtime calls back into (`InkforgeCanvasRuntime` options). */
 export interface CanvasHooks {
-  callLua?: (callback: LuaCallback | null, dt: number) => void;
   ensureSurface?: (id: string, label: string) => void;
   removeSurface?: (id: string) => void;
   asset?: (path: string) => string | undefined;
-  event?: (reference: string, event: CanvasPointerEvent) => void;
-  timer?: (reference: string, id: string, iteration: number) => void;
+  /** Forward one pointer interaction to Lua. */
+  canvasEvent?: (event: CanvasPointerEvent) => void;
   afterFrame?: () => void;
 }
 
 /** Public surface of the canvas runtime class. */
 export interface CanvasHost {
   command(command: CanvasCommand): void;
-  timer(command: TimerCommand): void;
-  timerRemaining(id: string): number;
-  timerActive(id: string): boolean;
-  setUpdate(callback: CanvasUpdate | null): void;
+  /**
+   * Ensure a frame is drawn.
+   *
+   * The frame loop is clock-driven (timers/animations), so anything that marks
+   * the view dirty outside of a frame — Lua output, tool registry changes —
+   * must ask for one explicitly.
+   */
+  requestFrame(): void;
   mountSurfaces(elements: ResolvedUiElement[]): void;
   destroy(): void;
 }

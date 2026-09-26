@@ -1,9 +1,6 @@
 /** CDN URL for the `yaml` ESM build (mirrors the original runtime import). */
 export const YAML_ESM_URL: string = "https://cdn.jsdelivr.net/npm/yaml@2.6.0/+esm";
 
-/** CDN URL for the `wasmoon` ESM build (mirrors the original runtime import). */
-export const WASMOON_ESM_URL: string = "https://cdn.jsdelivr.net/npm/wasmoon@1.16.0/+esm";
-
 /**
  * Dynamically import a remote ESM module by URL.
  *

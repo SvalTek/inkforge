@@ -81,7 +81,7 @@ close(projectedHit.local.y, 5, "projected local hit y");
 
 let pointerPayload: Record<string, unknown> | undefined;
 const pointerRuntime = new InkforgeCanvasRuntime({ replaceChildren() {} } as HTMLElement, {
-  event: (_reference, event) => pointerPayload = event as unknown as Record<string, unknown>,
+  canvasEvent: (event) => pointerPayload = event as unknown as Record<string, unknown>,
 });
 const pointerScene = pointerRuntime.createScene({
   id: "pointer",

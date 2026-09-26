@@ -5,9 +5,10 @@ import { bindEvents } from "./events.ts";
 import { queryDom } from "./dom.ts";
 import { applyUi as applyUiState } from "../engine/ui-state.ts";
 import { createEngine } from "../engine/engine.ts";
-import { createOutput } from "../engine/events.ts";
-import { composeScenario as composeScenarioImpl } from "../yaml/compose.ts";
-import { normalizeProject, projectTitle } from "../project/project.ts";
+import { createOutput, flushView as flushViewImpl } from "../engine/events.ts";
+import { composeScenario as composeScenarioImpl, readScenarioMeta, validateScenario } from "../yaml/compose.ts";
+import { emitNamedEvent, invokeNamedFunction, type SeamReport } from "../lua/invoke.ts";
+import { normalizeProject, projectCardMeta, projectTitle } from "../project/project.ts";
 import {
   activeProjectId,
   deleteProject as deleteStoredProject,
@@ -22,12 +23,14 @@ import { loadStarterProject } from "../project/starter.ts";
 import {
   closeFile as closeFileImpl,
   DEFAULT_OPEN_FILES,
-  lineNumbers as lineNumbersImpl,
+  openInEditor,
   renderFileTree as renderFileTreeImpl,
   renderTabs as renderTabsImpl,
   switchFile as switchFileImpl,
   syncEditor as syncEditorImpl,
 } from "../editor/editor.ts";
+import { createCodeEditor } from "../editor/codemirror.ts";
+import { installEditorHarness } from "../editor/harness.ts";
 import { render as renderDom } from "../ui/render.ts";
 import { runToolAction as runToolActionImpl, runUiAction as runUiActionImpl } from "../ui/actions.ts";
 import { exportPack as exportPackImpl, importPack as importPackImpl } from "../import-export/pack.ts";
@@ -35,9 +38,13 @@ import { createToolRegistry } from "../engine/tool-state.ts";
 import { AssetResolver } from "../project/assets.ts";
 import { AudioManager } from "../audio/manager.ts";
 
+/** Debounce window for coalescing keystroke-driven IndexedDB saves. */
+const PERSIST_DEBOUNCE_MS = 400;
+
 /** Build the single app context and bind the DOM once. */
 export function createApp(): AppContext {
   const dom = queryDom();
+  let persistTimer: ReturnType<typeof setTimeout> | undefined;
   const reportMediaError = (message: string) => {
     dom.diagnostics.textContent = `● ${message}`;
     dom.diagnostics.style.color = "#ee7c78";
@@ -45,8 +52,20 @@ export function createApp(): AppContext {
   const emptyResolver = new AssetResolver({}, (path) => reportMediaError(`Asset not found: ${path}`));
   const audio = new AudioManager(emptyResolver, reportMediaError);
 
+  // The editor is mounted before the context literal because the context needs
+  // it (`editor`), and it needs the context (the callbacks call `app`). The
+  // callbacks only ever run from user input, long after `app` is assigned.
+  const editor = createCodeEditor({
+    parent: dom.code,
+    onChange: () => app.syncEditor(),
+    onSelection: (line, column) => {
+      dom.cursor.textContent = `Ln ${line}, Col ${column}`;
+    },
+  });
+
   const app: AppContext = {
     dom,
+    editor,
     project: normalizeProject({}),
     scenario: null,
     runtime: null,
@@ -60,9 +79,9 @@ export function createApp(): AppContext {
     openFiles: [...DEFAULT_OPEN_FILES],
     activeAsset: null,
     assetsExpanded: true,
+    bootGeneration: 0,
     initialise,
     start,
-    restart,
     showView,
     switchFile,
     previewAsset,
@@ -70,9 +89,10 @@ export function createApp(): AppContext {
     renderFileTree,
     renderTabs,
     syncEditor,
-    lineNumbers,
     persist,
+    schedulePersist,
     render,
+    flushView,
     runUiAction,
     runToolAction,
     newProject,
@@ -82,6 +102,7 @@ export function createApp(): AppContext {
     exportPack,
     importPack,
   };
+  installEditorHarness(editor, () => app.syncEditor());
 
   async function initialise(): Promise<void> {
     try {
@@ -99,9 +120,8 @@ export function createApp(): AppContext {
       setActiveProjectId(app.project.identity.id);
       app.current = "scenario.yaml";
       app.activeAsset = null;
-      dom.code.value = app.project.vfs[app.current] ?? "";
+      openInEditor(app, app.current);
       renderFileTreeImpl(app);
-      lineNumbers();
       renderTabs();
       await start();
     } catch (error) {
@@ -110,12 +130,35 @@ export function createApp(): AppContext {
     }
   }
 
-  async function start(): Promise<void> {
+  /**
+   * Boots are serialised, and a superseded boot stops at its next await.
+   *
+   * `start()` is async and fired fire-and-forget from three DOM handlers as
+   * well as the initial load, so two overlapping boots used to interleave on
+   * shared state — `app.canvas`, `app.lua`, `app.runtime`, and the
+   * `projectReady` flag the browser harnesses wait on, which made a
+   * half-torn-down boot a test-validity hazard rather than just a glitch.
+   * Chaining means boots never overlap; the generation means a stale one does
+   * not commit its results or announce itself ready.
+   */
+  let bootChain: Promise<void> = Promise.resolve();
+
+  function start(): Promise<void> {
+    const generation = ++app.bootGeneration;
+    bootChain = bootChain.then(() => bootOnce(generation)).catch((error) => {
+      dom.diagnostics.textContent = `● ${(error as Error).message}`;
+      dom.diagnostics.style.color = "#ee7c78";
+    });
+    return bootChain;
+  }
+
+  async function bootOnce(generation: number): Promise<void> {
+    const superseded = (): boolean => generation !== app.bootGeneration;
     app.project = normalizeProject(app.project);
     document.body.dataset.projectId = app.project.identity.id;
     document.body.dataset.projectReady = "false";
-    if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = dom.code.value;
-    dom.diagnostics.textContent = "● Loading project";
+    if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.editor.getValue();
+    dom.diagnostics.textContent = "● Loading scenario";
     dom.diagnostics.style.color = "#d6a95c";
     const scenarioSource = app.project.vfs["scenario.yaml"] ?? "";
     app.audio.destroy();
@@ -126,11 +169,24 @@ export function createApp(): AppContext {
     if (!scenarioSource.trim()) {
       app.scenario = null;
       app.runtime = null;
+      app.canvas?.destroy();
+      app.canvas = null;
+      if (app.lua) {
+        try {
+          await app.lua.shutdown();
+        } catch {
+          /* teardown must not mask the boot that follows it */
+        }
+      }
+      app.lua = null;
+      app.engine = null;
+      app.output = null;
+      if (superseded()) return;
       dom.diagnostics.textContent = "";
-      dom.heroTerminal.innerHTML = "";
-      dom.terminal.innerHTML = "";
-      dom.heroChoices.innerHTML = "";
-      dom.choices.innerHTML = "";
+      dom.heroTerminal.replaceChildren();
+      dom.terminal.replaceChildren();
+      dom.heroChoices.replaceChildren();
+      dom.choices.replaceChildren();
       dom.storyTitle.textContent = "";
       dom.title.textContent = "";
       dom.choiceCount.textContent = "";
@@ -143,9 +199,17 @@ export function createApp(): AppContext {
 
     try {
       const scenario = await composeScenarioImpl(app.project.vfs);
+      if (superseded()) return;
       app.scenario = scenario;
       if (!scenario.startLocation || !scenario.locations?.[scenario.startLocation]) {
         throw new Error("Scenario needs a valid startLocation.");
+      }
+      // Static checks for the mistakes that would otherwise fail silently —
+      // misspelled condition and directive keys. Lua names are checked after
+      // the script loads (see bootRuntime).
+      const issues = validateScenario(scenario);
+      if (issues.length) {
+        throw new Error(`Scenario problems: ${issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`);
       }
       const runtime: EngineRuntime = {
         location: scenario.startLocation,
@@ -159,46 +223,74 @@ export function createApp(): AppContext {
         conversation: null,
         lua: null,
         canvasEngine: null,
-        canvasEvent: undefined,
-        timerEvent: undefined,
-        canvasViewDirty: false,
+        viewDirty: false,
       };
       app.runtime = runtime;
       const output = createOutput(runtime);
       app.output = output;
+      // A boot problem — a `call:` naming a function that does not exist, a
+      // script that will not load — goes to the transcript, which is where it
+      // stays visible. Diagnostics is a single slot and the "Ready" that
+      // follows would overwrite it, so the count is carried out to the status
+      // line instead of being reported only in passing.
+      let problems = 0;
+      const reportProblem = (message: string): void => {
+        problems += 1;
+        output(message, "error");
+        dom.diagnostics.textContent = `● ${message}`;
+        dom.diagnostics.style.color = "#ee7c78";
+      };
+      // `call:`/`emit:` reach into Lua from authored YAML. Both funnel through
+      // the bridge's named-call and event bus rather than any custom dispatch,
+      // and report failures instead of no-opping.
+      const reportSeam: SeamReport = (message, severity) => {
+        if (severity === "error") problems += 1;
+        output(message, severity);
+        dom.diagnostics.textContent = `● ${message}`;
+        dom.diagnostics.style.color = severity === "error" ? "#ee7c78" : "#d6a95c";
+      };
       const engine = createEngine({
         getScenario: () => app.scenario,
         runtime,
         output,
         applyUi: (command) => applyUiState(command, runtime),
-        render: () => render(),
+        render: () => flushView(),
+        invokeLua: (name, params) => invokeNamedFunction(app.lua, name, params, reportSeam),
+        emitEvent: (name, data) => emitNamedEvent(app.lua, name, data, reportSeam),
       });
       app.engine = engine;
       await bootRuntime(app, scenario, {
-        render: () => render(),
+        flushView: () => flushView(),
         applyUi: (command) => applyUiState(command, runtime),
         output,
-        onError: (message) => {
-          dom.diagnostics.textContent = `● ${message}`;
-          dom.diagnostics.style.color = "#ee7c78";
-        },
+        onError: reportProblem,
         audio: app.audio,
       });
-      engine.move(runtime.location);
-      dom.diagnostics.textContent = "● Ready";
-      dom.diagnostics.style.color = "#7cbd9a";
+      await engine.move(runtime.location);
+      // A newer boot has already replaced everything this one built; announcing
+      // it ready now would report a state that is no longer the app's.
+      if (superseded()) return;
+      if (problems === 0) {
+        dom.diagnostics.textContent = "● Ready";
+        dom.diagnostics.style.color = "#7cbd9a";
+      } else {
+        dom.diagnostics.textContent = `● ${problems} problem${problems === 1 ? "" : "s"} at boot — see transcript`;
+        dom.diagnostics.style.color = "#d6a95c";
+      }
       document.body.dataset.projectReady = "true";
       dom.decision.style.visibility = "visible";
       render();
     } catch (error) {
-      dom.diagnostics.textContent = `● ${(error as Error).message}`;
+      const message = (error as Error).message;
+      dom.diagnostics.textContent = `● ${message}`;
       dom.diagnostics.style.color = "#ee7c78";
-      dom.heroTerminal.innerHTML = `<div class="entry system"><p>${(error as Error).message}</p></div>`;
+      const entry = document.createElement("div");
+      entry.className = "entry system";
+      const paragraph = document.createElement("p");
+      paragraph.textContent = message;
+      entry.append(paragraph);
+      dom.heroTerminal.replaceChildren(entry);
     }
-  }
-
-  function restart(): Promise<void> {
-    return start();
   }
 
   function showView(view: AppView): void {
@@ -287,13 +379,13 @@ export function createApp(): AppContext {
     syncEditorImpl(app);
   }
 
-  function lineNumbers(): void {
-    lineNumbersImpl(app);
-  }
-
   function persist(): Promise<void> {
+    if (persistTimer !== undefined) {
+      clearTimeout(persistTimer);
+      persistTimer = undefined;
+    }
     app.project = normalizeProject(app.project);
-    if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = dom.code.value;
+    if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.editor.getValue();
     return saveProject(app.project).catch((error) => {
       dom.diagnostics.textContent = `● ${(error as Error).message}`;
       dom.diagnostics.style.color = "#ee7c78";
@@ -301,8 +393,22 @@ export function createApp(): AppContext {
     });
   }
 
+  /** Coalesce keystroke-driven saves; `persist` flushes any pending save. */
+  function schedulePersist(): void {
+    if (persistTimer !== undefined) clearTimeout(persistTimer);
+    persistTimer = setTimeout(() => {
+      persistTimer = undefined;
+      void persist().catch(() => {});
+    }, PERSIST_DEBOUNCE_MS);
+  }
+
   function render(): void {
     if (app.runtime) renderDom(app);
+  }
+
+  /** The repaint gate: only a mutation that marked the view dirty costs a rebuild. */
+  function flushView(): void {
+    flushViewImpl(app.runtime, () => render());
   }
 
   function runUiAction(element: ResolvedUiElement): Promise<void> | void {
@@ -317,8 +423,11 @@ export function createApp(): AppContext {
     const projects = (await listProjects()).sort((left, right) =>
       projectTitle(left).localeCompare(projectTitle(right))
     );
+    // The front matter is read from each stored project rather than remembered
+    // on the record, so a card cannot describe an older draft of the work.
+    const metas = await Promise.all(projects.map((project) => readScenarioMeta(project.vfs)));
     dom.projectList.replaceChildren();
-    for (const project of projects) {
+    for (const [index, project] of projects.entries()) {
       const row = document.createElement("article");
       row.className = "project-card";
       row.dataset.project = project.identity.id;
@@ -326,9 +435,7 @@ export function createApp(): AppContext {
       const title = document.createElement("h3");
       title.textContent = projectTitle(project);
       const meta = document.createElement("p");
-      meta.textContent = `${project.identity.author || "Unknown author"} · v${project.identity.version} · Updated ${
-        new Date(project.updatedAt).toLocaleString()
-      }`;
+      meta.textContent = projectCardMeta(project, metas[index]);
       if (project.identity.id === app.project.identity.id) {
         const active = document.createElement("strong");
         active.className = "project-active";
@@ -361,7 +468,10 @@ export function createApp(): AppContext {
     setActiveProjectId(selected.identity.id);
     app.current = "scenario.yaml";
     app.openFiles = [...DEFAULT_OPEN_FILES];
-    dom.code.value = app.project.vfs[app.current] ?? "";
+    app.activeAsset = null;
+    dom.editorWrap.classList.remove("hidden");
+    dom.assetPreview.classList.add("hidden");
+    openInEditor(app, app.current);
     renderFileTree();
     renderTabs();
     await start();
@@ -371,7 +481,7 @@ export function createApp(): AppContext {
   async function loadProject(id: string): Promise<void> {
     await persist();
     const selected = await getProject(id);
-    if (!selected) throw new Error(`Project not found: ${id}`);
+    if (!selected) throw new Error(`Scenario not found: ${id}`);
     await activateProject(selected);
   }
 
@@ -404,10 +514,13 @@ export function createApp(): AppContext {
     setActiveProjectId(app.project.identity.id);
     app.current = "scenario.yaml";
     app.activeAsset = null;
-    app.dom.code.value = app.project.vfs["scenario.yaml"] ?? "";
     app.openFiles = [...DEFAULT_OPEN_FILES];
+    // The buffer is loaded before the tree and tabs are drawn, and this must not
+    // go through `switchFile`: that flushes the editor first, which would write
+    // the *previous* project's text over the new project's `scenario.yaml`.
+    openInEditor(app, app.current);
     renderFileTree();
-    switchFile("scenario.yaml");
+    renderTabs();
     await start();
   }
 

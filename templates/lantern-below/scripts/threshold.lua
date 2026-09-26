@@ -1,7 +1,7 @@
 local threshold = {}
 
 function threshold.listen()
-  game.output("Water moves somewhere beyond the stone.")
+  GameOutput.add("Water moves somewhere beyond the stone.")
 end
 
 return threshold

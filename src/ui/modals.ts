@@ -1,6 +1,8 @@
 import type { AppContext } from "../app/context.ts";
 import type { ModalDefinition, ResolvedUiElement, UiElement } from "../types/index.ts";
 import { uiElement } from "../engine/ui-state.ts";
+import { markViewDirty } from "../engine/events.ts";
+import { renderBlocks, renderInline } from "./markdown.ts";
 
 function modalDefinition(app: AppContext, id: string): ModalDefinition | undefined {
   return app.scenario?.modals?.find((modal) => modal.id === id);
@@ -31,14 +33,16 @@ export function openModal(app: AppContext, id: string): void {
   }
   app.runtime!.modals.open = id;
   initialisePages(app, definition, id);
-  app.render();
+  markViewDirty(app.runtime!);
+  app.flushView();
 }
 
 /** Close the active authored modal. */
 export function closeModal(app: AppContext): void {
   if (!app.runtime) return;
   app.runtime.modals.open = null;
-  app.render();
+  markViewDirty(app.runtime);
+  app.flushView();
 }
 
 function findPageStack(
@@ -71,7 +75,8 @@ export function setModalPage(app: AppContext, pageId: string): void {
     return;
   }
   app.runtime.modals.activePages[stack.path] = pageId;
-  app.render();
+  markViewDirty(app.runtime);
+  app.flushView();
 }
 
 function appendElements(app: AppContext, parent: HTMLElement, elements: UiElement[] | undefined, path: string): void {
@@ -85,14 +90,17 @@ function appendElements(app: AppContext, parent: HTMLElement, elements: UiElemen
 
 function renderElement(app: AppContext, element: ResolvedUiElement, path: string): HTMLElement {
   const type = element.type;
-  const tag = type === "button" ? "button" : type === "text" ? "p" : "div";
+  // Authored prose is a block container, not a paragraph: markdown emits `<p>`,
+  // and a `<p>` inside a `<p>` is invalid — the browser would split the element
+  // and the modal layout would break.
+  const tag = type === "button" ? "button" : "div";
   const node = document.createElement(tag);
   node.className = `authored-element authored-${type}`;
   node.dataset.uiPath = element.runtimePath || path;
   node.dataset.modalUi = element.id;
 
   if (type === "text") {
-    node.textContent = String(element.values.text ?? "");
+    renderBlocks(node, String(element.values.text ?? ""));
   } else if (type === "button") {
     const label = String(element.values.label ?? element.id);
     node.textContent = label;
@@ -157,7 +165,7 @@ export function renderModals(app: AppContext): void {
   const kicker = document.createElement("span");
   kicker.textContent = definition.kicker || "";
   const title = document.createElement("h2");
-  title.textContent = definition.title || id;
+  renderInline(title, definition.title || id);
   heading.append(kicker, title);
   header.append(heading);
   if (definition.dismissible !== false) {

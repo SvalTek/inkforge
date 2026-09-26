@@ -1,6 +1,7 @@
 import { build } from "./build.ts";
 import { DIST } from "./paths.ts";
 import { serveStatic } from "./server.ts";
+import type { EditorHarness } from "../src/editor/harness.ts";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 
 const CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
@@ -155,7 +156,13 @@ async function main(): Promise<void> {
     assert(await page.locator('.file[data-file="modals.yml"]').count() === 1, "modals.yml missing from Author tree");
     assert(await page.locator('.file[data-file="tools.yml"]').count() === 1, "tools.yml missing from Author tree");
     await page.locator('.file[data-file="modals.yml"]').click();
-    assert((await page.locator("#code").inputValue()).includes("Stage Journal"), "modals.yml could not be opened");
+    // The buffer is read through the app's harness hook: the editor renders only
+    // the lines in view, so the DOM text would truncate (see `src/editor/harness.ts`).
+    assert(
+      (await page.evaluate(() => (globalThis as { inkforgeEditor?: EditorHarness }).inkforgeEditor?.getValue() ?? ""))
+        .includes("Stage Journal"),
+      "modals.yml could not be opened",
+    );
     await page.locator('.nav[data-view="play"]').click();
 
     const toolIds = await page.locator("#toolRail [data-tool]").evaluateAll((nodes) =>
@@ -186,15 +193,15 @@ async function main(): Promise<void> {
     await waitFor(page, ".authored-modal-body", "Page two / Runtime");
 
     await page.locator('[data-modal-ui="hide_runtime_tool"]').click();
-    assert(await page.locator('[data-tool="lua_tool"]').count() === 0, "game.tool.hide did not hide the runtime tool");
+    assert(await page.locator('[data-tool="lua_tool"]').count() === 0, "GameTools.hide did not hide the runtime tool");
     await page.locator('[data-modal-ui="show_runtime_tool"]').click();
-    assert(await page.locator('[data-tool="lua_tool"]').count() === 1, "game.tool.show did not show the runtime tool");
+    assert(await page.locator('[data-tool="lua_tool"]').count() === 1, "GameTools.show did not show the runtime tool");
     await page.locator('[data-modal-ui="disable_map_tool"]').click();
-    assert(await page.locator('[data-tool="map_tool"]').isDisabled(), "game.tool.disable did not disable the map tool");
+    assert(await page.locator('[data-tool="map_tool"]').isDisabled(), "GameTools.disable did not disable the map tool");
     await page.locator('[data-modal-ui="enable_map_tool"]').click();
     assert(
       !(await page.locator('[data-tool="map_tool"]').isDisabled()),
-      "game.tool.enable did not enable the map tool",
+      "GameTools.enable did not enable the map tool",
     );
     await page.locator('[data-modal-ui="close_journal"]').click();
 
@@ -204,7 +211,7 @@ async function main(): Promise<void> {
     await page.locator('[data-modal-ui="remove_runtime_tool"]').click();
     assert(
       await page.locator('[data-tool="lua_tool"]').count() === 0,
-      "game.tool.remove did not remove the runtime tool",
+      "GameTools.remove did not remove the runtime tool",
     );
     await page.locator('[data-modal-ui="close_journal"]').click();
 

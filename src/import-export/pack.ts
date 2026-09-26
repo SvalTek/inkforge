@@ -3,7 +3,7 @@ import type { AppContext } from "../app/context.ts";
 import { assetFromBlob, assetMime } from "../project/assets.ts";
 import { normalizeProject, projectTitle } from "../project/project.ts";
 import { getProject, putProject, setActiveProjectId } from "../project/storage.ts";
-import { DEFAULT_OPEN_FILES } from "../editor/editor.ts";
+import { DEFAULT_OPEN_FILES, openInEditor } from "../editor/editor.ts";
 import type { ProjectManifest } from "../types/index.ts";
 
 function assertSafePath(path: string): void {
@@ -11,21 +11,72 @@ function assertSafePath(path: string): void {
     !path || path === "manifest.json" || path.startsWith("/") || path.includes("\\") ||
     path.split("/").some((segment) => !segment || segment === "." || segment === "..")
   ) {
-    throw new Error(`Invalid project path: ${path}`);
+    throw new Error(`Invalid scenario path: ${path}`);
   }
 }
 
-function versionParts(version: string): number[] {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?$/.exec(version);
-  if (!match) throw new Error(`Invalid project version: ${version}`);
-  return match.slice(1, 4).map(Number);
+/** Defensive limits applied to untrusted `.inkforge` archives. */
+export const PACK_LIMITS = {
+  /** Maximum compressed upload size. */
+  compressedBytes: 16 * 1024 * 1024,
+  /** Maximum number of ZIP entries. */
+  entries: 256,
+  /** Maximum uncompressed size of a single entry. */
+  entryBytes: 8 * 1024 * 1024,
+  /** Maximum combined uncompressed size. */
+  totalBytes: 32 * 1024 * 1024,
+} as const;
+
+/** Raised when an archive exceeds {@link PACK_LIMITS}; surfaced to the user. */
+class PackLimitError extends Error {}
+
+function formatLimit(bytes: number): string {
+  return `${Math.round(bytes / (1024 * 1024))} MB`;
 }
 
-function compareVersions(left: string, right: string): number {
-  const a = versionParts(left);
-  const b = versionParts(right);
+interface ParsedVersion {
+  core: [number, number, number];
+  prerelease: string[];
+}
+
+/** Parse `x.y.z[-prerelease]`, rejecting anything the manifest validation rejects. */
+function parseVersion(version: string): ParsedVersion {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/.exec(version);
+  if (!match) throw new Error(`Invalid package version: ${version}`);
+  return {
+    core: [Number(match[1]), Number(match[2]), Number(match[3])],
+    prerelease: match[4] ? match[4].split(".") : [],
+  };
+}
+
+/**
+ * SemVer precedence (https://semver.org/#spec-item-11): compare the numeric core,
+ * then let a stable release outrank its prerelease, then compare prerelease
+ * identifiers one by one (numeric identifiers numerically, alphanumeric in ASCII
+ * order, numeric below alphanumeric, fewer identifiers below more).
+ */
+export function compareVersions(left: string, right: string): number {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
   for (let index = 0; index < 3; index += 1) {
-    if (a[index] !== b[index]) return a[index] > b[index] ? 1 : -1;
+    if (a.core[index] !== b.core[index]) return a.core[index] > b.core[index] ? 1 : -1;
+  }
+  if (a.prerelease.length === 0 && b.prerelease.length === 0) return 0;
+  if (a.prerelease.length === 0) return 1;
+  if (b.prerelease.length === 0) return -1;
+  const length = Math.max(a.prerelease.length, b.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const x = a.prerelease[index];
+    const y = b.prerelease[index];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    if (x === y) continue;
+    const numericX = /^\d+$/.test(x);
+    const numericY = /^\d+$/.test(y);
+    if (numericX && numericY) return Number(x) > Number(y) ? 1 : -1;
+    if (numericX) return -1;
+    if (numericY) return 1;
+    return x > y ? 1 : -1;
   }
   return 0;
 }
@@ -46,11 +97,11 @@ function validateManifest(value: unknown): ProjectManifest {
   ) {
     throw new Error("Unsupported Inkforge package; expected pack version 2");
   }
-  versionParts(manifest.project.version);
+  parseVersion(manifest.project.version);
   const seen = new Set<string>();
   for (const path of manifest.files) {
     assertSafePath(path);
-    if (seen.has(path)) throw new Error(`Duplicate project path: ${path}`);
+    if (seen.has(path)) throw new Error(`Duplicate scenario path: ${path}`);
     seen.add(path);
   }
   if (!seen.has("scenario.yaml") || !seen.has("scripts/main.lua")) {
@@ -84,10 +135,33 @@ export async function exportPack(app: AppContext): Promise<void> {
 /** Import a version-2 ZIP, upserting only newer project versions. */
 export async function importPack(app: AppContext, file: File): Promise<void> {
   await app.persist();
+  if (file.size > PACK_LIMITS.compressedBytes) {
+    throw new PackLimitError(`Package is too large (limit ${formatLimit(PACK_LIMITS.compressedBytes)}).`);
+  }
+  let entryCount = 0;
+  let totalBytes = 0;
   let archive: Record<string, Uint8Array>;
   try {
-    archive = unzipSync(new Uint8Array(await file.arrayBuffer()));
-  } catch {
+    archive = unzipSync(new Uint8Array(await file.arrayBuffer()), {
+      filter: (entry) => {
+        entryCount += 1;
+        if (entryCount > PACK_LIMITS.entries) {
+          throw new PackLimitError(`Package has too many entries (limit ${PACK_LIMITS.entries}).`);
+        }
+        if (entry.originalSize > PACK_LIMITS.entryBytes) {
+          throw new PackLimitError(
+            `Package entry is too large (limit ${formatLimit(PACK_LIMITS.entryBytes)}): ${entry.name}`,
+          );
+        }
+        totalBytes += entry.originalSize;
+        if (totalBytes > PACK_LIMITS.totalBytes) {
+          throw new PackLimitError(`Package expands beyond the limit (${formatLimit(PACK_LIMITS.totalBytes)}).`);
+        }
+        return true;
+      },
+    });
+  } catch (error) {
+    if (error instanceof PackLimitError) throw error;
     throw new Error("Invalid .inkforge ZIP package");
   }
   const manifestBytes = archive["manifest.json"];
@@ -106,7 +180,7 @@ export async function importPack(app: AppContext, file: File): Promise<void> {
       try {
         vfs[path] = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
       } catch {
-        throw new Error(`Project source is not valid UTF-8: ${path}`);
+        throw new Error(`Scenario source is not valid UTF-8: ${path}`);
       }
     }
   }
@@ -122,7 +196,10 @@ export async function importPack(app: AppContext, file: File): Promise<void> {
   app.project = project;
   app.openFiles = [...DEFAULT_OPEN_FILES];
   app.current = "scenario.yaml";
-  app.dom.code.value = app.project.vfs[app.current] ?? "";
+  app.activeAsset = null;
+  app.dom.editorWrap.classList.remove("hidden");
+  app.dom.assetPreview.classList.add("hidden");
+  openInEditor(app, app.current);
   app.renderFileTree();
   app.renderTabs();
   await app.start();

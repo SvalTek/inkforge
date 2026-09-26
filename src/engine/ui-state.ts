@@ -1,5 +1,13 @@
 import type { EngineRuntime, ResolvedUiElement, UiCommand, UiElement, UiField, UiOverride } from "../types/index.ts";
+import { asArray } from "../lua/boundary.ts";
+import { markViewDirty } from "./events.ts";
 
+/**
+ * Apply one UI command.
+ *
+ * The funnel for every UI mutation — authored `ui:` directives and Lua's
+ * `GameUI` alike — so the dirty mark is stated here rather than at each caller.
+ */
 export function applyUi(command: UiCommand, runtime: EngineRuntime): void {
   const c: UiCommand = command || {};
   if (c.show) runtime.ui.hidden.delete(c.show);
@@ -13,6 +21,7 @@ export function applyUi(command: UiCommand, runtime: EngineRuntime): void {
       runtime.events.push({ type: "ui:update", elementId: id });
     }
   }
+  markViewDirty(runtime);
 }
 
 export function resolveField(field: UiField | undefined, runtime: EngineRuntime): unknown {
@@ -24,7 +33,7 @@ export function resolveField(field: UiField | undefined, runtime: EngineRuntime)
 export function uiFields(element: UiElement, runtime: EngineRuntime): Record<string, unknown> {
   const override: UiOverride = runtime.ui.overrides[element.id] || {};
   const values = Object.fromEntries(
-    (element.fields || []).map((f) => [f.id, resolveField(f, runtime)]),
+    asArray<UiField>(element.fields).map((f) => [f.id, resolveField(f, runtime)]),
   ) as Record<string, unknown>;
   if (Array.isArray(override.fields)) {
     Object.assign(
@@ -40,11 +49,14 @@ export function uiFields(element: UiElement, runtime: EngineRuntime): Record<str
 }
 
 export function uiElement(element: UiElement, runtime: EngineRuntime, runtimePath = element.id): ResolvedUiElement {
+  const nested = asArray<UiElement>(element.elements);
   return {
     ...element,
     ...(runtime.ui.overrides[element.id] || {}),
     values: uiFields(element, runtime),
     runtimePath,
-    elements: element.elements?.map((nested) => uiElement(nested, runtime, `${runtimePath}.${nested.id}`)),
+    elements: nested.length
+      ? nested.map((child) => uiElement(child, runtime, `${runtimePath}.${child.id}`))
+      : undefined,
   } as ResolvedUiElement;
 }

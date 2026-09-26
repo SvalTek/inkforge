@@ -1,21 +1,26 @@
 import type { AppContext } from "../app/context.ts";
 import { normalizeProject } from "../project/project.ts";
+import { badgeForLanguage, languageForPath } from "./language.ts";
 
 /** The tab set the editor opens with, matching the original's two static tabs. */
 export const DEFAULT_OPEN_FILES: readonly string[] = ["scenario.yaml", "scripts/main.lua"];
 
-/** Repaint the editor gutter with one number per source line. */
-export function lineNumbers(app: AppContext): void {
-  const count = app.dom.code.value.split("\n").length;
-  app.dom.gutter.textContent = Array.from({ length: count }, (_, i) => i + 1).join("\n");
+/**
+ * Show `path`'s buffer in the editor, with the grammar and the footer badge
+ * derived from the same `languageForPath` call so they cannot disagree.
+ */
+export function openInEditor(app: AppContext, path: string): void {
+  const language = languageForPath(path);
+  app.editor.setValue(app.project.vfs[path] ?? "");
+  app.editor.setLanguage(language);
+  app.dom.format.textContent = badgeForLanguage(language);
 }
 
-/** Update the footer cursor readout from the textarea selection. */
-export function updateCursor(app: AppContext): void {
-  const code = app.dom.code;
-  app.dom.cursor.textContent = `Ln ${code.value.slice(0, code.selectionStart).split("\n").length}, Col ${
-    code.selectionStart - code.value.lastIndexOf("\n", code.selectionStart)
-  }`;
+/** Show an empty buffer with no grammar, for when the last tab closes. */
+export function clearEditor(app: AppContext): void {
+  app.editor.setValue("");
+  app.editor.setLanguage(null);
+  app.dom.format.textContent = "";
 }
 
 /** Rebuild the Author explorer from the currently loaded project VFS. */
@@ -72,9 +77,8 @@ export function renderFileTree(app: AppContext): void {
 /** Persist the active editor buffer into the project and save locally. */
 export function syncEditor(app: AppContext): void {
   app.project = normalizeProject(app.project);
-  if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.dom.code.value;
-  void app.persist();
-  app.lineNumbers();
+  if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.editor.getValue();
+  app.schedulePersist();
   app.dom.saved.textContent = "saved locally";
 }
 
@@ -116,16 +120,14 @@ export function renderTabs(app: AppContext): void {
 export function switchFile(app: AppContext, path: string): void {
   if (path === "assets") return;
   app.project = normalizeProject(app.project);
-  if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.dom.code.value;
+  if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.editor.getValue();
   app.current = path;
   if (!app.openFiles.includes(path)) app.openFiles.push(path);
-  app.dom.code.value = app.project.vfs[path] ?? "";
-  app.dom.format.textContent = path.endsWith(".lua") ? "LUA" : "YAML";
+  openInEditor(app, path);
   app.dom.tree.querySelectorAll<HTMLElement>(".file").forEach((button) =>
     button.classList.toggle("active", button.dataset.file === path)
   );
   renderTabs(app);
-  app.lineNumbers();
 }
 
 /**
@@ -138,7 +140,7 @@ export function closeFile(app: AppContext, path: string): void {
   const index = app.openFiles.indexOf(path);
   if (index === -1) return;
   app.project = normalizeProject(app.project);
-  if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.dom.code.value;
+  if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.editor.getValue();
   app.openFiles.splice(index, 1);
   if (app.current !== path) {
     renderTabs(app);
@@ -146,10 +148,8 @@ export function closeFile(app: AppContext, path: string): void {
   }
   if (app.openFiles.length === 0) {
     app.current = "";
-    app.dom.code.value = "";
-    app.dom.format.textContent = "";
+    clearEditor(app);
     document.querySelectorAll<HTMLElement>(".file").forEach((button) => button.classList.remove("active"));
-    app.lineNumbers();
     renderTabs(app);
     return;
   }

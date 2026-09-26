@@ -6,6 +6,8 @@ export interface ScenarioMeta {
   title?: string;
   author?: string;
   version?: string;
+  /** One-line summary of the work; the project library shows it on the card. */
+  description?: string;
 }
 
 /** Player seed block: initial state and inventory. */
@@ -105,6 +107,22 @@ export interface DirectiveObject {
   then?: DirectiveList;
   else?: DirectiveList;
   end?: boolean;
+  /**
+   * Call a named Lua function, optionally passing `params`.
+   *
+   * The name is a dot-delimited path into Lua globals (`cellar.arrive`), and is
+   * checked against the loaded script at boot so a typo fails loudly.
+   */
+  call?: string;
+  params?: Record<string, unknown>;
+  /**
+   * Emit a named event that Lua can subscribe to with `Events:On`.
+   *
+   * Use `call` when exactly one known handler should run; use `emit` when the
+   * authored content should not know or care who is listening.
+   */
+  emit?: string;
+  data?: Record<string, unknown>;
 }
 
 /** A directive is either a plain output string or a structured object. */

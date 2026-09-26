@@ -1,7 +1,7 @@
 {
   "tasks": {
     "check": "deno check src/main.ts",
-    "check:tools": "deno check tools/build.ts tools/dev.ts tools/serve.ts tools/server.ts tools/smoke.ts tools/authoring-check.ts tools/renderer-check.ts tools/package.ts",
+    "check:tools": "deno check tools/build.ts tools/dev.ts tools/serve.ts tools/server.ts tools/smoke.ts tools/authoring-check.ts tools/renderer-check.ts tools/package.ts tools/pack-check.ts tools/manifest-check.ts",
     "build": "deno run -A tools/build.ts",
     "pack": "deno run -A tools/package.ts",
     "dev": "deno run -A tools/dev.ts",
@@ -9,6 +9,8 @@
     "smoke": "deno run -A tools/smoke.ts",
     "check:authoring": "deno run -A tools/authoring-check.ts",
     "check:renderer": "deno run tools/renderer-check.ts",
+    "check:pack": "deno run -A tools/pack-check.ts",
+    "check:manifest": "deno run -A tools/manifest-check.ts",
     "fmt": "deno fmt",
     "lint": "deno lint"
   },
@@ -16,12 +18,27 @@
     "esbuild": "npm:esbuild@0.24.2",
     "fflate": "npm:fflate@0.8.2",
     "playwright": "npm:playwright@1.58.2",
-    "playwright-core": "npm:playwright-core@1.58.2"
+    "playwright-core": "npm:playwright-core@1.58.2",
+    "@codemirror/autocomplete": "npm:@codemirror/autocomplete@6.20.3",
+    "@codemirror/commands": "npm:@codemirror/commands@6.11.1",
+    "@codemirror/lang-yaml": "npm:@codemirror/lang-yaml@6.1.3",
+    "@codemirror/language": "npm:@codemirror/language@6.12.4",
+    "@codemirror/legacy-modes": "npm:@codemirror/legacy-modes@6.5.4",
+    "@codemirror/search": "npm:@codemirror/search@6.7.2",
+    "@codemirror/state": "npm:@codemirror/state@6.7.6",
+    "@codemirror/view": "npm:@codemirror/view@6.43.13",
+    "@fazelstudio/codemirror-lang-lua": "npm:@fazelstudio/codemirror-lang-lua@1.0.3",
+    "@lezer/highlight": "npm:@lezer/highlight@1.2.4",
+    "@luca/esbuild-deno-loader": "jsr:@luca/esbuild-deno-loader@0.11.1",
+    "markdown-it": "npm:markdown-it@15.0.2",
+    "WebLuaBridge": "https://raw.githubusercontent.com/Therosin/WebLuaBridge/f9d07f3085ecea3f33f3177329e81bf72f145a94/mod.ts",
+    "wasmoon": "npm:wasmoon@1.16.0"
   },
   "nodeModulesDir": "auto",
   "compilerOptions": {
     "strict": true,
     "noImplicitOverride": true,
+    "experimentalDecorators": true,
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "esnext", "deno.ns"]
   },
   "fmt": {
@@ -31,6 +48,7 @@
       "node_modules",
       "styles",
       "templates",
+      "docs",
       "index.html",
       "*.md",
       "Architecture.md",

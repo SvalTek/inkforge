@@ -9,18 +9,20 @@ export function createEngine(deps: EngineDeps): EngineApi {
     getScenario: deps.getScenario,
     output: deps.output,
     applyUi: deps.applyUi,
+    invokeLua: deps.invokeLua,
+    emitEvent: deps.emitEvent,
   };
 
   function check(c: Condition | undefined): boolean {
     return checkCondition(c, deps.runtime);
   }
 
-  function move(id: string): void {
-    moveTo(id, dirDeps);
+  async function move(id: string): Promise<void> {
+    await moveTo(id, dirDeps);
   }
 
-  function execute(list: DirectiveList | undefined): void {
-    executeDirectives(list, dirDeps);
+  async function execute(list: DirectiveList | undefined): Promise<void> {
+    await executeDirectives(list, dirDeps);
   }
 
   function available(): AvailableAction[] {
@@ -43,52 +45,54 @@ export function createEngine(deps: EngineDeps): EngineApi {
     return out;
   }
 
-  function dispatch(raw: string): void {
+  async function dispatch(raw: string): Promise<void> {
     const cmd = raw.trim();
     const lower = cmd.toLowerCase();
     if (!cmd || deps.runtime.over) return;
     deps.runtime.events = [];
-    if (["look", "l"].includes(lower)) {
-      execute(deps.getScenario()?.locations?.[deps.runtime.location]?.text);
-      deps.render();
-      return;
-    }
-    const scenario = deps.getScenario();
-    const loc = scenario?.locations?.[deps.runtime.location] || {};
-    const exit = (Object.entries(loc.exits || {}) as [string, ExitValue][]).find(
-      ([d, e]) => d === lower || (typeof e === "object" && (e.aliases || []).includes(lower)),
-    );
-    if (exit) {
-      const e = exit[1];
-      if (check(typeof e === "string" ? undefined : e.if)) {
-        move(typeof e === "string" ? e : (e.to ?? ""));
-      } else {
-        deps.output("That way is not available.", "warning");
-      }
-      deps.render();
-      return;
-    }
-    if (lower.startsWith("take ")) {
-      const q = lower.slice(5);
-      const id = (loc.items || []).find((x) => x === q || itemName(scenario, x).toLowerCase() === q);
-      if (id) {
-        execute({ give: id });
-        loc.items = (loc.items as string[]).filter((x) => x !== id);
-        deps.output(`Taken: ${itemName(scenario, id)}.`);
-        deps.render();
+    try {
+      if (["look", "l"].includes(lower)) {
+        await execute(deps.getScenario()?.locations?.[deps.runtime.location]?.text);
         return;
       }
-    }
-    if (lower.startsWith("@")) {
-      const a = (loc.actions || []).find((x) => x.id === lower.slice(1));
-      if (a && check(a.if)) {
-        execute(a.then);
-        deps.render();
+      const scenario = deps.getScenario();
+      const loc = scenario?.locations?.[deps.runtime.location] || {};
+      const exit = (Object.entries(loc.exits || {}) as [string, ExitValue][]).find(
+        ([d, e]) => d === lower || (typeof e === "object" && (e.aliases || []).includes(lower)),
+      );
+      if (exit) {
+        const e = exit[1];
+        if (check(typeof e === "string" ? undefined : e.if)) {
+          await move(typeof e === "string" ? e : (e.to ?? ""));
+        } else {
+          deps.output("That way is not available.", "warning");
+        }
         return;
       }
+      if (lower.startsWith("take ")) {
+        const q = lower.slice(5);
+        const id = (loc.items || []).find((x) => x === q || itemName(scenario, x).toLowerCase() === q);
+        if (id) {
+          await execute({ give: id });
+          loc.items = (loc.items as string[]).filter((x) => x !== id);
+          deps.output(`Taken: ${itemName(scenario, id)}.`);
+          return;
+        }
+      }
+      if (lower.startsWith("@")) {
+        const a = (loc.actions || []).find((x) => x.id === lower.slice(1));
+        if (a && check(a.if)) {
+          await execute(a.then);
+          return;
+        }
+      }
+      deps.output(`Unknown command: ${cmd}`, "warning");
+    } finally {
+      // The directives marked the view dirty as they mutated; this flushes those
+      // marks once for the whole command, so a command that changes five things
+      // repaints once and one that changes nothing does not repaint at all.
+      deps.render();
     }
-    deps.output(`Unknown command: ${cmd}`, "warning");
-    deps.render();
   }
 
   return { check, move, execute, available, dispatch };

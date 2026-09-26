@@ -1,5 +1,5 @@
 import type { AppContext } from "../app/context.ts";
-import type { LuaCallback, ResolvedUiElement, ToolEntry } from "../types/index.ts";
+import type { ResolvedUiElement, ToolEntry } from "../types/index.ts";
 import { openInventory } from "./render.ts";
 import { closeModal, openModal, setModalPage } from "./modals.ts";
 
@@ -21,24 +21,23 @@ export async function runUiAction(app: AppContext, element: ResolvedUiElement): 
   }
   if (action.type === "audio.play") {
     app.audio.play(action.asset ?? "", { id: action.id, loop: action.loop, volume: action.volume });
-    app.render();
     return;
   }
   if (action.type === "command") {
+    // `dispatch` flushes the view itself, once for the whole command.
     app.engine?.dispatch(action.command ?? "");
     return;
   }
   if (action.type === "instructions") {
     app.engine?.execute(action.then);
-    app.render();
+    app.flushView();
     return;
   }
-  if (action.callback && app.runtime!.lua) {
-    const callback = app.runtime!.lua!.global.get(action.callback);
-    if (typeof callback === "function") {
-      await (callback as LuaCallback)();
-      app.render();
-    }
+  if (action.callback && app.runtime?.lua) {
+    // `GetFunction` resolves the name at call time, so a missing handler throws
+    // (LUA_CALL_ERROR) instead of silently doing nothing.
+    await app.runtime.lua.GetFunction<() => unknown>(action.callback)();
+    app.flushView();
   }
 }
 
@@ -52,10 +51,14 @@ export async function runToolAction(app: AppContext, entry: ToolEntry): Promise<
   }
   const lua = app.runtime?.lua;
   if (action && lua) {
-    const callback = lua.global.get(action);
-    if (typeof callback === "function") {
-      await (callback as LuaCallback)();
-      app.render();
+    try {
+      await lua.GetFunction<() => unknown>(action)();
+      app.flushView();
+      return;
+    } catch (error) {
+      // Report the bridge's own message (e.g. a missing function) rather than a
+      // generic one, so the author can see what actually failed.
+      app.output?.(error instanceof Error ? error.message : `Unknown tool action: ${action}`, "warning");
       return;
     }
   }
