@@ -26,10 +26,6 @@
   max-width: 960px;
 }
 
-.VPDoc.has-aside .content {
-  padding-right: 24px;
-}
-
 .VPDocAside {
   width: 210px;
 }
