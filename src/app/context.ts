@@ -24,6 +24,8 @@ export interface AppContext {
   editor: CodeEditor;
   project: ProjectData;
   scenario: Scenario | null;
+  /** Entry script currently protected by the Author explorer. */
+  protectedScript: string;
   runtime: EngineRuntime | null;
   canvas: InkforgeCanvasRuntime | null;
   lua: LuaBridge | null;
@@ -58,9 +60,9 @@ export interface AppContext {
   /** Create and, for a file, open it. Returns the outcome for the dialog to show. */
   createEntry(target: string, kind: CreateKind, name: string): CreateResult;
   /** Open the deletion confirmation for a source file, folder, or asset. */
-  deleteExplorerEntry(kind: "file" | "folder" | "asset", path: string): void;
+  deleteExplorerEntry(kind: "file" | "folder" | "asset", path: string): Promise<void>;
   cancelDeleteExplorerEntry(): void;
-  confirmDeleteExplorerEntry(): void;
+  confirmDeleteExplorerEntry(): Promise<void>;
   previewAsset(path: string): void;
   closeFile(path: string): void;
   renderFileTree(): void;

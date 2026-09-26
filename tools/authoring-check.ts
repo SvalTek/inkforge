@@ -61,10 +61,29 @@ async function waitFor(page: Page, selector: string, text: string): Promise<void
 async function main(): Promise<void> {
   console.log("== Inkforge authored tools/modal check ==");
   const required = { "scenario.yaml": "entry", "scripts/main.lua": "entry", "scripts/extra.lua": "extra" };
-  assert(removeEntry(required, "file", "scenario.yaml").length === 0, "required scenario file was removed");
-  assert(removeEntry(required, "file", "scripts/main.lua").length === 0, "required Lua file was removed");
-  assert(removeEntry(required, "folder", "scripts").length === 0, "folder containing main.lua was removed");
+  assert(
+    removeEntry(required, "file", "scenario.yaml", "scripts/main.lua").length === 0,
+    "required scenario file was removed",
+  );
+  assert(
+    removeEntry(required, "file", "scripts/main.lua", "scripts/main.lua").length === 0,
+    "required Lua file was removed",
+  );
+  assert(
+    removeEntry(required, "folder", "scripts", "scripts/main.lua").length === 0,
+    "folder containing main.lua was removed",
+  );
   assert(Object.keys(required).length === 3, "required entry guard mutated the VFS");
+  const custom = { "scenario.yaml": "entry", "scripts/main.lua": "old", "chapter/entry.lua": "entry" };
+  assert(
+    removeEntry(custom, "file", "chapter/entry.lua", "chapter/entry.lua").length === 0,
+    "custom entry was removed",
+  );
+  assert(removeEntry(custom, "folder", "chapter", "chapter/entry.lua").length === 0, "custom entry folder was removed");
+  assert(
+    removeEntry(custom, "file", "scripts/main.lua", "chapter/entry.lua").length === 1,
+    "unused default script stayed protected",
+  );
   await build();
   const server = serveStatic({ root: DIST, port: 0 });
   const browser = await launch();
@@ -520,6 +539,99 @@ async function main(): Promise<void> {
       { timeout: TIMEOUT },
     );
     assert(await page.locator('[data-tool="lua_tool"]').count() === 1, "restart did not reset Lua tool registration");
+
+    // A scenario can name a Lua entry outside scripts/main.lua. Import must
+    // accept that pack, and the editor must protect the configured file and
+    // every ancestor folder without inventing a missing default-script tab.
+    const customPackPath = `${temp}\\custom-entry.inkforge`;
+    const customScenario =
+      "meta:\n  title: Custom Entry\nstartLocation: gate\nscripts:\n  main: chapter/entry.lua\nlocations:\n  gate:\n    title: Gate\n    text: Hello\n";
+    const missingEntryPath = `${temp}\\missing-custom-entry.inkforge`;
+    await Deno.writeFile(
+      missingEntryPath,
+      zipSync({
+        "manifest.json": strToU8(JSON.stringify({
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "missing-custom-entry-test", version: "1.0.0" },
+          files: ["scenario.yaml"],
+        })),
+        "scenario.yaml": strToU8(customScenario),
+      }),
+    );
+    const missingEntryDialog = page.waitForEvent("dialog");
+    await page.locator("#importFile").setInputFiles(missingEntryPath);
+    const missingDialog = await missingEntryDialog;
+    assert(
+      missingDialog.message().includes("configured Lua entry script: chapter/entry.lua"),
+      "import accepted a pack without its configured entry",
+    );
+    await missingDialog.accept();
+    await Deno.writeFile(
+      customPackPath,
+      zipSync({
+        "manifest.json": strToU8(JSON.stringify({
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "custom-entry-test", version: "1.0.0" },
+          files: ["scenario.yaml", "chapter/entry.lua", "alternate/entry.lua"],
+        })),
+        "scenario.yaml": strToU8(customScenario),
+        "chapter/entry.lua": strToU8("-- custom entry\n"),
+        "alternate/entry.lua": strToU8("-- alternate entry\n"),
+      }),
+    );
+    await page.locator("#importFile").setInputFiles(customPackPath);
+    await page.waitForFunction(() =>
+      document.body.dataset.projectId === "custom-entry-test" && document.body.dataset.projectReady === "true"
+    );
+    await page.locator('.nav[data-view="author"]').click();
+    assert(await page.locator('.tab[data-file="chapter/entry.lua"]').count() === 1, "configured script tab missing");
+    assert(
+      await page.locator('.tab[data-file="scripts/main.lua"]').count() === 0,
+      "missing default script tab was opened",
+    );
+    assert(
+      await page.locator('.file-row:has(.file[data-file="chapter/entry.lua"]) .entry-delete').count() === 0,
+      "configured entry has a delete control",
+    );
+    assert(
+      await page.locator('.folder[data-folder="chapter"] > .entry-delete').count() === 0,
+      "configured entry folder has a delete control",
+    );
+    await page.evaluate(async () => {
+      const app = (globalThis as {
+        inkforgeApp?: { deleteExplorerEntry(kind: "file" | "folder", path: string): Promise<void> };
+      }).inkforgeApp;
+      await app?.deleteExplorerEntry("file", "chapter/entry.lua");
+      await app?.deleteExplorerEntry("folder", "chapter");
+    });
+    assert(!(await page.locator("#deleteOverlay").isVisible()), "configured entry opened the delete dialog");
+    assert(await page.locator('.file[data-file="chapter/entry.lua"]').count() === 1, "configured entry disappeared");
+    await page.locator('.file[data-file="scenario.yaml"]').click();
+    await page.evaluate(
+      (source) => (globalThis as { inkforgeEditor?: EditorHarness }).inkforgeEditor?.setValue(source),
+      customScenario.replace("chapter/entry.lua", "alternate/entry.lua"),
+    );
+    await page.waitForFunction(() =>
+      document.querySelector('.file-row:has(.file[data-file="alternate/entry.lua"]) .entry-delete') === null &&
+      document.querySelector('.file-row:has(.file[data-file="chapter/entry.lua"]) .entry-delete') !== null
+    );
+    assert(
+      await page.locator('.folder[data-folder="alternate"] > .entry-delete').count() === 0,
+      "edited entry folder still has a delete control",
+    );
+    assert(
+      await page.locator('.folder[data-folder="chapter"] > .entry-delete').count() === 1,
+      "old entry folder stayed protected after editing scenario.scripts.main",
+    );
+    await page.evaluate(async () => {
+      const app = (globalThis as {
+        inkforgeApp?: { deleteExplorerEntry(kind: "file" | "folder", path: string): Promise<void> };
+      }).inkforgeApp;
+      await app?.deleteExplorerEntry("file", "alternate/entry.lua");
+    });
+    assert(!(await page.locator("#deleteOverlay").isVisible()), "edited entry opened the delete dialog");
     assert(errors.length === 0, `browser errors: ${errors.join(" | ")}`);
     console.log("PASS  YAML/Lua registration, icons, hover, modal recursion/paging, actions, state controls, reset");
   } finally {

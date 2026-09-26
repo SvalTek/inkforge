@@ -35,6 +35,7 @@ const INDENT_PX = 12;
  * paths on flat rows under a hardcoded root, which read as a list, not a tree.
  */
 function renderEntry(app: AppContext, entry: TreeEntry, depth: number): HTMLElement[] {
+  const protectedScript = app.protectedScript;
   if (entry.kind === "file") {
     const row = document.createElement("div");
     row.className = "file-row";
@@ -45,7 +46,7 @@ function renderEntry(app: AppContext, entry: TreeEntry, depth: number): HTMLElem
     button.style.paddingLeft = `${8 + depth * INDENT_PX}px`;
     button.onclick = () => app.switchFile(entry.path);
     row.append(button);
-    if (!containsRequiredFile("file", entry.path)) row.append(deleteButton(app, "file", entry.path));
+    if (!containsRequiredFile("file", entry.path, protectedScript)) row.append(deleteButton(app, "file", entry.path));
     return [row];
   }
 
@@ -70,7 +71,7 @@ function renderEntry(app: AppContext, entry: TreeEntry, depth: number): HTMLElem
   add.onclick = () => app.openCreateDialog(entry.path);
 
   row.append(toggle, add);
-  if (!containsRequiredFile("folder", entry.path)) row.append(deleteButton(app, "folder", entry.path));
+  if (!containsRequiredFile("folder", entry.path, protectedScript)) row.append(deleteButton(app, "folder", entry.path));
   if (!open) return [row];
   return [row, ...entry.children.flatMap((child) => renderEntry(app, child, depth + 1))];
 }

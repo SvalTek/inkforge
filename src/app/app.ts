@@ -14,7 +14,12 @@ import { $all, queryDom } from "./dom.ts";
 import { applyUi as applyUiState } from "../engine/ui-state.ts";
 import { createEngine } from "../engine/engine.ts";
 import { createOutput, flushView as flushViewImpl } from "../engine/events.ts";
-import { composeScenario as composeScenarioImpl, readScenarioMeta, validateScenario } from "../yaml/compose.ts";
+import {
+  composeScenario as composeScenarioImpl,
+  mainScriptPath,
+  readScenarioMeta,
+  validateScenario,
+} from "../yaml/compose.ts";
 import { emitNamedEvent, invokeNamedFunction, type SeamReport } from "../lua/invoke.ts";
 import { normalizeProject, projectCardMeta, projectTitle } from "../project/project.ts";
 import {
@@ -62,6 +67,8 @@ const PERSIST_DEBOUNCE_MS = 400;
 export function createApp(): AppContext {
   const dom = queryDom();
   let persistTimer: ReturnType<typeof setTimeout> | undefined;
+  let protectionTimer: ReturnType<typeof setTimeout> | undefined;
+  let protectionGeneration = 0;
   // Create-dialog state: where the new entry goes, and of what kind. Held here
   // so the dialog and the explorer agree on the target without passing it
   // through the DOM.
@@ -91,6 +98,7 @@ export function createApp(): AppContext {
     editor,
     project: normalizeProject({}),
     scenario: null,
+    protectedScript: "scripts/main.lua",
     runtime: null,
     canvas: null,
     lua: null,
@@ -155,6 +163,8 @@ export function createApp(): AppContext {
       const selected = projects.find((project) => project.identity.id === activeProjectId()) ||
         projects.find((project) => project.pinned) || starter;
       app.project = normalizeProject(selected);
+      app.scenario = null;
+      app.protectedScript = "scripts/main.lua";
       setActiveProjectId(app.project.identity.id);
       app.current = "scenario.yaml";
       app.activeAsset = null;
@@ -195,6 +205,8 @@ export function createApp(): AppContext {
   }
 
   async function bootOnce(generation: number, resume: ResumedRuntime | null): Promise<void> {
+    if (protectionTimer !== undefined) clearTimeout(protectionTimer);
+    protectionGeneration += 1;
     const superseded = (): boolean => generation !== app.bootGeneration;
     app.project = normalizeProject(app.project);
     document.body.dataset.projectId = app.project.identity.id;
@@ -245,6 +257,13 @@ export function createApp(): AppContext {
       const scenario = await composeScenarioImpl(app.project.vfs);
       if (superseded()) return;
       app.scenario = scenario;
+      const entryScript = mainScriptPath(scenario);
+      app.protectedScript = entryScript;
+      if (app.project.vfs["scripts/main.lua"] === undefined && app.project.vfs[entryScript] !== undefined) {
+        app.openFiles = app.openFiles.map((path) => path === "scripts/main.lua" ? entryScript : path);
+        renderTabs();
+      }
+      renderFileTree();
       if (!scenario.startLocation || !scenario.locations?.[scenario.startLocation]) {
         throw new Error("Scenario needs a valid startLocation.");
       }
@@ -511,8 +530,31 @@ export function createApp(): AppContext {
     return result;
   }
 
-  function deleteExplorerEntry(kind: "file" | "folder" | "asset", path: string): void {
-    if (kind !== "asset" && containsRequiredFile(kind, path)) return;
+  async function protectedScriptPath(): Promise<string | null> {
+    if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.editor.getValue();
+    try {
+      const script = mainScriptPath(await composeScenarioImpl(app.project.vfs));
+      if (script !== app.protectedScript) {
+        app.protectedScript = script;
+        renderFileTree();
+      }
+      return script;
+    } catch (error) {
+      dom.diagnostics.textContent = `● Fix the scenario before deleting files: ${(error as Error).message}`;
+      dom.diagnostics.style.color = "#ee7c78";
+      return null;
+    }
+  }
+
+  async function deleteExplorerEntry(kind: "file" | "folder" | "asset", path: string): Promise<void> {
+    if (kind !== "asset") {
+      const script = await protectedScriptPath();
+      if (script === null) return;
+      if (containsRequiredFile(kind, path, script)) {
+        renderFileTree();
+        return;
+      }
+    }
     const exists = kind === "asset"
       ? app.project.assets[path] !== undefined
       : kind === "file"
@@ -539,11 +581,20 @@ export function createApp(): AppContext {
     dom.deleteOverlay.classList.add("hidden");
   }
 
-  function confirmDeleteExplorerEntry(): void {
+  async function confirmDeleteExplorerEntry(): Promise<void> {
     if (!pendingDelete) return;
     const { kind, path } = pendingDelete;
     cancelDeleteExplorerEntry();
-    if (kind !== "asset" && containsRequiredFile(kind, path)) return;
+    let script = "";
+    if (kind !== "asset") {
+      const currentScript = await protectedScriptPath();
+      if (currentScript === null) return;
+      script = currentScript;
+      if (containsRequiredFile(kind, path, script)) {
+        renderFileTree();
+        return;
+      }
+    }
 
     if (kind === "asset") {
       delete app.project.assets[path];
@@ -558,7 +609,7 @@ export function createApp(): AppContext {
       // Flush the live buffer before removing VFS keys. Once tabs are updated,
       // later debounced saves must have no path through which to restore them.
       if (app.project.vfs[app.current] !== undefined) app.project.vfs[app.current] = app.editor.getValue();
-      const removed = new Set(removeEntry(app.project.vfs, kind, path));
+      const removed = new Set(removeEntry(app.project.vfs, kind, path, script));
       const previousIndex = app.openFiles.indexOf(app.current);
       app.openFiles = app.openFiles.filter((openPath) => !removed.has(openPath));
       if (removed.has(app.current)) {
@@ -587,6 +638,24 @@ export function createApp(): AppContext {
 
   function syncEditor(): void {
     syncEditorImpl(app);
+    if (app.current.endsWith(".yaml") || app.current.endsWith(".yml")) {
+      if (protectionTimer !== undefined) clearTimeout(protectionTimer);
+      const generation = ++protectionGeneration;
+      const projectId = app.project.identity.id;
+      const vfs = { ...app.project.vfs };
+      protectionTimer = setTimeout(() => {
+        void composeScenarioImpl(vfs).then((scenario) => {
+          if (generation !== protectionGeneration || projectId !== app.project.identity.id) return;
+          const script = mainScriptPath(scenario);
+          if (script !== app.protectedScript) {
+            app.protectedScript = script;
+            renderFileTree();
+          }
+        }).catch(() => {
+          // Incomplete YAML while typing leaves the last known entry protected.
+        });
+      }, 250);
+    }
   }
 
   function persist(): Promise<void> {
@@ -675,6 +744,8 @@ export function createApp(): AppContext {
 
   async function activateProject(selected: ProjectData): Promise<void> {
     app.project = normalizeProject(selected);
+    app.scenario = null;
+    app.protectedScript = "scripts/main.lua";
     setActiveProjectId(selected.identity.id);
     app.current = "scenario.yaml";
     app.openFiles = [...DEFAULT_OPEN_FILES];
@@ -720,6 +791,8 @@ export function createApp(): AppContext {
       vfs: { ...starter.vfs },
       assets: { ...starter.assets },
     });
+    app.scenario = null;
+    app.protectedScript = "scripts/main.lua";
     await putProject(app.project);
     setActiveProjectId(app.project.identity.id);
     app.current = "scenario.yaml";
@@ -772,7 +845,7 @@ export function createApp(): AppContext {
 
   /** Existing saves used only the scenario entry file and main Lua script. */
   function legacyScenarioHash(): string {
-    const scriptPath = app.scenario?.scripts?.main ?? "scripts/main.lua";
+    const scriptPath = app.scenario ? mainScriptPath(app.scenario) : "scripts/main.lua";
     return hashScenario(app.project.vfs["scenario.yaml"] ?? "", app.project.vfs[scriptPath] ?? "");
   }
 

@@ -18,8 +18,8 @@ tools.yml          tool rail entries
 scripts/main.lua   the Lua entry file
 ```
 
-None of those filenames are magic. They are conventions the templates follow; the only fixed names in a project are
-`scenario.yaml` and `scripts/main.lua`.
+The template names are conventions. `scenario.yaml` is the only fixed name; `scripts.main` in the composed scenario
+selects the Lua entry file, defaulting to `scripts/main.lua`.
 
 ## `!import`
 

@@ -118,7 +118,7 @@ worse than an error.
 | A tool `action:` or UI `callback:` naming a function that does not exist | At boot, the same way |
 | A tool definition that is malformed | When registered — `Tool needs a non-empty id.` and friends |
 | A `modal.page` naming a page that is not in the open modal | When activated |
-| Missing `scripts/main.lua` | At boot — `Script not found: scripts/main.lua` |
+| Missing configured Lua entry file | At boot — `Script not found: <path>` |
 
 **Not caught — the ones to watch for:**
 
@@ -157,7 +157,8 @@ drop rather than part of the running app. The messages are specific:
 Invalid .inkforge ZIP package
 Package is missing manifest.json
 Unsupported Inkforge package; expected pack version 2
-Package must include scenario.yaml and scripts/main.lua
+Package must include scenario.yaml
+Package must include configured Lua entry script: <path>
 Package is missing <path>
 Duplicate project path: <path>
 Invalid project path: <path>
@@ -167,6 +168,10 @@ Scenario source is not valid UTF-8: <path>
 
 An import that is declined because the loaded project is the same version or newer says so rather than importing — see
 [Project format](project-format.md).
+
+`Package must include configured Lua entry script` only appears when the pack's scenario composes far enough to name its
+entry script. A pack with broken or unfinished YAML imports anyway and reports through the diagnostics line at boot, so
+the two failure paths never overlap.
 
 ## The console
 

@@ -120,8 +120,9 @@ starter is pinned against deletion; a newer pack with the same project ID can up
 is written and resumed only on explicit player actions, and deleting a project also deletes its saves.
 
 The explorer derives folders from VFS paths. Empty folders use a hidden marker that is omitted from packs. The editor
-protects the required `scenario.yaml` and `scripts/main.lua` files, and the `scripts` folder containing the entry file,
-from deletion.
+protects `scenario.yaml`, the Lua entry file selected by `scenario.scripts.main` (default `scripts/main.lua`), and its
+containing folders from deletion. Pack import, export, and the disk packer require that selected entry in the file set,
+and resolve it from the composed scenario, so a pack whose YAML does not compose is left to report at boot.
 
 Project sources and saves remain in browser storage unless explicitly exported. The YAML parser is loaded as a remote ES
 module (see `src/deps/remote.ts`) — the Lua runtime's WASM is inlined into the bundle at build time instead.
