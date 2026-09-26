@@ -18,9 +18,15 @@
 | `deno task docs:build` | Build the docs site into `dist/docs/` |
 | `deno task docs:preview` | Preview the built docs site |
 | `deno task fmt` / `deno task lint` | Format and lint the Deno sources |
+| `deno task fmt:check` | Report formatting drift without writing, for verifying a change |
 
 `dev` and `serve` accept `--port <n>`. `pack` accepts `--out <file.inkforge>`, `--bump major|minor|patch` and
 `--force`.
+
+**Line endings are pinned to LF.** `.gitattributes` sets `text=auto eol=lf`, so a checkout is LF on every operating
+system while `text=auto` still leaves binary packs, audio and images byte-for-byte alone. This matters because `deno fmt`
+writes LF: without the attribute a Windows checkout is CRLF and `deno task fmt:check` reports nearly every file as
+unformatted, which is a line-ending false positive rather than real drift.
 
 The docs site uses VitePress. Install its pinned dependencies once with `npm ci --prefix docs`; the application tasks
 remain Deno-only.

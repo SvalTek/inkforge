@@ -1,0 +1,5 @@
+# `deno fmt` writes LF, so a CRLF checkout makes `deno fmt --check` report every
+# file as unformatted on Windows while the committed content is already correct.
+# Pin checkouts to LF everywhere and let `text=auto` keep git's binary detection,
+# so packs, audio and images are left byte-for-byte alone.
+* text=auto eol=lf
