@@ -34,8 +34,6 @@ export interface DomRefs {
   gameHud: HTMLElement;
   restartHero: HTMLButtonElement;
   saveBtn: HTMLButtonElement;
-  /** Shown only when the active project has a save to resume. */
-  continueBtn: HTMLButtonElement;
 
   inventoryOverlay: HTMLElement;
   inventoryKicker: HTMLElement;
@@ -70,7 +68,6 @@ export interface DomRefs {
   diagnostics: HTMLElement;
   format: HTMLElement;
   runTitle: HTMLElement;
-  restart: HTMLButtonElement;
   run: HTMLButtonElement;
   location: HTMLElement;
   terminal: HTMLElement;
@@ -122,7 +119,6 @@ export function queryDom(): DomRefs {
     gameHud: get("#gameHud"),
     restartHero: get("#restartHero"),
     saveBtn: get("#saveBtn"),
-    continueBtn: get("#continueBtn"),
 
     inventoryOverlay: get("#inventoryOverlay"),
     inventoryKicker: get("#inventoryKicker"),
@@ -155,7 +151,6 @@ export function queryDom(): DomRefs {
     diagnostics: get("#diagnostics"),
     format: get("#format"),
     runTitle: get("#runTitle"),
-    restart: get("#restart"),
     run: get("#run"),
     location: get("#location"),
     terminal: get("#terminal"),

@@ -95,8 +95,7 @@
 }
 
 .surface-head,
-.player-strip,
-.canvas-panel > .side-action {
+.player-strip {
   flex: 0 0 auto;
 }
 
@@ -169,10 +168,6 @@
   .player-strip {
     gap: 12px;
     padding: 8px 0;
-  }
-
-  .canvas-panel > .side-action {
-    padding: 5px 9px;
   }
 
   .hero-terminal {
@@ -613,19 +608,27 @@
   cursor: default;
 }
 
+.manager-window {
+  grid-template-rows: 86px minmax(0, 1fr) auto;
+}
+
+.manager-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 15px 20px 18px;
+  border-top: 1px solid #4b392c;
+}
+
+.manager-actions button {
+  white-space: nowrap;
+}
+
 /* Save manager ------------------------------------------------------------ */
 
-/* The library window and list classes are reused wholesale above, so a save
-   card is a project card and the two overlays cannot drift apart visually. */
-.side-actions {
-  margin-top: auto;
-  display: flex;
-}
-
-.side-actions .side-action {
-  flex: 1;
-  text-align: center;
-}
+/* The library window and list classes are reused by saves, so the two
+   overlays keep the same visual language. */
 
 /* Import provenance: a save that arrived from a file rather than from play. */
 .save-origin {

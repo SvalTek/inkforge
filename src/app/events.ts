@@ -24,7 +24,6 @@ export function bindEvents(app: AppContext): void {
     dom.command.value = "";
   };
   dom.restartHero.onclick = () => void app.start();
-  dom.restart.onclick = () => void app.start();
   dom.run.onclick = () => {
     app.showView("play");
     void app.start();
@@ -39,16 +38,18 @@ export function bindEvents(app: AppContext): void {
   dom.loadBtn.onclick = () => void app.openProjectLibrary();
   dom.importBtn.onclick = () => dom.importFile.click();
   dom.importFile.onchange = async (e) => {
+    const input = e.target as HTMLInputElement;
     try {
-      const file = (e.target as HTMLInputElement).files?.[0];
+      const file = input.files?.[0];
       if (file) await app.importPack(file);
     } catch (error) {
       alert((error as Error).message);
+    } finally {
+      input.value = "";
     }
   };
   dom.newBtn.onclick = () => void app.newProject();
   dom.saveBtn.onclick = () => void app.saveGame();
-  dom.continueBtn.onclick = () => void app.resumeSavedGame();
   dom.savesBtn.onclick = () => void app.openSaveManager();
   dom.importSaveBtn.onclick = () => dom.saveFile.click();
   dom.saveFile.onchange = async (e) => {

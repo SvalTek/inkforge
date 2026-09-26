@@ -188,6 +188,7 @@ export async function importPack(app: AppContext, file: File): Promise<void> {
   if (existing && compareVersions(manifest.project.version, existing.identity.version) <= 0) {
     app.dom.diagnostics.textContent = `● ${projectTitle(existing)} is already v${existing.identity.version}`;
     app.dom.diagnostics.style.color = "#d6a95c";
+    app.dom.projectOverlay.classList.add("hidden");
     return;
   }
   const project = normalizeProject({ identity: manifest.project, vfs, assets, pinned: existing?.pinned });
@@ -203,4 +204,5 @@ export async function importPack(app: AppContext, file: File): Promise<void> {
   app.renderFileTree();
   app.renderTabs();
   await app.start();
+  app.dom.projectOverlay.classList.add("hidden");
 }

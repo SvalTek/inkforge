@@ -8,13 +8,14 @@ This tree documents the authoring surface as it exists today.
 
 ## Getting a project
 
-The studio opens on the bundled starter, **Lantern Below**. From there:
+The studio opens on the bundled starter, **Lantern Below**. Open **Scenarios** in the header to manage projects:
 
 | | |
 |---|---|
-| **New** | A copy of the starter under a fresh id, unpinned and yours to edit |
-| **Load** | The scenario library: every scenario saved in this browser |
-| **Import** | A `.inkforge` pack from disk |
+| **New scenario** | A copy of the starter under a fresh id, unpinned and yours to edit |
+| **Load** | Open a scenario saved in this browser |
+| **Import Scenario** | Read a `.inkforge` pack from disk |
+| **Export Scenario** | Download the current project as a `.inkforge` pack |
 
 The starter is pinned: it cannot be deleted, so there is always something to fall back to. Your work is saved to browser
 storage as you type, per file, and nothing leaves the machine.
@@ -38,13 +39,12 @@ Saving a run is separate from saving the project, and is always deliberate.
 | | |
 |---|---|
 | **Save** | Writes the current run to that scenario's slot |
-| **Continue** | Restores it. Only appears once a scenario has been saved |
-| **Saves** | Lists every saved run: **Resume**, **Export**, **Delete** |
-| **Import save** | Loads a `.json` save file into the current scenario |
+| **Restart** | Starts the scenario over while keeping its save |
+| **Manage Saves** | Lists saved runs with **Resume**, **Export**, and **Delete**; also offers **Import save** |
 
 Each scenario has its own slot, so a run in one story never disturbs another. Nothing is resumed for you: reloading the
-page always starts the scenario from the beginning, and **Continue** is the way back in. **Restart** likewise starts over
-and leaves the save alone.
+page always starts the scenario from the beginning. Open **Manage Saves** and choose **Resume** to continue a run.
+**Restart** likewise starts over and leaves the save alone.
 
 **Export** writes a `.json` file that can be kept outside the browser. That matters because saves live in this browser's
 storage, which the player can clear: **Import save** reads one back into the scenario you currently have open, and asks

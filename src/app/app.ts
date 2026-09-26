@@ -214,7 +214,6 @@ export function createApp(): AppContext {
       dom.modalHost.replaceChildren();
       // Nothing to continue into: the scenario is empty, so the save it was made
       // from cannot be resumed even though the slot may still exist.
-      dom.continueBtn.hidden = true;
       document.body.dataset.projectReady = "true";
       return;
     }
@@ -584,6 +583,7 @@ export function createApp(): AppContext {
     renderFileTree();
     renderTabs();
     await start();
+    dom.projectOverlay.classList.add("hidden");
   }
 
   function exportPack(): void {
@@ -604,12 +604,11 @@ export function createApp(): AppContext {
   // auto-resumes on boot, because a save that silently overwrites the author's
   // current playtest buffer is worse than one extra click.
 
-  /** The active project's save, or null. Drives the Continue button. */
+  /** The active project's save, or null. Used for resume and import checks. */
   let activeSave: SaveRecord | null = null;
 
   async function refreshActiveSave(): Promise<void> {
     activeSave = (await getSave(app.project.identity.id)) ?? null;
-    dom.continueBtn.hidden = !activeSave;
   }
 
   /**
@@ -655,7 +654,6 @@ export function createApp(): AppContext {
       return false;
     }
     activeSave = record;
-    dom.continueBtn.hidden = false;
     reportStatus("Saved", "#7cbd9a");
     return true;
   }
@@ -731,7 +729,7 @@ export function createApp(): AppContext {
       origin: { projectId: record.projectId, savedAt: record.savedAt },
     });
     await refreshActiveSave();
-    dom.saveOverlay.classList.add("hidden");
+    await openSaveManager();
     reportStatus("Save imported", "#7cbd9a");
   }
 
@@ -749,7 +747,7 @@ export function createApp(): AppContext {
     if (!saves.length) {
       const empty = document.createElement("p");
       empty.className = "project-card";
-      empty.textContent = "No saves yet. Play a scenario, then press Save in the play view.";
+      empty.textContent = "No saves yet. Play a scenario, then use Save in the header.";
       dom.saveList.append(empty);
     }
     for (const record of saves) {

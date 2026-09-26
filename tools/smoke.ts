@@ -351,9 +351,11 @@ async function storedProjectVersion(page: Page): Promise<string> {
 }
 
 async function exportPack(page: Page): Promise<PackShape> {
+  await page.locator("#loadBtn").click();
   const downloadPromise = page.waitForEvent("download");
   await page.locator("#exportBtn").click();
   const download = await downloadPromise;
+  await page.locator("#closeProjects").click();
   const path = await download.path();
   assert(path, "export download produced no local path");
   const archive = unzipSync(await Deno.readFile(path));
@@ -369,7 +371,10 @@ async function importPack(page: Page, pack: PackShape, storageMarker: string, st
     "manifest.json": new TextEncoder().encode(`${JSON.stringify(pack.manifest, null, 2)}\n`),
   };
   await Deno.writeFile(filePath, zipSync(entries));
-  await page.locator("#importFile").setInputFiles(filePath);
+  await page.locator("#loadBtn").click();
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.locator("#importBtn").click();
+  await (await chooserPromise).setFiles(filePath);
   await page.waitForFunction(
     ({ marker, path }: { marker: string; path: string }) =>
       new Promise<boolean>((resolve, reject) => {
@@ -1443,6 +1448,7 @@ locations:
     });
 
     await runCheck("7. New project restores the starter", async () => {
+      await page.locator("#loadBtn").click();
       await page.locator("#newBtn").click();
       await waitForTextEquals(page, "#storyTitle", "Stone Entry");
       await page.waitForFunction(
@@ -1659,11 +1665,15 @@ end
       };
       await importPack(page, pack, "startLocation: gate", "scenario.yaml");
 
-      // Nothing saved yet, so Continue must not be offered.
+      const headerActions = await page.locator(".app > header .actions button").allTextContents();
       assert(
-        !(await page.locator("#continueBtn").isVisible()),
-        "Continue was offered before this scenario had ever been saved",
+        headerActions.map((label) => label.trim()).join(",") === "Save,Restart,Manage Saves,Scenarios",
+        `unexpected header actions: ${headerActions.join(",")}`,
       );
+      await page.locator("#savesBtn").click();
+      await waitForText(page, "#saveOverlay", "No saves yet");
+      assert(await page.locator("#importSaveBtn").isVisible(), "Import save is missing from Manage Saves");
+      await page.locator("#closeSaves").click();
 
       await waitForText(page, "#heroChoices", "North");
       await page.locator("#heroChoices button", { hasText: "North" }).first().click();
@@ -1677,7 +1687,13 @@ end
 
       await page.locator("#saveBtn").click();
       await waitForText(page, "#diagnostics", "Saved");
-      assert(await page.locator("#continueBtn").isVisible(), "Continue stayed hidden after a save");
+      await page.locator("#savesBtn").click();
+      await waitForText(page, "#saveOverlay", "Save Fixture");
+      assert(
+        await page.locator("#saveList button", { hasText: "Resume" }).count() === 1,
+        "saved run has no Resume action",
+      );
+      await page.locator("#closeSaves").click();
 
       const readSave = async (): Promise<
         { location: string; snapshot: { state: Record<string, number> } } | undefined
@@ -1709,7 +1725,8 @@ end
       const afterRestart = await readSave();
       assert(afterRestart?.location === "vault", "restarting the run overwrote the save");
 
-      await page.locator("#continueBtn").click();
+      await page.locator("#savesBtn").click();
+      await page.locator("#saveList button", { hasText: "Resume" }).click();
       await waitForTextEquals(page, "#storyTitle", "Cold Vault");
       await waitForText(page, "#heroTerminal", "The vault smells of iron and old rain.");
       assert(await page.locator('[data-tool="saved_hidden"]').count() === 0, "resume restored a hidden Lua tool");
@@ -1740,7 +1757,7 @@ end
       await page.locator("#closeSaves").click();
 
       return `saved location=vault visits=1; restart returned to Iron Gate with the save intact; ` +
-        `Continue restored Cold Vault with visits=1 (entry script's GameState.set did not clobber it); ` +
+        `Manage Saves restored Cold Vault with visits=1 (entry script's GameState.set did not clobber it); ` +
         `save manager listed 1 row with Resume/Export/Delete`;
     });
 
@@ -1786,12 +1803,12 @@ end
       }, "save-fixture");
       assert(goneSave === null, "deleting the save left a record behind");
 
-      // The import control lives in the header, so the modal has to be dismissed
-      // before it can be reached.
-      await page.locator("#closeSaves").click();
+      // Import stays in the manager, then refreshes its list in place.
+      const chooserPromise = page.waitForEvent("filechooser");
       await page.locator("#importSaveBtn").click();
-      await page.locator("#saveFile").setInputFiles(exported);
+      await (await chooserPromise).setFiles(exported);
       await waitForText(page, "#diagnostics", "Save imported");
+      await waitForText(page, "#saveOverlay", "Save Fixture");
       const restoredSave = await page.evaluate(async (projectId: string) => {
         const request = indexedDB.open("inkforge-project-library");
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -1813,7 +1830,7 @@ end
       assert(restoredSave.origin?.projectId === "save-fixture", "the import did not record where it came from");
 
       // And the re-imported save is resumable, not merely stored.
-      await page.locator("#continueBtn").click();
+      await page.locator("#saveList button", { hasText: "Resume" }).click();
       await waitForTextEquals(page, "#storyTitle", "Cold Vault");
 
       return `exported "${download.suggestedFilename()}" with format=inkforge-save saveVersion=1 and location=vault; ` +
