@@ -35,9 +35,21 @@ Checks are task scripts under `tools/`, not a `Deno.test` suite. Run `deno task 
 pack precedence and template drift. Add behavior-focused assertions near the affected check; browser checks should wait
 for `document.body.dataset.projectReady` instead of fixed delays. No coverage threshold is configured.
 
+## Documentation Maintenance
+
+Every agent making a code, UI, configuration, or workflow change must review `README.md`, `Architecture.md`, and the
+relevant pages under `docs/` against the changed behavior. Update affected documentation in the same change, including
+`docs/authoring/` for author-facing behavior and `docs/development/` for implementation, build, and test changes. Do not
+defer documentation repairs to a later pull request. If a file needs no edit, state why in the pull request.
+
+Keep `README.md` a concise public introduction with a path to the deeper guides. Keep `Architecture.md` an accurate
+description of the current system, based on source rather than historical plans or check-count snapshots. Put detailed
+developer procedures in `docs/development/`, and verify commands, paths, and links before publishing them. Do not add
+local-only tooling or private workspace details to the public introduction.
+
 ## Commit & Pull Request Guidelines
 
 Recent commits commonly use `feat(scope): ...`, `fix(scope): ...`, or `chore(scope): ...`; use a short imperative
 subject and a relevant scope such as `ui`, `build`, or `docs`. In pull requests, describe the behavior changed, list the
 checks run, link the related issue when one exists, and include screenshots for visible UI changes. Update
-`docs/authoring/` for authored behavior and `docs/development/` for architectural changes.
+documentation as required above and list those updates in the pull request.
