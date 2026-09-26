@@ -204,6 +204,69 @@ button:hover {
 .tree {
   display: grid;
   gap: 3px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.docs-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 0 0 auto;
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: linear-gradient(135deg, #191a23, #141620);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color .15s ease, background .15s ease;
+}
+
+.docs-card:hover {
+  border-color: #6d5939;
+  background: linear-gradient(135deg, #211f27, #191a23);
+}
+
+.docs-card:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.docs-card-mark {
+  display: grid;
+  place-items: center;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #59462e;
+  border-radius: 4px;
+  color: var(--gold);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.docs-card-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.docs-card-copy strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.docs-card-copy small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.docs-card-arrow {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .folder {
