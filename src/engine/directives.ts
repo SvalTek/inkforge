@@ -8,7 +8,7 @@ import type {
   Scenario,
 } from "../types/index.ts";
 import { check } from "./conditions.ts";
-import { markViewDirty } from "./events.ts";
+import { markViewDirty, pushEvent } from "./events.ts";
 import { addItem, adjustState, removeItem, setLocation, setState } from "./state.ts";
 
 export interface DirectiveDeps {
@@ -124,7 +124,7 @@ export async function execute(list: DirectiveList | undefined, deps: DirectiveDe
     }
     if (x.end) {
       deps.runtime.over = true;
-      deps.runtime.events.push({ type: "game:over" });
+      pushEvent(deps.runtime, { type: "game:over" });
       // `over` drops every remaining choice, so the list on screen is stale.
       markViewDirty(deps.runtime);
     }

@@ -11,6 +11,9 @@ export interface DomRefs {
   saved: HTMLElement;
   newBtn: HTMLButtonElement;
   loadBtn: HTMLButtonElement;
+  savesBtn: HTMLButtonElement;
+  importSaveBtn: HTMLButtonElement;
+  saveFile: HTMLInputElement;
   importBtn: HTMLButtonElement;
   importFile: HTMLInputElement;
   assetInput: HTMLInputElement;
@@ -30,6 +33,9 @@ export interface DomRefs {
   gameSurface: HTMLElement;
   gameHud: HTMLElement;
   restartHero: HTMLButtonElement;
+  saveBtn: HTMLButtonElement;
+  /** Shown only when the active project has a save to resume. */
+  continueBtn: HTMLButtonElement;
 
   inventoryOverlay: HTMLElement;
   inventoryKicker: HTMLElement;
@@ -48,6 +54,9 @@ export interface DomRefs {
   projectOverlay: HTMLElement;
   projectList: HTMLElement;
   closeProjects: HTMLButtonElement;
+  saveOverlay: HTMLElement;
+  saveList: HTMLElement;
+  closeSaves: HTMLButtonElement;
 
   authorView: HTMLElement;
   tree: HTMLElement;
@@ -90,6 +99,9 @@ export function queryDom(): DomRefs {
     saved: get("#saved"),
     newBtn: get("#newBtn"),
     loadBtn: get("#loadBtn"),
+    savesBtn: get("#savesBtn"),
+    importSaveBtn: get("#importSaveBtn"),
+    saveFile: get("#saveFile"),
     importBtn: get("#importBtn"),
     importFile: get("#importFile"),
     assetInput: get("#assetInput"),
@@ -109,6 +121,8 @@ export function queryDom(): DomRefs {
     gameSurface: get("#gameSurface"),
     gameHud: get("#gameHud"),
     restartHero: get("#restartHero"),
+    saveBtn: get("#saveBtn"),
+    continueBtn: get("#continueBtn"),
 
     inventoryOverlay: get("#inventoryOverlay"),
     inventoryKicker: get("#inventoryKicker"),
@@ -126,6 +140,9 @@ export function queryDom(): DomRefs {
     projectOverlay: get("#projectOverlay"),
     projectList: get("#projectList"),
     closeProjects: get("#closeProjects"),
+    saveOverlay: get("#saveOverlay"),
+    saveList: get("#saveList"),
+    closeSaves: get("#closeSaves"),
 
     authorView: get("#authorView"),
     tree: get(".tree"),

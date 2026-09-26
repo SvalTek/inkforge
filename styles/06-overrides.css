@@ -613,6 +613,25 @@
   cursor: default;
 }
 
+/* Save manager ------------------------------------------------------------ */
+
+/* The library window and list classes are reused wholesale above, so a save
+   card is a project card and the two overlays cannot drift apart visually. */
+.side-actions {
+  margin-top: auto;
+  display: flex;
+}
+
+.side-actions .side-action {
+  flex: 1;
+  text-align: center;
+}
+
+/* Import provenance: a save that arrived from a file rather than from play. */
+.save-origin {
+  color: #d6a95c;
+}
+
 /* Narrow viewports ------------------------------------------------------- */
 
 @media (max-width: 700px) {

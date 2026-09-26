@@ -1601,6 +1601,202 @@ end
         `#gameHud "${short(initial.text, 30)}" -> "${short(after.text, 30)}"; ${frames} frames in the ` +
         `following second (one per mutation, not one per animation frame)`;
     });
+
+    await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {
+      // The whole persistence contract in one pass: a save is keyed to its own
+      // project, survives a genuine restart, is never picked up automatically,
+      // and — the part a fresh boot gets wrong on its own — is not clobbered by
+      // the entry script's own `GameState.set` on the way back in.
+      const pack: PackShape = {
+        manifest: {
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "save-fixture", title: "Save Fixture", version: "1.0.0" },
+          files: ["scenario.yaml", "scripts/main.lua"],
+        },
+        entries: {
+          "scenario.yaml": new TextEncoder().encode(`meta:
+  title: Save Fixture
+startLocation: gate
+state:
+  visits: 0
+player:
+  inventory:
+    - coin
+locations:
+  gate:
+    title: 'Iron Gate'
+    text:
+      - 'A gate bars the way north.'
+    exits:
+      north: 'vault'
+  vault:
+    title: 'Cold Vault'
+    text:
+      - 'The vault smells of iron and old rain.'
+    exits:
+      south: 'gate'
+`),
+          // The clobber this has to survive: a top-level write on every boot,
+          // which a seeded-but-not-re-applied restore would leave at 2.
+          "scripts/main.lua": new TextEncoder().encode(`-- save-fixture
+function OnInit()
+  GameState.set('visits', (GameState.get('visits') or 0) + 1)
+end
+`),
+        },
+      };
+      await importPack(page, pack, "startLocation: gate", "scenario.yaml");
+
+      // Nothing saved yet, so Continue must not be offered.
+      assert(
+        !(await page.locator("#continueBtn").isVisible()),
+        "Continue was offered before this scenario had ever been saved",
+      );
+
+      await waitForText(page, "#heroChoices", "North");
+      await page.locator("#heroChoices button", { hasText: "North" }).first().click();
+      await waitForTextEquals(page, "#storyTitle", "Cold Vault");
+      await waitForText(page, "#heroTerminal", "The vault smells of iron and old rain.");
+
+      await page.locator("#saveBtn").click();
+      await waitForText(page, "#diagnostics", "Saved");
+      assert(await page.locator("#continueBtn").isVisible(), "Continue stayed hidden after a save");
+
+      const readSave = async (): Promise<
+        { location: string; snapshot: { state: Record<string, number> } } | undefined
+      > =>
+        await page.evaluate(async (projectId: string) => {
+          const request = indexedDB.open("inkforge-project-library");
+          const db = await new Promise<IDBDatabase>((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const found = await new Promise<unknown>((resolve, reject) => {
+            const get = db.transaction("saves", "readonly").objectStore("saves").get([projectId, "manual"]);
+            get.onsuccess = () => resolve(get.result);
+            get.onerror = () => reject(get.error);
+          });
+          db.close();
+          return found ?? undefined;
+        }, pack.manifest.project.id) as { location: string; snapshot: { state: Record<string, number> } } | undefined;
+
+      const stored = await readSave();
+      assert(stored, "no save record was written to the saves store");
+      assert(stored.location === "vault", `save recorded location "${stored.location}", expected vault`);
+      assert(stored.snapshot.state.visits === 1, `save recorded visits=${stored.snapshot.state.visits}, expected 1`);
+
+      // A restart is a genuine reset, so the save must be untouched by it and
+      // must not be applied on its own.
+      await page.locator("#restartHero").click();
+      await waitForTextEquals(page, "#storyTitle", "Iron Gate");
+      const afterRestart = await readSave();
+      assert(afterRestart?.location === "vault", "restarting the run overwrote the save");
+
+      await page.locator("#continueBtn").click();
+      await waitForTextEquals(page, "#storyTitle", "Cold Vault");
+      await waitForText(page, "#heroTerminal", "The vault smells of iron and old rain.");
+      const resumed = await readSave();
+      assert(
+        resumed?.snapshot.state.visits === 1,
+        `resumed visits=${resumed?.snapshot.state.visits}, expected 1 — the entry script's GameState.set was not re-applied over the save`,
+      );
+
+      // The manager lists the slot, and the slot belongs to this project alone.
+      await page.locator("#savesBtn").click();
+      await waitForText(page, "#saveOverlay", "Save Fixture");
+      await waitForText(page, "#saveOverlay", "vault");
+      const rows = await page.locator("#saveList .project-card").count();
+      assert(rows === 1, `save manager listed ${rows} rows, expected 1`);
+      for (const label of ["Resume", "Export", "Delete"]) {
+        assert(
+          await page.locator("#saveList button", { hasText: label }).count() === 1,
+          `save row has no ${label} action`,
+        );
+      }
+      await page.locator("#closeSaves").click();
+
+      return `saved location=vault visits=1; restart returned to Iron Gate with the save intact; ` +
+        `Continue restored Cold Vault with visits=1 (entry script's GameState.set did not clobber it); ` +
+        `save manager listed 1 row with Resume/Export/Delete`;
+    });
+
+    await runCheck("9a. Export a save to JSON, delete it, and import it back", async () => {
+      // The escape hatch against a browser reset, and the one path that leaves
+      // IndexedDB entirely. Exercised as a full round trip — export, destroy the
+      // stored record, re-import — because a save file that can be written but
+      // not read back is not a backup.
+      await page.locator("#savesBtn").click();
+      const downloadPromise = page.waitForEvent("download");
+      await page.locator("#saveList button", { hasText: "Export" }).click();
+      const download = await downloadPromise;
+      const exported = await download.path();
+      assert(exported, "export produced no local path");
+      assert(download.suggestedFilename().endsWith(".json"), `export was named "${download.suggestedFilename()}"`);
+      const body = JSON.parse(await Deno.readTextFile(exported)) as {
+        format: string;
+        saveVersion: number;
+        record: { projectId: string; snapshot: { location: string } };
+      };
+      assert(body.format === "inkforge-save", `export envelope format was "${body.format}"`);
+      assert(body.saveVersion === 1, `export envelope saveVersion was ${body.saveVersion}`);
+      assert(body.record.projectId === "save-fixture", "export carried the wrong project id");
+      assert(body.record.snapshot.location === "vault", "export did not carry the saved location");
+
+      // Delete the stored slot so the import is a real restore, not a no-op
+      // overwrite. "Delete this save?" is auto-accepted by the dialog handler.
+      await page.locator("#saveList button", { hasText: "Delete" }).click();
+      await waitForText(page, "#saveOverlay", "No saves yet");
+      const goneSave = await page.evaluate(async (projectId: string) => {
+        const request = indexedDB.open("inkforge-project-library");
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const found = await new Promise<unknown>((resolve, reject) => {
+          const get = db.transaction("saves", "readonly").objectStore("saves").get([projectId, "manual"]);
+          get.onsuccess = () => resolve(get.result);
+          get.onerror = () => reject(get.error);
+        });
+        db.close();
+        return found ?? null;
+      }, "save-fixture");
+      assert(goneSave === null, "deleting the save left a record behind");
+
+      // The import control lives in the header, so the modal has to be dismissed
+      // before it can be reached.
+      await page.locator("#closeSaves").click();
+      await page.locator("#importSaveBtn").click();
+      await page.locator("#saveFile").setInputFiles(exported);
+      await waitForText(page, "#diagnostics", "Save imported");
+      const restoredSave = await page.evaluate(async (projectId: string) => {
+        const request = indexedDB.open("inkforge-project-library");
+        const db = await new Promise<IDBDatabase>((resolve, reject) => {
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        const found = await new Promise<{ location: string; origin?: { projectId: string } } | undefined>(
+          (resolve, reject) => {
+            const get = db.transaction("saves", "readonly").objectStore("saves").get([projectId, "manual"]);
+            get.onsuccess = () => resolve(get.result);
+            get.onerror = () => reject(get.error);
+          },
+        );
+        db.close();
+        return found;
+      }, "save-fixture");
+      assert(restoredSave, "importing the file back did not restore a record");
+      assert(restoredSave.location === "vault", `re-imported location was "${restoredSave.location}"`);
+      assert(restoredSave.origin?.projectId === "save-fixture", "the import did not record where it came from");
+
+      // And the re-imported save is resumable, not merely stored.
+      await page.locator("#continueBtn").click();
+      await waitForTextEquals(page, "#storyTitle", "Cold Vault");
+
+      return `exported "${download.suggestedFilename()}" with format=inkforge-save saveVersion=1 and location=vault; ` +
+        `deleted the stored slot (store confirmed empty); re-imported it and resumed to Cold Vault, ` +
+        `with the origin project recorded`;
+    });
   } finally {
     await context.close();
     await browser.close();

@@ -31,6 +31,30 @@ stream. The run panel is the same run the Play view shows, so you can edit and p
 
 Edits save automatically. **Run** restarts and switches to Play; **Restart** restarts without switching.
 
+## Saving a run
+
+Saving a run is separate from saving the project, and is always deliberate.
+
+| | |
+|---|---|
+| **Save** | Writes the current run to that scenario's slot |
+| **Continue** | Restores it. Only appears once a scenario has been saved |
+| **Saves** | Lists every saved run: **Resume**, **Export**, **Delete** |
+| **Import save** | Loads a `.json` save file into the current scenario |
+
+Each scenario has its own slot, so a run in one story never disturbs another. Nothing is resumed for you: reloading the
+page always starts the scenario from the beginning, and **Continue** is the way back in. **Restart** likewise starts over
+and leaves the save alone.
+
+**Export** writes a `.json` file that can be kept outside the browser. That matters because saves live in this browser's
+storage, which the player can clear: **Import save** reads one back into the scenario you currently have open, and asks
+first if it would overwrite an existing save.
+
+A resumed run keeps where the player was, their inventory, state variables, the transcript, and which tools and UI panels
+were open or hidden. It is not a recording of the run: the Lua VM, timers, animations and canvas scenes are rebuilt by a
+normal boot, so `OnInit` runs again on resume. That matters for scripts — see
+[Saving and resuming](lua.md#saving-and-resuming).
+
 ## A project's shape
 
 Lantern Below, the starter, is a reasonable template to copy:

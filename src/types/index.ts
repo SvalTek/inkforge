@@ -5,6 +5,7 @@ export type * from "./ui.ts";
 export type * from "./tools.ts";
 export type * from "./events.ts";
 export type * from "./engine.ts";
+export type * from "./save.ts";
 export type * from "./canvas.ts";
 export type * from "./lua.ts";
 export type * from "./audio.ts";

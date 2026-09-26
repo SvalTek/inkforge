@@ -5,6 +5,7 @@ import type {
   OutputFn,
   ProjectData,
   ResolvedUiElement,
+  ResumedRuntime,
   Scenario,
   ToolEntry,
 } from "../types/index.ts";
@@ -37,7 +38,8 @@ export interface AppContext {
   bootGeneration: number;
 
   initialise(): Promise<void>;
-  start(): Promise<void>;
+  /** Boot the project. Pass a snapshot to resume that save instead of starting fresh. */
+  start(resume?: ResumedRuntime | null): Promise<void>;
   showView(view: AppView): void;
   switchFile(path: string): void;
   previewAsset(path: string): void;
@@ -58,4 +60,14 @@ export interface AppContext {
   deleteProject(id: string): Promise<void>;
   exportPack(): void;
   importPack(file: File): Promise<void>;
+
+  // Saves: one manual slot per project, resumed only on an explicit request.
+  /** Snapshot the live run into this project's slot. False when there is no run to save. */
+  saveGame(): Promise<boolean>;
+  /** Boot the active project from its save, or do nothing when it has none. */
+  resumeSavedGame(slot?: string): Promise<void>;
+  openSaveManager(): Promise<void>;
+  exportSave(projectId: string, slot?: string): Promise<void>;
+  /** Read an exported save file into the active project's slot. */
+  importSaveFile(file: File): Promise<void>;
 }
