@@ -138,12 +138,12 @@ total. Exceeding any of these reports the specific limit that was hit rather tha
 
 ## Export and import
 
-**Export .inkforge** writes the current project — every VFS file plus every asset — as a ZIP with a generated
+**Export Scenario** writes the current project — every VFS file plus every asset — as a ZIP with a generated
 `manifest.json`. The download is named after the project title, sanitised for a filesystem. Empty folders created in the
 Author view are recorded with a hidden marker that survives saves but is filtered from exports, so a pack contains only
 real files and assets.
 
-**Import pack** validates the manifest, checks the version against any stored project with the same id, and then either
+**Import Scenario** in the **Scenarios** dialog validates the manifest, checks the version against any stored project with the same id, and then either
 declines it or installs it and starts it. Source files must be valid UTF-8; a file that is not is reported as
 `Scenario source is not valid UTF-8: <path>`.
 
@@ -152,7 +152,7 @@ library, or in `manifest.json` of the source folder if you are packing from disk
 
 ## The scenario library
 
-**Load scenario** opens the library, which lists every scenario stored in the browser. Scenarios persist locally in
+**Scenarios** opens the library, which lists every scenario stored in the browser. Scenarios persist locally in
 IndexedDB; nothing is sent anywhere, and there is no server. The bundled starter is marked pinned: pinning survives an
 import, so a newer pack updates the starter in place rather than adding a second copy — which is how the template that
 ships with the app is refreshed in an existing install.
@@ -172,4 +172,4 @@ version has to move — see [the package version is not the scenario version](#t
 compares it, file by file, against the folder it was built from, so a pack left behind by an edit fails the matrix
 instead of shipping stale content.
 
-**New scenario** restores a fresh copy of the starter, leaving the existing scenarios untouched.
+**New scenario** in the **Scenarios** dialog restores a fresh copy of the starter, leaving the existing scenarios untouched.

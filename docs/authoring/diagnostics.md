@@ -138,13 +138,15 @@ rest are worth knowing about rather than being papered over with a guess.
 ## The author loop
 
 1. Edit in the Author view. Saves are debounced and coalesced, and the `saved locally` note next to the title confirms
-   the write. There is nothing to press to save.
+   the write. There is nothing to press to save the *project*.
 2. Press **Restart** for the run panel alone, or **Run** to restart and switch to Play. Both do a full teardown and boot:
    scenes are destroyed, the Lua runtime is closed and recreated, and state is rebuilt from `player.state`.
 3. Read the diagnostics line, then the transcript, then the event stream.
 
 A restart is a genuine reset, not a continuation. Anything you set during the previous run is gone, which is what makes
-the loop reliable — the scenario you are running is always exactly what is on disk.
+the loop reliable — the scenario you are running is always exactly what is on disk. That is also why **Restart** is the
+right button while authoring: it deliberately discards run state, where **Save** in the Play view deliberately keeps it.
+See [Saving a run](README.md#saving-a-run).
 
 ## Import errors
 

@@ -326,7 +326,9 @@ async function main(): Promise<void> {
     );
 
     // Test that the marker is filtered from pack export.
+    await page.locator("#loadBtn").click();
     await page.locator("#exportBtn").click();
+    await page.locator("#closeProjects").click();
     // The export is a download; we can't easily intercept it in playwright-core,
     // but we can check the manifest by evaluating the export logic directly.
     const manifestFiles = await page.evaluate(() => {

@@ -627,18 +627,42 @@ form button {
     gap: 15px;
   }
 
-  .actions button:not(.gold) {
+  .actions {
+    gap: 6px;
+  }
+
+  .actions button {
+    padding: 7px 8px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 850px) {
+  .project-title {
     display: none;
   }
 }
 
 @media (max-width: 660px) {
-  header {
-    padding: 0 14px;
+  .app > header {
+    flex-wrap: wrap;
+    gap: 0 12px;
+    padding: 8px 14px;
+    align-content: center;
   }
 
-  .project-title {
-    display: none;
+  .actions {
+    order: 3;
+    flex: 0 0 100%;
+    justify-content: space-between;
+    overflow-x: auto;
+    margin: 6px 0 0;
+  }
+
+  .actions button {
+    flex: 0 0 auto;
+    padding: 6px 7px;
+    font-size: 11px;
   }
 
   .workspace {

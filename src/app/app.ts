@@ -1,5 +1,13 @@
 import type { AppContext, AppView } from "./context.ts";
-import type { EngineRuntime, ProjectData, ResolvedUiElement, ToolEntry } from "../types/index.ts";
+import type {
+  EngineRuntime,
+  ProjectData,
+  ResolvedUiElement,
+  ResumedRuntime,
+  SaveRecord,
+  ToolEntry,
+} from "../types/index.ts";
+import { DEFAULT_SAVE_SLOT, SAVE_LIMITS, saveFileStem } from "../types/save.ts";
 import { bootRuntime } from "./boot.ts";
 import { bindEvents } from "./events.ts";
 import { queryDom, $all } from "./dom.ts";
@@ -36,6 +44,8 @@ import { render as renderDom } from "../ui/render.ts";
 import { runToolAction as runToolActionImpl, runUiAction as runUiActionImpl } from "../ui/actions.ts";
 import { exportPack as exportPackImpl, importPack as importPackImpl } from "../import-export/pack.ts";
 import { createToolRegistry } from "../engine/tool-state.ts";
+import { fromSnapshot, hashProjectSources, hashScenario, toSnapshot } from "../engine/save.ts";
+import { deleteSave, getSave, listSaves, parseSaveFile, putSave, serializeSaveFile } from "../project/save-storage.ts";
 import { AssetResolver } from "../project/assets.ts";
 import { AudioManager } from "../audio/manager.ts";
 
@@ -113,6 +123,11 @@ export function createApp(): AppContext {
     deleteProject,
     exportPack,
     importPack,
+    saveGame,
+    resumeSavedGame,
+    openSaveManager,
+    exportSave,
+    importSaveFile,
   };
   installEditorHarness(editor, () => app.syncEditor());
 
@@ -155,16 +170,20 @@ export function createApp(): AppContext {
    */
   let bootChain: Promise<void> = Promise.resolve();
 
-  function start(): Promise<void> {
+  function start(resume?: ResumedRuntime | null): Promise<void> {
     const generation = ++app.bootGeneration;
-    bootChain = bootChain.then(() => bootOnce(generation)).catch((error) => {
+    // Captured per call rather than read from a shared field when the boot
+    // finally runs: `bootChain` serializes boots, so a resume requested now
+    // must not leak into a later boot that a newer edit queued behind it.
+    const requested = resume ?? null;
+    bootChain = bootChain.then(() => bootOnce(generation, requested)).catch((error) => {
       dom.diagnostics.textContent = `● ${(error as Error).message}`;
       dom.diagnostics.style.color = "#ee7c78";
     });
     return bootChain;
   }
 
-  async function bootOnce(generation: number): Promise<void> {
+  async function bootOnce(generation: number, resume: ResumedRuntime | null): Promise<void> {
     const superseded = (): boolean => generation !== app.bootGeneration;
     app.project = normalizeProject(app.project);
     document.body.dataset.projectId = app.project.identity.id;
@@ -205,6 +224,8 @@ export function createApp(): AppContext {
       dom.decision.style.visibility = "hidden";
       dom.toolRail.replaceChildren();
       dom.modalHost.replaceChildren();
+      // Nothing to continue into: the scenario is empty, so the save it was made
+      // from cannot be resumed even though the slot may still exist.
       document.body.dataset.projectReady = "true";
       return;
     }
@@ -223,16 +244,33 @@ export function createApp(): AppContext {
       if (issues.length) {
         throw new Error(`Scenario problems: ${issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`);
       }
+      // A resumed save seeds the runtime before anything boots, so the entry
+      // script's conditionals and top-level `GameState.set` calls see the
+      // player's real progress instead of a fresh start.
+      //
+      // State is a merge, so a scenario that gained a key since the save still
+      // gets its authored default. Inventory deliberately is not: a starting item
+      // the player already consumed is absent from the save, so merging would
+      // hand it back on every resume.
       const runtime: EngineRuntime = {
-        location: scenario.startLocation,
-        state: { ...(scenario.state || {}), ...(scenario.player?.state || {}) },
-        inventory: [...(scenario.player?.inventory || [])],
-        events: [],
-        over: false,
-        ui: { hidden: new Set<string>(), overrides: {}, elements: [...(scenario.ui?.elements || [])] },
-        modals: { open: null, activePages: {} },
+        location: resume?.location || scenario.startLocation,
+        state: { ...(scenario.state || {}), ...(scenario.player?.state || {}), ...(resume?.state || {}) },
+        inventory: resume ? [...resume.inventory] : [...(scenario.player?.inventory || [])],
+        events: resume ? [...resume.events] : [],
+        droppedEvents: resume?.droppedEvents ?? 0,
+        over: resume?.over ?? false,
+        ui: resume
+          ? {
+            hidden: new Set(resume.ui.hidden),
+            overrides: { ...resume.ui.overrides },
+            elements: [...resume.ui.elements],
+          }
+          : { hidden: new Set<string>(), overrides: {}, elements: [...(scenario.ui?.elements || [])] },
+        modals: resume
+          ? { open: resume.modals.open, activePages: { ...resume.modals.activePages } }
+          : { open: null, activePages: {} },
         tools: createToolRegistry(scenario.tools || []),
-        conversation: null,
+        conversation: resume?.conversation ?? null,
         lua: null,
         canvasEngine: null,
         viewDirty: false,
@@ -282,6 +320,25 @@ export function createApp(): AppContext {
       // A newer boot has already replaced everything this one built; announcing
       // it ready now would report a state that is no longer the app's.
       if (superseded()) return;
+      if (resume) {
+        // Re-applied after boot rather than only seeded before it. An entry
+        // script that calls `GameState.set` at the top level would otherwise
+        // land the player back at the scenario's opening values, and `move` has
+        // just narrated the room on top of the transcript they left behind —
+        // restoring the entries last is what makes a resumed session read like
+        // the same session rather than a fresh one with a fresh prologue.
+        Object.assign(runtime.state, resume.state);
+        runtime.ui.overrides = { ...resume.ui.overrides };
+        runtime.ui.hidden = new Set(resume.ui.hidden);
+        runtime.ui.elements = [...resume.ui.elements];
+        runtime.tools = resume.tools;
+        runtime.modals = { open: resume.modals.open, activePages: { ...resume.modals.activePages } };
+        runtime.events = [...resume.events];
+        runtime.droppedEvents = resume.droppedEvents;
+        runtime.over = resume.over;
+        runtime.conversation = resume.conversation;
+        runtime.viewDirty = true;
+      }
       if (problems === 0) {
         dom.diagnostics.textContent = "● Ready";
         dom.diagnostics.style.color = "#7cbd9a";
@@ -292,6 +349,10 @@ export function createApp(): AppContext {
       document.body.dataset.projectReady = "true";
       dom.decision.style.visibility = "visible";
       render();
+      // After the boot settles: a switch to another project changes which slot
+      // Continue refers to, and asking before the scenario has composed would
+      // answer for the project being left rather than the one being entered.
+      await refreshActiveSave();
     } catch (error) {
       const message = (error as Error).message;
       dom.diagnostics.textContent = `● ${message}`;
@@ -594,6 +655,7 @@ export function createApp(): AppContext {
     renderFileTree();
     renderTabs();
     await start();
+    dom.projectOverlay.classList.add("hidden");
   }
 
   function exportPack(): void {
@@ -605,6 +667,203 @@ export function createApp(): AppContext {
 
   function importPack(file: File): Promise<void> {
     return importPackImpl(app, file);
+  }
+
+  // Saving -----------------------------------------------------------------
+  //
+  // One manual slot per project, keyed by project id, so a save belongs to the
+  // scenario it was made in. Resuming is always an explicit choice: nothing
+  // auto-resumes on boot, because a save that silently overwrites the author's
+  // current playtest buffer is worse than one extra click.
+
+  /** The active project's save, or null. Used for resume and import checks. */
+  let activeSave: SaveRecord | null = null;
+
+  async function refreshActiveSave(): Promise<void> {
+    activeSave = (await getSave(app.project.identity.id)) ?? null;
+  }
+
+  /**
+   * Identity of the authored content a save is made against.
+   *
+   * Every VFS source can affect composition or Lua behavior. Compared on resume
+   * to warn, never to refuse: the player decides whether to continue.
+   */
+  function scenarioHash(): string {
+    return hashProjectSources(app.project.vfs);
+  }
+
+  /** Existing saves used only the scenario entry file and main Lua script. */
+  function legacyScenarioHash(): string {
+    const scriptPath = app.scenario?.scripts?.main ?? "scripts/main.lua";
+    return hashScenario(app.project.vfs["scenario.yaml"] ?? "", app.project.vfs[scriptPath] ?? "");
+  }
+
+  function reportStatus(message: string, color: string): void {
+    dom.diagnostics.textContent = `● ${message}`;
+    dom.diagnostics.style.color = color;
+  }
+
+  async function saveGame(): Promise<boolean> {
+    if (!app.runtime) return false;
+    const snapshot = toSnapshot(app.runtime);
+    const record: SaveRecord = {
+      projectId: app.project.identity.id,
+      slot: DEFAULT_SAVE_SLOT,
+      savedAt: Date.now(),
+      location: snapshot.location,
+      scenarioVersion: app.project.identity.version,
+      scenarioHash: scenarioHash(),
+      snapshot,
+    };
+    try {
+      await putSave(record);
+    } catch (error) {
+      // Reported rather than thrown, and the previous save is left alone: a
+      // failed write — a full disk, a private-mode quota — must not cost the
+      // player the slot they already had.
+      reportStatus(`Save failed: ${(error as Error).message}`, "#ee7c78");
+      return false;
+    }
+    activeSave = record;
+    reportStatus("Saved", "#7cbd9a");
+    return true;
+  }
+
+  async function resumeSavedGame(slot: string = DEFAULT_SAVE_SLOT): Promise<void> {
+    const record = activeSave?.slot === slot ? activeSave : await getSave(app.project.identity.id, slot);
+    if (!record) {
+      reportStatus("There is no save for this scenario", "#d6a95c");
+      return;
+    }
+    const resumed = fromSnapshot(record.snapshot);
+    if (!resumed) {
+      reportStatus("That save could not be read", "#ee7c78");
+      return;
+    }
+    if (
+      record.scenarioHash && record.scenarioHash !== scenarioHash() &&
+      record.scenarioHash !== legacyScenarioHash()
+    ) {
+      const proceed = globalThis.confirm(
+        "This scenario has changed since the save was made. Resuming may leave the story in an odd place. Continue?",
+      );
+      if (!proceed) return;
+    }
+    await start(resumed);
+  }
+
+  /** Resume a save belonging to another project, switching to that project first. */
+  async function resumeSaveFor(projectId: string, slot: string): Promise<void> {
+    if (projectId !== app.project.identity.id) await loadProject(projectId);
+    dom.saveOverlay.classList.add("hidden");
+    // By slot rather than by project: the row that was clicked names one save,
+    // and there is nothing here that would stop a second slot existing later.
+    await resumeSavedGame(slot);
+  }
+
+  async function exportSave(projectId: string, slot: string = DEFAULT_SAVE_SLOT): Promise<void> {
+    const record = await getSave(projectId, slot);
+    if (!record) throw new Error("There is no save to export for that scenario.");
+    const project = await getProject(projectId);
+    const anchor = document.createElement("a");
+    const body = new Blob([serializeSaveFile(record)], { type: "application/json" });
+    anchor.href = URL.createObjectURL(body);
+    anchor.download = `${saveFileStem(project ? projectTitle(project) : record.location, record.savedAt)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(anchor.href);
+  }
+
+  /**
+   * Read a save file into the active project's slot.
+   *
+   * The file was exported from some other browser, so its `projectId` means
+   * nothing here: the record is re-keyed onto the project the player is in and
+   * the original is kept as provenance. The scenario-hash check on resume is
+   * what catches a file that belongs to a different story.
+   */
+  async function importSaveFile(file: File): Promise<void> {
+    if (file.size > SAVE_LIMITS.maxFileBytes) {
+      throw new Error(`That save file is too large (limit ${Math.round(SAVE_LIMITS.maxFileBytes / 1024)} KB).`);
+    }
+    const record = parseSaveFile(await file.text());
+    if (activeSave) {
+      const overwrite = globalThis.confirm(
+        `This scenario already has a save from ${new Date(activeSave.savedAt).toLocaleString()}. ` +
+          "Replace it with the imported one?",
+      );
+      if (!overwrite) return;
+    }
+    await putSave({
+      ...record,
+      projectId: app.project.identity.id,
+      slot: DEFAULT_SAVE_SLOT,
+      origin: { projectId: record.projectId, savedAt: record.savedAt },
+    });
+    await refreshActiveSave();
+    await openSaveManager();
+    reportStatus("Save imported", "#7cbd9a");
+  }
+
+  async function deleteSaveFor(projectId: string, slot: string): Promise<void> {
+    if (!globalThis.confirm("Delete this save? This cannot be undone.")) return;
+    await deleteSave(projectId, slot);
+    await refreshActiveSave();
+    await openSaveManager();
+  }
+
+  async function openSaveManager(): Promise<void> {
+    const [saves, projects] = await Promise.all([listSaves(), listProjects()]);
+    const titles = new Map(projects.map((project) => [project.identity.id, projectTitle(project)]));
+    dom.saveList.replaceChildren();
+    if (!saves.length) {
+      const empty = document.createElement("p");
+      empty.className = "project-card";
+      empty.textContent = "No saves yet. Play a scenario, then use Save in the header.";
+      dom.saveList.append(empty);
+    }
+    for (const record of saves) {
+      const row = document.createElement("article");
+      row.className = "project-card";
+      const heading = document.createElement("div");
+      const title = document.createElement("h3");
+      title.textContent = titles.get(record.projectId) ?? record.projectId;
+      const meta = document.createElement("p");
+      meta.textContent = `${record.location} — ${new Date(record.savedAt).toLocaleString()}`;
+      heading.append(title, meta);
+      if (record.origin) {
+        const origin = document.createElement("p");
+        origin.className = "save-origin";
+        origin.textContent = "Imported from another browser";
+        heading.append(origin);
+      }
+      if (record.projectId === app.project.identity.id) {
+        const active = document.createElement("strong");
+        active.className = "project-active";
+        active.textContent = "Active";
+        heading.prepend(active);
+      }
+      const actions = document.createElement("div");
+      const resume = document.createElement("button");
+      resume.type = "button";
+      resume.textContent = "Resume";
+      resume.onclick = () => void resumeSaveFor(record.projectId, record.slot);
+      const exportButton = document.createElement("button");
+      exportButton.type = "button";
+      exportButton.textContent = "Export";
+      exportButton.onclick = () =>
+        void exportSave(record.projectId, record.slot).catch((error) => {
+          reportStatus((error as Error).message, "#ee7c78");
+        });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Delete";
+      remove.onclick = () => void deleteSaveFor(record.projectId, record.slot);
+      actions.append(resume, exportButton, remove);
+      row.append(heading, actions);
+      dom.saveList.append(row);
+    }
+    dom.saveOverlay.classList.remove("hidden");
   }
 
   bindEvents(app);

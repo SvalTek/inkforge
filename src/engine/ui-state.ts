@@ -1,6 +1,6 @@
 import type { EngineRuntime, ResolvedUiElement, UiCommand, UiElement, UiField, UiOverride } from "../types/index.ts";
 import { asArray } from "../lua/boundary.ts";
-import { markViewDirty } from "./events.ts";
+import { markViewDirty, pushEvent } from "./events.ts";
 
 /**
  * Apply one UI command.
@@ -18,7 +18,7 @@ export function applyUi(command: UiCommand, runtime: EngineRuntime): void {
     for (const [id, props] of Object.entries(c.set)) {
       const override = props as UiOverride;
       runtime.ui.overrides[id] = { ...(runtime.ui.overrides[id] || {}), ...override };
-      runtime.events.push({ type: "ui:update", elementId: id });
+      pushEvent(runtime, { type: "ui:update", elementId: id });
     }
   }
   markViewDirty(runtime);
