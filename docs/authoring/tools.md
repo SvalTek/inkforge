@@ -89,6 +89,30 @@ one that is visible but unavailable — a menu entry that is greyed out rather t
 Hidden and disabled state is runtime state. A restart rebuilds the registry from `tools:` and from a fresh script load,
 so a tool hidden during play comes back.
 
+## `allowInConversation`
+
+Whether this tool stays in the rail while a [conversation](conversations.md) is running. Defaults to `true`; set it to
+`false` to withdraw the tool for the duration:
+
+```yaml
+tools:
+  - id: notebook
+    label: Notebook
+    allowInConversation: false
+    action: open_notebook
+```
+
+A conversation hides it through the ordinary hidden state rather than through anything of its own, so `GameTools.show`
+brings it straight back — which is how a script offers it for one exchange that needs it:
+
+```lua
+GameTools.show("notebook")   -- and it stays gone once the conversation ends
+```
+
+`disable` is the other half: it leaves the tool visible and unclickable, where `allowInConversation` takes it out of the
+rail entirely. See [ui.md](ui.md#allowinconversation) for the full rule — it is the same key on all three player-facing
+surfaces, and the engine does not guess which ones ought to be withdrawn.
+
 ## Ordering
 
 Tools appear in the order they are registered — `tools:` entries in authored order, then anything a script registers as

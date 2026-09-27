@@ -31,6 +31,15 @@ export function normalizeTool(value: unknown): ToolDefinition {
       : { icon: typeof candidate.icon === "string" ? candidate.icon : { ...candidate.icon } }),
     ...(candidate.modal === undefined ? {} : { modal: candidate.modal }),
     ...(candidate.action === undefined ? {} : { action: candidate.action }),
+    // Picked explicitly like every other field, and that is the point: this function
+    // silently drops anything it does not name, so an `allowInConversation` that was
+    // not carried here would leave tools permanently in the rail during a conversation
+    // and nothing would say why. Only a real `false` withdraws, matching the render's
+    // own reading; authored YAML is checked for a proper boolean in `validateScenario`,
+    // and a tool registered from Lua reaches here with whatever the script passed.
+    ...(candidate.allowInConversation === undefined
+      ? {}
+      : { allowInConversation: candidate.allowInConversation !== false }),
   };
 }
 

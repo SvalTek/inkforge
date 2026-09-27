@@ -11,6 +11,7 @@ import type {
 import { itemName } from "../engine/directives.ts";
 import { settleConversation } from "../engine/conversation.ts";
 import { uiElement } from "../engine/ui-state.ts";
+import { itemActionId } from "../engine/item-action-state.ts";
 import { $all } from "../app/dom.ts";
 import { renderModals } from "./modals.ts";
 import { renderTools } from "./tools.ts";
@@ -105,21 +106,6 @@ function choiceButton(choice: AvailableAction): HTMLButtonElement {
   else button.dataset.cmd = choice.cmd;
   button.textContent = choice.text;
   return button;
-}
-
-/**
- * Whether activating this element routes through `dispatch`, and is therefore refused
- * while a conversation is running.
- *
- * Mirrors the one branch of `runUiAction` that reaches `dispatch`. The other branches
- * — `instructions` to `execute`, `callback` to Lua, and the modal/inventory/audio ones
- * to their own handlers — do not consult the conversation and keep working throughout.
- * Reading this from the same shape `runUiAction` reads is what keeps the two from
- * disagreeing about which controls are live.
- */
-function dispatchesCommand(element: ResolvedUiElement): boolean {
-  const action = element.events?.activate || element.actions?.activate;
-  return action?.type === "command";
 }
 
 function eventRow(event: EngineEvent, scenario: Scenario | null): HTMLDivElement {
@@ -276,7 +262,8 @@ export function inspectItem(app: AppContext, slot: number): void {
   const actions = app.runtime?.over
     ? []
     : (definition.actions || []).filter((action) =>
-      app.engine?.check(action.if, itemActionContext(id, definitionId, action.id)) ?? true
+      (app.engine?.check(action.if, itemActionContext(id, definitionId, action.id)) ?? true) &&
+      !app.runtime?.items.hidden.has(itemActionId(definitionId, action.id))
     );
   dom.itemActions.replaceChildren(...actions.map((action) => {
     const button = document.createElement("button");
@@ -360,24 +347,7 @@ export function renderUi(app: AppContext): void {
   const sidebar = elements.filter((element) => element.location === "sidebar");
   const hud = elements.filter((element) => element.location === "hud");
   const surfaces = elements.filter((element) => element.location === "canvas");
-  // `output` is the story surface, and a conversation owns the choice list and the
-  // command box there. The question is which authored inline controls it owns too.
-  //
-  // Only the ones that would be inert: `runUiAction` sends just `type: "command"` to
-  // `dispatch`, and `dispatch` refuses while a conversation is running, so a `look`
-  // button would sit on screen mid-exchange looking answerable and doing nothing.
-  // Everything else keeps working and is not ours to remove — an `instructions` button
-  // runs directives, and a `callback` button calls Lua, which is how
-  // `GameConversations.finish()` is reachable from the UI at all. Hiding those would
-  // have made ending a conversation from outside it impossible to trigger, which is the
-  // one thing a conversation most needs a way to do.
-  //
-  // The sidebar, HUD and canvas surfaces are chrome and instrumentation either way:
-  // reading a meter, or opening the inventory to check a lamp you are carrying, is not
-  // walking away from somebody mid-sentence.
-  const outputElements = elements.filter((element) =>
-    element.location === "output" && !(runtime.conversation && dispatchesCommand(element))
-  );
+  const outputElements = elements.filter((element) => element.location === "output");
   dom.surfaceHeader.replaceChildren(...sidebar.filter((element) => element.type === "button").map(uiButton));
   dom.gameHud.replaceChildren(...hud.filter((element) => element.type === "meter").map(meterRow));
   const outputNodes: HTMLElement[] = [];

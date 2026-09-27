@@ -113,6 +113,7 @@ export function toSnapshot(runtime: EngineRuntime): SaveSnapshot {
     },
     tools: [...runtime.tools.entries.values()],
     modals: { open: runtime.modals.open, activePages: { ...runtime.modals.activePages } },
+    items: { hidden: [...runtime.items.hidden] },
     conversation: runtime.conversation,
   };
 }
@@ -288,6 +289,7 @@ export function fromSnapshot(value: unknown): ResumedRuntime | null {
     },
     tools: readTools(source.tools),
     modals: readModals(source.modals),
+    items: { hidden: new Set(asStringArray(asObject(source.items)?.hidden)) },
     conversation: readConversation(source.conversation),
   };
 }

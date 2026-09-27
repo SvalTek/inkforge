@@ -109,6 +109,7 @@ worse than an error.
 | Empty condition | At load — `condition is empty` |
 | `and:` or `or:` that is not a list | At load — `'and' must be a list of conditions` |
 | A condition that is not an object at all | At load — `condition must be an object` |
+| `allowInConversation` written as anything but `true`/`false` | At load — `allowInConversation must be true or false`. The render reads it as "not false", so any other value would quietly mean the opposite of what was written |
 | Comparison without a `var` | At load — `comparison needs a 'var' to compare against` |
 | Unknown directive key | At load — `unrecognised directive [...] — nothing will happen` |
 | A directive that is neither a string nor an object | At load |

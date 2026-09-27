@@ -113,23 +113,41 @@ with an unrecognised `type` and a `callback` runs the callback. An unrecognised 
 `command` is the useful one for simple cases — `look`, a direction, or `@action` all work, because it goes through the
 same dispatcher the command line uses.
 
-### During a conversation
+## `allowInConversation`
 
-A [conversation](conversations.md) owns the choice list and hides the command box, because the player is answering
-somebody rather than typing. It also hides any `output`-region button whose activation is `command` — a command
-dispatched mid-exchange is refused by the engine, so the button would sit there looking answerable and doing nothing.
+Whether this element stays on screen while a [conversation](conversations.md) is running. Defaults to `true`, so an
+existing project changes nothing. Set it to `false` to withdraw the element for the duration:
 
-The other activation types are **not** hidden, and the distinction is whether the control would actually be inert:
+```yaml
+elements:
+  - id: examine_entry
+    type: button
+    location: output
+    allowInConversation: false
+    fields:
+      - { id: label, type: text, value: Examine the threshold }
+    events:
+      activate: { type: command, command: look }
+```
 
-| Hidden during a conversation | Still shown |
-|---|---|
-| `command` | `instructions` — its directives still run |
-| | `callback` — Lua still runs |
-| | `inventory.open`, `modal.*`, `audio.*` |
+The same key works on [tools](tools.md#allowinconversation) and on
+[item actions](scenario.md#item-actions).
 
-This matters most for `callback`: `GameConversations.finish()` is how a conversation gets ended from outside it, so a
-button that can reach Lua is the one control that most needs to survive. Hiding those would have made it impossible to
-trigger. The sidebar, HUD and canvas regions are never affected.
+**The engine does not guess.** There is no rule that infers which elements ought to be withdrawn — not from the region,
+not from the activation type. A `callback` button is perfectly live mid-conversation and can be exactly what should not
+be there; so can a meter. Only you know which is which, and the engine cannot tell a look-around button from one that
+hands somebody a potion.
+
+**It is the ordinary hide state.** A conversation sets it the same way `GameUI.hide` would, which is the whole point:
+`GameUI.show`, `GameTools.show` and `GameItemActions.show` address the same state, so a script can bring a surface back
+for one exchange if it needs to, and a save records it. Nothing here is a second, parallel notion of "shown".
+
+**Withdrawing is not disabling.** A hidden element is still there, still has its directives, and can still be driven by
+a `call:` or a directive. What changes is what the player is offered. A timer that needs to hand the player a lamp
+should not have to care whether somebody is mid-sentence.
+
+If you withdraw something the player needs in order to finish the conversation, that is a soft-lock in your own
+scenario — the conversation's own options are the only way out, and nothing else is on offer.
 
 ## Modals
 

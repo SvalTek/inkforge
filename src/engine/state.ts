@@ -1,5 +1,6 @@
 import type { EngineRuntime, ExecutionContext, Scenario } from "../types/index.ts";
 import { markViewDirty, pushEvent } from "./events.ts";
+import { restoreExcludedSurfaces } from "./withdraw.ts";
 
 /**
  * State, inventory and location mutations.
@@ -117,6 +118,11 @@ export function setLocation(runtime: EngineRuntime, id: string): void {
 export function endRun(runtime: EngineRuntime): void {
   runtime.over = true;
   runtime.conversation = null;
+  // The run is over, so it is no longer a conversation, and whatever that conversation
+  // was withholding has to come back — this sets `conversation` directly rather than
+  // going through `endConversation`, so nothing else would hand it back. Harmless when
+  // nothing is outstanding, which is the usual case.
+  restoreExcludedSurfaces(runtime);
   pushEvent(runtime, { type: "game:over" });
   markViewDirty(runtime);
 }

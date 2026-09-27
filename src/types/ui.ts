@@ -51,6 +51,26 @@ export interface UiElement {
   actions?: Record<string, UiActivation>;
   accessibleLabel?: string;
   if?: Condition;
+  /**
+   * Whether this element stays on screen while a conversation is running.
+   *
+   * Defaults to true, so an existing project changes nothing and no element has to opt
+   * in. Set it to `false` to withdraw an element for the duration of an exchange.
+   *
+   * There is deliberately no engine-side guess about which elements *ought* to be
+   * withdrawn. An earlier attempt inferred it from the activation type — hide the ones
+   * that dispatch a command, since those are the ones `dispatch` refuses — and that
+   * answered a different question than the author's. A `callback` button is perfectly
+   * live mid-conversation and can be exactly what should not be there; so can a meter
+   * or a sidebar control. Only the author knows which is which, and the same reasoning
+   * does not extend to elements no engine rule was written for.
+   *
+   * The element is dropped from the render, not hidden, so an `if` condition on it
+   * still decides it on every other turn. An author who wants one back for a specific
+   * conversation can `GameUI.show` it from that conversation's directives, which is
+   * why the key does not have to be more expressive than a boolean.
+   */
+  allowInConversation?: boolean;
 }
 
 /** Override fields: a replacement field list or an id-to-value map. */
@@ -79,4 +99,17 @@ export interface UiRuntimeState {
   hidden: Set<string>;
   overrides: UiOverrideMap;
   elements: UiElement[];
+}
+
+/**
+ * Which authored item actions are currently withheld (`runtime.items`).
+ *
+ * A tool has `hidden` and a UI element has the `ui.hidden` set, so an item action needed
+ * a state of its own rather than being smuggled into one of those under a namespaced key.
+ * It is keyed by `itemActionId` — `<definitionId>.<actionId>` — because that is the
+ * identity the flag is authored against, and the one an author can read off their own
+ * definition.
+ */
+export interface ItemActionRuntimeState {
+  hidden: Set<string>;
 }

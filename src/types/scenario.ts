@@ -37,6 +37,12 @@ export interface ItemAction {
   label?: string;
   if?: Condition;
   then?: DirectiveList;
+  /**
+   * Whether the action is offered in the inventory inspector while a conversation is
+   * running. Defaults to true; `false` withdraws it for the duration. Display only —
+   * Lua can still run it. See {@link shownDuringConversation}.
+   */
+  allowInConversation?: boolean;
 }
 
 /** A placed instance of a definition, referenced by `def`. */

@@ -185,6 +185,20 @@ export const LUA_API_MANIFEST: readonly LuaApiNamespace[] = [
     ],
   },
   {
+    name: "GameItemActions",
+    call: ".",
+    summary: "Withholding the actions offered on an item in the inventory inspector.",
+    members: [
+      {
+        name: "hide",
+        args: "(id)",
+        summary: "Hide an item action. The id is `'<definitionId>.<actionId>'`, as authored.",
+        template: '("${1:lantern.pick_up}", ',
+      },
+      { name: "show", args: "(id)", summary: "Show an item action that was hidden." },
+    ],
+  },
+  {
     name: "GameAudio",
     call: ".",
     summary: "Sound.",

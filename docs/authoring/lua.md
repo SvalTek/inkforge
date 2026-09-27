@@ -102,6 +102,7 @@ appears further down the file.
 | `GameConversations` | Starting and ending a conversation |
 | `GameUI` | Creating and changing UI elements |
 | `GameTools` | The tool rail |
+| `GameItemActions` | Withholding the actions offered on an item |
 | `GameAudio` | Sound |
 | `GameCanvas` | Scenes, nodes, animations |
 | `timers` | `setTimeout`, `setInterval`, `clearAll`, `activeCount` |
@@ -224,6 +225,20 @@ GameTools.remove("lua_tool")
 ```
 
 See [Tools](tools.md).
+
+### `GameItemActions`
+
+```lua
+GameItemActions.hide("lantern.pick_up")
+GameItemActions.show("lantern.pick_up")
+```
+
+Withholds the item actions offered in the inventory inspector. The id is `'<definitionId>.<actionId>'`, as authored — the
+action belongs to the kind of thing, not to one copy in the pack, so every instance of `lantern` is affected.
+
+This is the same hidden state a [conversation](conversations.md) uses, so a script can hand a surface back for one
+exchange that needs it. Hiding is not disabling: a hidden action is still reachable from a `call:` or a directive.
+See [ui.md](ui.md#allowinconversation).
 
 ### `GameAudio`
 

@@ -176,11 +176,12 @@ The player is *in* the conversation, and that changes four things:
   offered, so there is no way to walk away in the middle of an exchange.
 - **The command box is hidden.** Typing `north` into the middle of a conversation is
   not a thing a player means, so the input is removed rather than left to fail.
-- **Inline `command` buttons are hidden.** An authored button in the `output` region
-  that dispatches a command would be refused by the engine, so it would sit on screen
-  looking answerable and doing nothing. Buttons that run directives or call Lua still
-  work — which is what keeps `GameConversations.finish()` reachable from the UI. See
-  [during a conversation](ui.md#during-a-conversation).
+- **Surfaces you withdrew are hidden.** Any UI element, tool or item action marked
+  `allowInConversation: false` is hidden for the duration — a look-around button has no
+  business in the middle of an exchange. It is your call, not the engine's guess, and a
+  script can put one back with `GameUI.show` / `GameTools.show` / `GameItemActions.show`
+  if a particular conversation needs it. See
+  [`allowInConversation`](ui.md#allowinconversation).
 - **The transcript accumulates.** Spoken lines are ordinary output, so taking an
   option *appends* rather than replacing what is on screen. The whole exchange stays
   readable afterwards, the same way an item action's output does. See

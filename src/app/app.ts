@@ -61,6 +61,7 @@ import { fromSnapshot, hashProjectSources, hashScenario, toSnapshot } from "../e
 import { npcInstanceDefaults } from "../engine/state.ts";
 import { createDirectiveDeps } from "../engine/directives.ts";
 import { nodeHasAvailableOption } from "../engine/conversation.ts";
+import { withdrawExcludedSurfaces } from "../engine/withdraw.ts";
 import { deleteSave, getSave, listSaves, parseSaveFile, putSave, serializeSaveFile } from "../project/save-storage.ts";
 import { AssetResolver } from "../project/assets.ts";
 import { AudioManager } from "../audio/manager.ts";
@@ -315,6 +316,7 @@ export function createApp(): AppContext {
           ? { open: resume.modals.open, activePages: { ...resume.modals.activePages } }
           : { open: null, activePages: {} },
         tools: createToolRegistry(scenario.tools || []),
+        items: { hidden: new Set(resume?.items.hidden || []) },
         conversation: resume?.conversation ?? null,
         lua: null,
         canvasEngine: null,
@@ -418,6 +420,11 @@ export function createApp(): AppContext {
             );
           }
         }
+        // A resumed conversation is a live one. The saved position has just been
+        // settled, and if it survived, the surfaces it would have withdrawn never were —
+        // withdrawal happens when a conversation *starts*, and a resumed one did not
+        // start here. Without this the resumed run is the single case that shows them.
+        if (runtime.conversation) withdrawExcludedSurfaces(runtime, scenario);
         runtime.viewDirty = true;
       }
       if (problems === 0) {

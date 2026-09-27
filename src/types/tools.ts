@@ -10,6 +10,12 @@ export interface ToolDefinition {
   icon?: ToolIcon;
   modal?: string;
   action?: string;
+  /**
+   * Whether the tool stays in the rail while a conversation is running. Defaults to
+   * true; `false` withdraws it for the duration. Display only — Lua can still run it.
+   * See {@link shownDuringConversation}.
+   */
+  allowInConversation?: boolean;
 }
 
 /** A discrete authored window model with a recursive UI element tree. */

@@ -43,6 +43,7 @@ function runtimeFixture(): EngineRuntime {
       elements: [{ id: "meter", type: "meter" }],
     },
     modals: { open: "notes", activePages: { notes: "page_two" } },
+    items: { hidden: new Set(["lantern.pick_up"]) },
     tools: {
       entries: new Map([
         ["lantern", { definition: { id: "lantern", label: "Lantern" }, hidden: true, disabled: false, source: "lua" }],
@@ -101,6 +102,10 @@ assert(restored.tools.entries.get("lantern")?.hidden === true, "tool state survi
 assert(restored.tools.entries.get("lantern")?.source === "lua", "tool provenance survives");
 assert(restored.modals.open === "notes" && restored.modals.activePages.notes === "page_two", "modal state survives");
 assert(
+  restored.items.hidden instanceof Set && restored.items.hidden.has("lantern.pick_up"),
+  "withheld item actions survive the round trip",
+);
+assert(
   restored.conversation?.id === "keeper_intro" && restored.conversation?.nodeId === "greeting",
   "a conversation position survives",
 );
@@ -137,6 +142,7 @@ assert(malformedEvents[0].type === "output" && malformedEvents[0].kind === "norm
 assert(malformedEvents[1].type === "game:over", "valid payload-free events survive");
 assert(partial.inventory.length === 0, "a missing inventory is empty, not undefined");
 assert(partial.ui.hidden.size === 0, "a missing `hidden` is an empty Set");
+assert(partial.items.hidden.size === 0, "a missing item-action `hidden` is an empty Set");
 assert(partial.ui.overrides !== null, "missing overrides are an object");
 assert(partial.droppedEvents === 0, "a negative or non-numeric drop count is not trusted");
 assert(fromSnapshot({ droppedEvents: -5 })?.droppedEvents === 0, "a negative drop count is not trusted");

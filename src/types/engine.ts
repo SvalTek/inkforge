@@ -3,7 +3,7 @@ import type { CanvasHost } from "./canvas.ts";
 import type { EngineEvent, OutputKind } from "./events.ts";
 import type { Condition, DirectiveList, Scenario } from "./scenario.ts";
 import type { ModalRuntimeState, ToolRegistry } from "./tools.ts";
-import type { UiCommand, UiRuntimeState } from "./ui.ts";
+import type { ItemActionRuntimeState, UiCommand, UiRuntimeState } from "./ui.ts";
 
 /** Where the player currently is in a conversation. */
 export interface ConversationState {
@@ -29,6 +29,7 @@ export interface EngineRuntime {
   droppedEvents: number;
   over: boolean;
   ui: UiRuntimeState;
+  items: ItemActionRuntimeState;
   modals: ModalRuntimeState;
   tools: ToolRegistry;
   /**

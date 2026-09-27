@@ -4,6 +4,7 @@ import type { AudioManagerLike } from "../types/audio.ts";
 import type { UiCommand } from "../types/ui.ts";
 import type { Scenario } from "../types/scenario.ts";
 import { registerTool, removeTool, setToolDisabled, setToolHidden } from "../engine/tool-state.ts";
+import { setItemActionHidden } from "../engine/item-action-state.ts";
 import type { DirectiveDeps } from "../engine/directives.ts";
 import { endConversation, startConversation } from "../engine/conversation.ts";
 import { setState } from "../engine/state.ts";
@@ -146,6 +147,20 @@ export function createHostNamespaces(host: LuaHostBindings): Record<string, LuaC
       })
       .method("disable", (id: unknown) => {
         setToolDisabled(runtime.tools, String(id), true);
+        markViewDirty(runtime);
+      })
+      .readonly(),
+
+    // The third player-facing trigger surface. It needed a class of its own rather than
+    // a pair of methods on `GameItems`, which is readonly and about reading authored
+    // item data — mutation is a different concern, and hiding an action is not a read.
+    GameItemActions: new LuaClass({ name: "GameItemActions" })
+      .method("hide", (id: unknown) => {
+        setItemActionHidden(runtime.items, String(id), true);
+        markViewDirty(runtime);
+      })
+      .method("show", (id: unknown) => {
+        setItemActionHidden(runtime.items, String(id), false);
         markViewDirty(runtime);
       })
       .readonly(),

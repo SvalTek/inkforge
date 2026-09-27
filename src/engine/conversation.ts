@@ -11,6 +11,7 @@ import type {
 import { check } from "./conditions.ts";
 import { type DirectiveDeps, execute } from "./directives.ts";
 import { markViewDirty } from "./events.ts";
+import { restoreExcludedSurfaces, withdrawForConversation } from "./withdraw.ts";
 
 /**
  * The conversation state machine.
@@ -49,6 +50,9 @@ export function inConversation(runtime: EngineRuntime): boolean {
 export function endConversation(runtime: EngineRuntime): void {
   if (runtime.conversation === null) return;
   runtime.conversation = null;
+  // Before the dirty mark, because handing surfaces back can change what the paint
+  // shows and the mark should cover the state that paint will read.
+  restoreExcludedSurfaces(runtime);
   markViewDirty(runtime);
 }
 
@@ -302,6 +306,14 @@ export function startConversation(id: string, deps: DirectiveDeps, context?: Exe
     return;
   }
   enterNode(id, conversation.start, deps, context);
+  // The one place a conversation *begins*. Not in `enterNode`, which is also reached
+  // when an option advances to the next node — withdrawing there would hand every
+  // surface back and take it again on each step through an exchange.
+  //
+  // After the entry, not before: `enterNode` may end the conversation itself, on an
+  // unknown node or a terminal one, and withdrawing for a conversation that is already
+  // over would leave surfaces hidden with nothing left to hand them back.
+  if (inConversation(deps.runtime)) withdrawForConversation(deps.runtime, deps.getScenario());
 }
 
 /**

@@ -23,6 +23,9 @@ elements:
   - id: examine_entry
     type: button
     location: output
+    # Look around is a thing you do in a room, not in the middle of an exchange, so it
+    # steps aside while Rowan is talking. Everything else stays visible by default.
+    allowInConversation: false
     fields:
       - { id: label, type: text, value: Examine the threshold }
     events:

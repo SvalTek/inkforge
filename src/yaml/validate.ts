@@ -23,7 +23,7 @@ export const CONDITION_KEYS = [
 
 const CONDITION_KEY_SET = new Set<string>(CONDITION_KEYS);
 const DIRECTIVE_KEY_SET = new Set<string>(DIRECTIVE_KEYS);
-const ITEM_ACTION_KEY_SET = new Set(["id", "label", "if", "then"]);
+const ITEM_ACTION_KEY_SET = new Set(["id", "label", "if", "then", "allowInConversation"]);
 const DIALOGUE_LINE_KEY_SET = new Set(["speaker", "text", "if"]);
 const CONVERSATION_OPTION_KEY_SET = new Set(["id", "text", "if", "then", "next", "talk"]);
 
@@ -190,6 +190,20 @@ function checkDirectives(
   });
 }
 
+/**
+ * `allowInConversation` must be a boolean where it is present.
+ *
+ * Checked because the render reads it as `!== false`, so anything else — a quoted
+ * `"false"`, a number, a typo'd key that happens to land as a string — would quietly
+ * mean the opposite of what was written. The failure is invisible in the sense that
+ * matters: the element stays on screen and nothing says why.
+ */
+function checkAllowInConversation(value: unknown, path: string, issues: ValidationIssue[]): void {
+  if (value !== undefined && typeof value !== "boolean") {
+    issues.push({ path, message: "allowInConversation must be true or false" });
+  }
+}
+
 function checkItemAction(
   action: unknown,
   path: string,
@@ -212,6 +226,7 @@ function checkItemAction(
   if (value.label !== undefined && typeof value.label !== "string") {
     issues.push({ path: `${path}.label`, message: "item action label must be a string" });
   }
+  checkAllowInConversation(value.allowInConversation, `${path}.allowInConversation`, issues);
   checkCondition(value.if as Condition | undefined, `${path}.if`, issues, scope, true);
   checkDirectives(value.then as DirectiveList | undefined, `${path}.then`, issues, scope, true);
 }
@@ -559,11 +574,19 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
 
   walkAllUiElements(scenario, (element, path) => {
     checkCondition(element.if, `${path}.if`, issues, scope);
+    checkAllowInConversation(element.allowInConversation, `${path}.allowInConversation`, issues);
     for (const [source, bindings] of [["events", element.events], ["actions", element.actions]] as const) {
       for (const [slot, binding] of Object.entries(bindings || {})) {
         checkDirectives(binding?.then, `${path}.${source}.${slot}.then`, issues, scope);
       }
     }
+  });
+
+  // Tools are otherwise unvalidated, which is a gap of its own and not one to open
+  // here. This is here because the key was just added and the read is a strict
+  // comparison — the one place a typo would be invisible.
+  (scenario.tools || []).forEach((tool, index) => {
+    checkAllowInConversation(tool?.allowInConversation, `tools.${index}.allowInConversation`, issues);
   });
 
   return issues;

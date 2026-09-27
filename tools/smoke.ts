@@ -289,6 +289,7 @@ function engineRuntimeFixture(location: string): EngineRuntime {
     over: false,
     ui: { hidden: new Set(), overrides: {}, elements: [] },
     modals: { open: null, activePages: {} },
+    items: { hidden: new Set() },
     tools: { entries: new Map() },
     conversation: null,
     lua: null,
@@ -2576,10 +2577,14 @@ instances:
   npc:
     hall_keeper:
       def: keeper
+  item:
+    satchel_bag:
+      def: satchel
 locations:
   hall:
     text: "A lamp burns low along the wall."
     npcs: [hall_keeper]
+    items: [satchel_bag]
     actions:
       - id: greet
         label: Greet the keeper
@@ -2603,9 +2608,17 @@ locations:
           - "The bell answers once, somewhere below."
 ui:
   elements:
+    - id: open_pack
+      type: button
+      location: sidebar
+      fields:
+        - { id: label, type: text, value: Inventory }
+      events:
+        activate: { type: inventory.open, title: Inventory }
     - id: look_around_again
       type: button
       location: output
+      allowInConversation: false
       fields:
         - { id: label, type: text, value: "Look around again" }
       events:
@@ -2631,6 +2644,20 @@ ui:
         - { id: label, type: text, value: "Finish from Lua" }
       events:
         activate: { callback: "finish_from_lua" }
+    - id: show_notebook
+      type: button
+      location: output
+      fields:
+        - { id: label, type: text, value: "Fetch the notebook" }
+      events:
+        activate: { callback: "show_notebook_again" }
+    - id: show_rifle
+      type: button
+      location: output
+      fields:
+        - { id: label, type: text, value: "Feel for the false bottom" }
+      events:
+        activate: { callback: "show_rifle_again" }
 conversations:
   ambient_talk:
     discoverable: true
@@ -2708,6 +2735,29 @@ conversations:
           - speaker: hall_keeper
             if: { npcVar: hall_keeper.trust, gte: 4 }
             text: "Rowan. It is Rowan."
+definitions:
+  item:
+    satchel:
+      name: Satchel
+      description: "A worn bag with a false bottom."
+      actions:
+        - id: rifle
+          label: "Check the false bottom"
+          allowInConversation: false
+          then:
+            - "Something heavy, wrapped in oilcloth."
+        - id: tally
+          label: "Count the nails"
+          then:
+            - "Eleven. You were sure it was twelve."
+tools:
+  - id: notebook
+    label: Notebook
+    allowInConversation: false
+    action: open_notebook
+  - id: compass
+    label: Compass
+    action: open_compass
 `),
           "scripts/main.lua": new TextEncoder().encode(`keeper = {}
 
@@ -2726,6 +2776,27 @@ end
 function finish_from_lua()
   GameConversations.finish()
 end
+
+function open_notebook()
+  GameOutput.add("The notebook is open. Nothing to be done about that here.")
+end
+
+function open_compass()
+  GameOutput.add("The needle settles on the passage behind you.")
+end
+
+-- A conversation hid these through the same state a script addresses, so a script can
+-- put them back for the exchange that needs them. Nothing here is conversation-aware:
+-- the flag only ever touched a hidden set, which is why \`show\` can undo it.
+function show_notebook_again()
+  GameTools.show("notebook")
+  GameOutput.add("You dig the notebook back out.")
+end
+
+function show_rifle_again()
+  GameItemActions.show("satchel.rifle")
+  GameOutput.add("You take the false bottom in your hands.")
+end
 `),
         },
       };
@@ -2736,6 +2807,12 @@ end
         await page.locator("#heroCommand").isVisible(),
         "the command box was hidden before any conversation ran",
       );
+
+      // The satchel is here for the item-action surface, which is the third player-facing
+      // place a trigger can come from. Taken now rather than later so its "Take" choice
+      // is gone before any assertion reads the room's list.
+      await page.locator("#heroChoices button", { hasText: "Take Satchel" }).click();
+      await waitForText(page, "#terminal", "Taken: Satchel.");
 
       // Presence-driven: the offer exists because the NPC is in the room, with no
       // action written to start it, and its label is built from the NPC's name.
@@ -2803,24 +2880,69 @@ end
         !(await page.locator("#commandForm").isVisible()),
         "the author run panel's command box stayed visible during a conversation",
       );
-      // Authored inline controls on the same story surface as the two above, and a
-      // conversation owns the ones it can actually use. The distinction is not "any
-      // inline control" — it is the ones that would be inert.
+      // `allowInConversation: false` withdraws a surface for the duration. It is the
+      // author's call, not a guess from the activation type: an earlier attempt inferred
+      // "hide the ones that dispatch a command", which is a different question, and that
+      // kept a perfectly live `callback` button on screen that had no business there.
+      // The three surfaces a player can click are each checked below, because getting
+      // only one of them right is how the last attempt shipped.
       assert(
         (await page.locator('#uiOutput [data-ui="look_around_again"]').count()) === 0,
-        "a `command` button stayed on screen during a conversation, where dispatch refuses it and it does nothing",
+        "a UI element marked allowInConversation: false stayed on screen during a conversation",
       );
-      // And the ones that still work stay. `finish_from_lua` is the strongest case for
-      // this: ending a conversation from outside it is the one thing a conversation
-      // most needs a way to do, and it is reached by exactly this kind of control.
+      // Absent means shown, so nothing opts in and an existing project is unaffected.
+      // `finish_from_lua` is the load-bearing case: it is how a conversation gets ended
+      // from outside it, and an author must not have to special-case their way to it.
       assert(
         (await page.locator('#uiOutput [data-ui="finish_from_lua"]').count()) === 1,
-        "a `callback` button was hidden during a conversation, making GameConversations.finish() unreachable from the UI",
+        "a UI element with no allowInConversation key was hidden during a conversation",
+      );
+      // A tool, which is a separate surface with its own rail and was not covered at all
+      // by the first attempt.
+      assert(
+        (await page.locator('#toolRail [data-tool="notebook"]').count()) === 0,
+        "a tool marked allowInConversation: false stayed in the rail during a conversation",
       );
       assert(
-        (await page.locator('#uiOutput [data-ui="shut_gate"]').count()) === 1,
-        "an `instructions` button was hidden during a conversation, though its directives still run",
+        (await page.locator('#toolRail [data-tool="compass"]').count()) === 1,
+        "a tool with no allowInConversation key was hidden during a conversation",
       );
+      // The point of hiding through each surface's own state rather than through a render
+      // filter: the rest of the engine can see it and undo it. `GameTools.show` clears the
+      // same flag the conversation set, so a script can bring one back for the exchange
+      // that needs it. A filter would have made this impossible without a second concept
+      // of "shown", which is what the first attempt built.
+      await page.locator('#uiOutput [data-ui="show_notebook"]').click();
+      await waitForText(page, "#terminal", "You dig the notebook back out");
+      assert(
+        (await page.locator('#toolRail [data-tool="notebook"]').count()) === 1,
+        "a script could not bring a withdrawn tool back for the conversation that wants it",
+      );
+      // And the inventory, a third surface with a state of its own, reached through the
+      // inspector rather than the rail.
+      await page.locator('[data-ui="open_pack"]').click();
+      await page.locator('[data-slot="0"]').click();
+      assert(
+        (await page.locator('[data-item-action="rifle"]').count()) === 0,
+        "an item action marked allowInConversation: false was still offered during a conversation",
+      );
+      assert(
+        (await page.locator('[data-item-action="tally"]').count()) === 1,
+        "an item action with no allowInConversation key was hidden during a conversation",
+      );
+      // The same override for the third surface, through the class added for it. The
+      // trigger has to be clicked with the overlay closed — it lives in the output strip
+      // behind it — so the sequence is close, trigger, reopen, check.
+      await page.locator("#closeInventory").click();
+      await page.locator('[data-ui="show_rifle"]').click();
+      await waitForText(page, "#terminal", "You take the false bottom");
+      await page.locator('[data-ui="open_pack"]').click();
+      await page.locator('[data-slot="0"]').click();
+      assert(
+        (await page.locator('[data-item-action="rifle"]').count()) === 1,
+        "a script could not bring a withdrawn item action back mid-conversation",
+      );
+      await page.locator("#closeInventory").click();
       await page.locator("#heroChoices button", { hasText: "What is your name?" }).click();
       await waitForText(page, "#terminal", "[talking: hall_talk/opening]");
       await waitForText(page, "#terminal", "A name is a thing you are given.");
@@ -2859,13 +2981,24 @@ end
         await page.locator("#heroCommand").isVisible(),
         "the command box did not come back after the conversation ended",
       );
-      // The inline controls come back with the room. Asserted here rather than trusted,
-      // because the failure mode of a fix like this is not "they stay visible" but
-      // "they never come back" — which is a quieter and more permanent bug.
+      // Every withdrawn surface comes back with the room, not just the inline one.
+      // Asserted rather than trusted, because the failure mode of a fix like this is not
+      // "they stay hidden" but "they never come back" — quieter, and permanent.
       assert(
         (await page.locator('#uiOutput [data-ui="look_around_again"]').count()) === 1,
-        "the `command` button did not come back after the conversation ended",
+        "a withdrawn UI element did not come back after the conversation ended",
       );
+      assert(
+        (await page.locator('#toolRail [data-tool="notebook"]').count()) === 1,
+        "a withdrawn tool did not come back after the conversation ended",
+      );
+      await page.locator('[data-ui="open_pack"]').click();
+      await page.locator('[data-slot="0"]').click();
+      assert(
+        (await page.locator('[data-item-action="rifle"]').count()) === 1,
+        "a withdrawn item action did not come back after the conversation ended",
+      );
+      await page.locator("#closeInventory").click();
 
       // Gates closing *mid-exchange*, with no node change at all. Every option on
       // this node is gated on a state key, and a UI control sets it — so settling on
@@ -2908,6 +3041,18 @@ end
       assert(
         await page.locator("#heroCommand").isVisible(),
         "an option that ended the run left the command boxes hidden, as if a conversation were still running",
+      );
+      // And the surfaces that conversation had withdrawn come back here too. `endRun`
+      // sets `conversation` directly rather than going through `endConversation`, so
+      // nothing else would hand them back — and a run that ended mid-exchange with the
+      // rail permanently emptied is the kind of thing nobody notices until they reload.
+      assert(
+        (await page.locator('#uiOutput [data-ui="look_around_again"]').count()) === 1,
+        "ending the run mid-conversation left a UI element withdrawn with nothing left to restore it",
+      );
+      assert(
+        (await page.locator('#toolRail [data-tool="notebook"]').count()) === 1,
+        "ending the run mid-conversation left a tool withdrawn with nothing left to restore it",
       );
       return "a talk: directive entered the start node; options replaced the location's choices and both command " +
         "boxes hid; a dotted call: inside an option received its conversation context; taking options appended to " +

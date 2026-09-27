@@ -231,12 +231,19 @@ npc:
 A location lists its NPC instances in `npcs:`, exactly as `items:` lists item instances. See [NPCs](npcs.md).
 
 `name` and `description` are what the inventory inspector shows when a slot is clicked. `actions` adds buttons below
-the description. Each action has an `id`, an optional `label`, an optional `if` condition, and a `then` directive list.
-`id` must be a non-empty string, `label` must be a string when present, and unknown action fields are rejected at load.
-The `then` list can use `call` for one named Lua function or `emit` for an event; see [Directives](directives.md#call)
-for when to use each. Conditions use the current runtime state and inventory. Actions belong to the definition, so all
-instances of that definition show the same actions. The inspector disables all item-action buttons while one action is
-running, so an awaited Lua call cannot be triggered twice by a rapid second click.
+the description. Each action has an `id`, an optional `label`, an optional `if` condition, an optional
+`allowInConversation`, and a `then` directive list. `id` must be a non-empty string, `label` must be a string when
+present, and unknown action fields are rejected at load. The `then` list can use `call` for one named Lua function or
+`emit` for an event; see [Directives](directives.md#call) for when to use each. Conditions use the current runtime state
+and inventory. Actions belong to the definition, so all instances of that definition show the same actions. The
+inspector disables all item-action buttons while one action is running, so an awaited Lua call cannot be triggered twice
+by a rapid second click.
+
+`allowInConversation: false` withholds the action from the inspector while a [conversation](conversations.md) is running.
+It defaults to `true`. It is worth setting on anything that is not part of the exchange — and deliberately *not* setting
+it on something that is: handing an NPC a potion that changes a stat on them is a legitimate thing to do mid-sentence,
+as long as the conversation's own options are what you want offered alongside it. See
+[ui.md](ui.md#allowinconversation) for the rule.
 
 Beyond `name`, `description`, `aliases`, and `actions`, an item definition may contain any author-defined YAML data.
 Use those fields for facts an action needs to read — inspection prose, material, weight, rarity, lore ids, and similar
