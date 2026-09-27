@@ -86,8 +86,15 @@ export function removeItem(runtime: EngineRuntime, id: string): void {
 }
 
 export function setLocation(runtime: EngineRuntime, id: string): void {
+  // A conversation does not survive *moving*, but it does survive a move that changes
+  // nothing. The distinction is not academic: boot enters the starting location with a
+  // `move` to the id the runtime already holds, so clearing unconditionally meant a
+  // `GameConversations.start()` in OnInit was wiped by the next line of boot. A
+  // conversation could not otherwise reach here — the command boxes are hidden and
+  // `dispatch` refuses for its whole duration — so the guard only ever affects that
+  // no-op, and the player's own `goto` still ends the exchange.
+  if (runtime.location !== id) runtime.conversation = null;
   runtime.location = id;
-  runtime.conversation = null;
   pushEvent(runtime, { type: "location:enter", locationId: id });
   markViewDirty(runtime);
 }

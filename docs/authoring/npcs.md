@@ -132,8 +132,10 @@ actions:
 ```
 
 `npcSet` assigns and `npcVar` reads, both against the same store `set:` and `var:` use. Because each names its own
-instance, neither needs a current subject: they are valid **anywhere** — a location action, a UI element, a tool, an item
-action — with no requirement that an NPC be "the one you are talking to". One `npcSet` can write several NPCs at once.
+instance, neither needs a current subject: they are valid **anywhere** a condition or directive is — a location action, a
+UI element, an item action, a conversation — with no requirement that an NPC be "the one you are talking to". One `npcSet`
+can write several NPCs at once. Neither belongs on a tool, which has no `if` and no `then`: use the tool's `hidden` state
+to gate it.
 
 `inc` and `dec` already reach the same keys, so a value that moves by an amount needs no new directive:
 

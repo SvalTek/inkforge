@@ -68,6 +68,22 @@ export interface AvailableAction {
    * this is; turning that into a handler is the renderer's job.
    */
   conversation?: { optionId: string };
+  /**
+   * Present when this choice starts a conversation rather than issuing a command.
+   *
+   * Bound to a closure for the same reason options are: dispatching clears the
+   * transcript, and the offer is made by the room the player is reading, so wiping
+   * that description to make room for the greeting is a loss rather than a turn
+   * boundary.
+   *
+   * This started as a dispatched `@talk:<id>` command, which had a flaw no amount of
+   * testing the happy path would have found: a location action is dispatched as
+   * `@<its id>`, so an action authored as `id: "talk:bell"` produced `@talk:bell` and
+   * was intercepted as a request to start a conversation called `bell`. Any encoding
+   * smuggled through the command string shares the action id namespace. A payload on
+   * the choice does not.
+   */
+  talk?: { conversationId: string };
 }
 
 /** The concrete inventory item that caused an authored action to run. */
@@ -114,6 +130,12 @@ export interface EngineApi {
   dispatch(raw: string): Promise<void>;
   /** Take a conversation option, by id. A no-op when no conversation is running. */
   chooseConversationOption(optionId: string): Promise<void>;
+  /**
+   * Begin a conversation by id, as a discoverable offer does. A no-op once the run
+   * is over. Synchronous, and does not repaint: the conversation functions mark the
+   * view dirty through the ordinary funnels and the caller flushes once.
+   */
+  beginDiscoverableTalk(conversationId: string): void;
 }
 
 /** Output sink: coerces any text to a string and tags it with a kind. */

@@ -52,8 +52,10 @@ export function createEngine(deps: EngineDeps): EngineApi {
     // Ambient, so after the location's own deliberate actions and before picking
     // things up: walking into a room should offer the person in it, without that
     // outranking an exit the author ordered or a "Take" the player did not ask about.
-    for (const talk of discoverableTalks(deps.runtime, scenario, deps.runtime.location)) {
-      out.push({ text: talk.label, cmd: `@talk:${talk.conversationId}` });
+    // Carried as a payload rather than a dispatched command, so that a location
+    // action whose own id happens to begin `talk:` cannot be mistaken for one.
+    for (const talk of discoverableTalks(deps.runtime, scenario, deps.runtime.location, deps.output)) {
+      out.push({ text: talk.label, cmd: "", talk: { conversationId: talk.conversationId } });
     }
     for (const id of loc.items || []) {
       if (!deps.runtime.inventory.includes(id)) {
@@ -104,14 +106,6 @@ export function createEngine(deps: EngineDeps): EngineApi {
           return;
         }
       }
-      if (lower.startsWith("@talk:")) {
-        // The offer a location makes for an NPC standing in it. A dispatched command
-        // rather than a bound closure, because that is what a `talk:` written by hand
-        // on a location action would be — the room is re-read, then the exchange
-        // begins, exactly as clicking that action would.
-        startConversation(cmd.slice("@talk:".length), dirDeps);
-        return;
-      }
       if (lower.startsWith("@")) {
         const a = (loc.actions || []).find((x) => x.id === lower.slice(1));
         if (a && check(a.if)) {
@@ -141,5 +135,19 @@ export function createEngine(deps: EngineDeps): EngineApi {
     await chooseOption(optionId, dirDeps);
   }
 
-  return { check, move, execute, available, dispatch, chooseConversationOption };
+  /**
+   * Begin a conversation, the way a discoverable offer does.
+   *
+   * Exposed on the API so the renderer can bind the offer to a closure. It is the
+   * same call a `talk:` directive makes, so a conversation begun from the choice list
+   * and one begun by an action are indistinguishable downstream.
+   *
+   * Like {@link chooseConversationOption} it does not repaint, for the same reason.
+   */
+  function beginDiscoverableTalk(conversationId: string): void {
+    if (deps.runtime.over) return;
+    startConversation(conversationId, dirDeps);
+  }
+
+  return { check, move, execute, available, dispatch, chooseConversationOption, beginDiscoverableTalk };
 }

@@ -312,6 +312,27 @@ function walkUiElements(
 }
 
 /**
+ * Walk every authored UI element tree in a scenario: the screen's own elements, and
+ * each modal's.
+ *
+ * A modal's elements are authored content with the same `if` conditions and the same
+ * `events`/`actions` bindings as screen elements, and `renderModals` evaluates both.
+ * Validating only `ui.elements` therefore left a whole surface unchecked: a modal
+ * element gated on an `npcVar` naming an NPC that does not exist would boot cleanly
+ * and then simply never appear, which is the quietest possible failure for a typo.
+ *
+ * Both the issue walker and the Lua-name collector go through here, so adding a third
+ * authored element surface later is a one-line change rather than a second blind spot
+ * to remember.
+ */
+function walkAllUiElements(scenario: Scenario, visit: (element: UiElement, path: string) => void): void {
+  walkUiElements(scenario.ui?.elements, visit, "ui.elements");
+  for (const [index, modal] of (scenario.modals || []).entries()) {
+    walkUiElements(modal?.elements, visit, `modals.${index}.elements`);
+  }
+}
+
+/**
  * Check a composed scenario for the mistakes that would otherwise fail silently.
  *
  * This covers the static half of "make failure loud": an unknown condition key
@@ -337,6 +358,15 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
   for (const [id, npc] of Object.entries(scenario.npcs || {})) {
     if (!id.trim()) {
       issues.push({ path: "npcs", message: "npc id must be a non-empty string" });
+    }
+    // An entry with nothing under it is `npcs: { keeper: }`, which YAML reads as null.
+    // That is a normal intermediate state while an author is still writing the
+    // definition, and it is the one shape a validator must survive: reading a field
+    // off it throws, which would abort the whole check and surface as a raw exception
+    // at boot instead of the one issue that would have told the author what to fix.
+    if (typeof npc !== "object" || npc === null || Array.isArray(npc)) {
+      issues.push({ path: `npcs.${id}`, message: "npc definition must be a mapping" });
+      continue;
     }
     if (npc.name !== undefined && typeof npc.name !== "string") {
       issues.push({ path: `npcs.${id}.name`, message: "npc name must be a string" });
@@ -520,7 +550,7 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
     );
   }
 
-  walkUiElements(scenario.ui?.elements, (element, path) => {
+  walkAllUiElements(scenario, (element, path) => {
     checkCondition(element.if, `${path}.if`, issues, scope);
     for (const [source, bindings] of [["events", element.events], ["actions", element.actions]] as const) {
       for (const [slot, binding] of Object.entries(bindings || {})) {
@@ -575,7 +605,7 @@ export function collectReferencedLuaNames(scenario: Scenario): ValidationIssue[]
       });
     }
   }
-  walkUiElements(scenario.ui?.elements, (element, path) => {
+  walkAllUiElements(scenario, (element, path) => {
     for (const [source, bindings] of [["events", element.events], ["actions", element.actions]] as const) {
       for (const [slot, binding] of Object.entries(bindings || {})) {
         if (typeof binding?.callback === "string") {

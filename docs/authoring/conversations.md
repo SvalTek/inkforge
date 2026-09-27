@@ -148,12 +148,25 @@ Four things worth knowing:
   ```
   with `- set: { spokeToRowan: true }` in its last node.
 - **Two ungated `discoverable` conversations for the same NPC are refused at load**,
-  because `Talk to Rowan` cannot mean two things. If you *do* gate them — a morning
-  and an evening conversation, say — that is allowed, and is the supported way to
-  write two conversations with one person.
+  because `Talk to Rowan` cannot mean two things.
+- **If you gate them, that is allowed** — a morning and an evening conversation with
+  one person is the ordinary way to write this. But a gate is not proof that two
+  conditions are exclusive: `morning` and `questActive` can both be true. So when two
+  of them are live at once, the first in the order you wrote them is offered and the
+  terminal tells you which two collided:
+  > Two conversations are offered to Rowan at once: `morning_talk`, `evening_talk`. Their
+  > conditions overlap, so only "morning_talk" is reachable. Make their `if` mutually
+  > exclusive.
+
+  It is a warning rather than an error, and it is said once rather than on every
+  repaint. The run continues correctly — you get a conversation, just not the second
+  one. Silently dropping it is the one thing it will not do, because an author who
+  believes their gates are exclusive has no other way to find out.
 
 Offered talks appear after the location's own actions and before `Take`, so they never
-outrank an exit you ordered or a thing the player did not ask about.
+outrank an exit you ordered or a thing the player did not ask about. Taking one
+*appends* the opening line below the room description rather than replacing it, for the
+same reason an item action's output appends.
 
 ## While a conversation is running
 
@@ -182,6 +195,11 @@ Four things, and only these four:
 | **The choice goes nowhere** | An option with neither `next` nor `talk` |
 | **The node has nothing to answer** | See below |
 | **The player moves** | A `goto:` in an option's `then`, or anything that changes location |
+
+Moving *away* ends it; entering the room you are already in does not, which is what
+lets a `GameConversations.start()` in `OnInit` survive boot — the first line of boot
+after Lua runs is a `move` to the location the run is already in, and clearing the
+conversation there would wipe every conversation an author opens at startup.
 | **The run ends** | `end: true` anywhere it can reach |
 
 An option needs no `end` key of its own: having nowhere to continue *is* the ending.

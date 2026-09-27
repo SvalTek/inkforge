@@ -5,7 +5,9 @@ import { serveStatic } from "./server.ts";
 import { unzipSync, zipSync } from "fflate";
 import { join } from "node:path";
 import { collectReferencedLuaNames, readScenarioMeta, validateScenario } from "../src/yaml/compose.ts";
-import { npcInstanceDefaults } from "../src/engine/state.ts";
+import { npcInstanceDefaults, setLocation } from "../src/engine/state.ts";
+import { discoverableTalks } from "../src/engine/conversation.ts";
+import type { EngineRuntime } from "../src/types/index.ts";
 import type { EditorHarness } from "../src/editor/harness.ts";
 import type { Browser, BrowserContext, ConsoleMessage, Dialog, Page, Request } from "playwright-core";
 
@@ -274,6 +276,24 @@ async function clickChoice(page: Page, label: string): Promise<void> {
 
 async function choiceLabels(page: Page): Promise<string[]> {
   return await page.locator("#heroChoices .choice").allTextContents();
+}
+
+function engineRuntimeFixture(location: string): EngineRuntime {
+  return {
+    location,
+    state: {},
+    inventory: [],
+    events: [],
+    droppedEvents: 0,
+    over: false,
+    ui: { hidden: new Set(), overrides: {}, elements: [] },
+    modals: { open: null, activePages: {} },
+    tools: { entries: new Map() },
+    conversation: null,
+    lua: null,
+    canvasEngine: null,
+    viewDirty: false,
+  } as EngineRuntime;
 }
 
 function asText(pack: PackShape, path: string): string {
@@ -2334,6 +2354,146 @@ end
         "two gated discoverable conversations for one NPC were rejected; that is the supported way to write them",
       );
 
+      // A gate is not proof of exclusivity. Two conversations whose conditions can both
+      // hold — `morning` and `questActive` are the obvious pair — are still two things
+      // one `Talk to …` button cannot mean, so the engine takes the first and says so.
+      // The alternative, refusing every gated pair, would take away the ordinary way to
+      // write two conversations with one person.
+      const overlapLines: string[] = [];
+      const overlapScenario = {
+        locations: { hall: { npcs: ["hall_keeper"] } },
+        conversations: {
+          morning_talk: {
+            discoverable: true,
+            if: { var: "gateOpen", eq: true },
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+          evening_talk: {
+            discoverable: true,
+            if: { var: "morning", eq: true },
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+        },
+      } as never;
+      const collect = (text: unknown, kind?: string): void => {
+        overlapLines.push(`${kind}:${text}`);
+      };
+      const overlapRuntime = engineRuntimeFixture("hall");
+      // Both gates true at once — the whole point. An author who wrote these two
+      // expecting them to be exclusive has not, and only the engine can see it.
+      overlapRuntime.state = { gateOpen: true, morning: true };
+      const overlapFirst = discoverableTalks(overlapRuntime, overlapScenario, "hall", collect);
+      assert(
+        overlapFirst.length === 1 && overlapFirst[0].conversationId === "morning_talk",
+        "two simultaneously-live discoverable conversations did not resolve to the first in authored order",
+      );
+      assert(
+        overlapLines.some((line) =>
+          line.startsWith("warning:") && line.includes("morning_talk") && line.includes("evening_talk")
+        ),
+        "two simultaneously-live discoverable conversations were resolved in silence, so the author never learns why the second is unreachable",
+      );
+      // Once per pair, not once per repaint: `available()` runs on every paint, and a
+      // warning that repeated would flood the terminal the moment the author looked.
+      discoverableTalks(overlapRuntime, overlapScenario, "hall", collect);
+      assert(
+        overlapLines.length === 1,
+        "the overlapping-gates warning repeated on the next repaint instead of being reported once",
+      );
+
+      // A location action is dispatched as `@<its id>`, so an id that happens to begin
+      // `talk:` collides with any conversation dispatch keyed the same way. The offer is
+      // now a payload on the choice rather than a smuggled command string, so the action
+      // can keep any id at all.
+      const collidingIssues = validateScenario({
+        instances: { npc: { hall_keeper: { def: "keeper" } } },
+        locations: { hall: { actions: [{ id: "talk:bell", label: "Ring", then: ["A bell."] }] } },
+      } as never);
+      assert(
+        !collidingIssues.some((issue) => issue.path.includes("actions")),
+        `a location action may not be authored as 'talk:bell': ${
+          collidingIssues.filter((i) => i.path.includes("actions")).map((i) => i.message).join("; ")
+        }`,
+      );
+
+      // `npcs: { keeper: }` is null in YAML, and it is a normal half-written state. The
+      // validator has to survive it: reading a field off it throws, which would abort
+      // every other check and surface at boot as a raw exception instead of the one
+      // issue that would have told the author what to finish writing.
+      const nullNpc = validateScenario({ npcs: { keeper: null, broken: [] } } as never);
+      assert(
+        nullNpc.some((issue) => issue.path === "npcs.keeper" && issue.message.includes("mapping")),
+        "a null npc definition was not reported as a mapping",
+      );
+      assert(
+        nullNpc.some((issue) => issue.path === "npcs.broken"),
+        "a non-mapping npc definition was not reported",
+      );
+
+      // A modal's elements are authored content with the same `if` and bindings as
+      // screen elements, and `renderModals` evaluates both. Walking only `ui.elements`
+      // left a whole surface unchecked: a modal element gated on an npcVar naming an
+      // NPC that does not exist booted cleanly and then simply never appeared.
+      const modalIssues = validateScenario({
+        modals: [
+          {
+            id: "notes",
+            elements: [
+              {
+                id: "trust_row",
+                type: "text",
+                if: { npcVar: "ghost.trust" },
+                fields: [{ id: "t", type: "text", value: "—" }],
+              },
+              {
+                id: "press",
+                type: "button",
+                events: { activate: { callback: "notes.press" } },
+              },
+            ],
+          },
+        ],
+      } as never);
+      assert(
+        modalIssues.some((issue) => issue.path.startsWith("modals.0.elements.0") && issue.message.includes("ghost")),
+        "an unknown npc in a modal element condition was not reported at load",
+      );
+      const modalRefs = collectReferencedLuaNames({
+        modals: [
+          {
+            id: "notes",
+            elements: [
+              { id: "press", type: "button", events: { activate: { callback: "notes.press" } } },
+            ],
+          },
+        ],
+      } as never);
+      assert(
+        modalRefs.some((issue) => issue.message === "notes.press" && issue.path.includes("modals.0")),
+        "a Lua callback bound inside a modal was never collected for the boot check",
+      );
+
+      // A conversation is ended by moving away, but not by entering the room you are
+      // already in — and boot's own `move` to the starting location is exactly that, so
+      // clearing unconditionally meant a `GameConversations.start()` in OnInit was wiped
+      // by the next line of boot.
+      const moveRuntime = engineRuntimeFixture("hall");
+      moveRuntime.conversation = { id: "keeper_greeting", nodeId: "opening" };
+      setLocation(moveRuntime, "hall");
+      assert(
+        moveRuntime.conversation?.id === "keeper_greeting",
+        "entering the location you are already in ended a conversation, which is what boot does to every OnInit start",
+      );
+      setLocation(moveRuntime, "cellar");
+      assert(
+        moveRuntime.conversation === null,
+        "moving to a different location did not end the conversation, so a player could not walk out of one",
+      );
+
       // The live half, against a self-contained fixture.
       const pack: PackShape = {
         manifest: {
@@ -2374,6 +2534,10 @@ locations:
         label: Talk about the gate
         then:
           - talk: gated_talk
+      - id: "talk:bell"
+        label: Ring the bell
+        then:
+          - "The bell answers once, somewhere below."
 ui:
   elements:
     - id: shut_gate
@@ -2498,6 +2662,20 @@ end
         (await page.locator("#heroChoices button", { hasText: "Talk to" }).count()) === 1,
         "more than one talk choice was offered for a single NPC",
       );
+
+      // A location action is dispatched as `@<its id>`, so an action authored as
+      // `id: "talk:bell"` used to produce `@talk:bell` and be intercepted as a request
+      // to start a conversation called `bell` — its own directives could never run, and
+      // nothing rejected the id. The offer is a payload on the choice now, so the two
+      // namespaces cannot meet.
+      await page.locator("#heroChoices button", { hasText: "Ring the bell" }).click();
+      await waitForText(page, "#terminal", "The bell answers once");
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "a location action whose id begins 'talk:' was taken for a conversation, so its own directives never ran",
+      );
+      // And the offer still works afterwards, from a transcript the room description
+      // shares rather than one it replaced.
       await page.locator("#heroChoices button", { hasText: "Talk to The Keeper" }).click();
       await waitForText(page, "#terminal", "Ambient line.");
       // Walking away from it is a terminal node, so the room comes back.

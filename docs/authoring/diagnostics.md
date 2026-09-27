@@ -140,6 +140,9 @@ worse than an error.
 | `discoverable` written as anything but `true`/`false` | At load — `discoverable must be true or false` |
 | A `discoverable` conversation with no NPC instance in `participants` | At load — `a discoverable conversation needs an npc instance in participants to be offered from` |
 | Two ungated `discoverable` conversations for the same NPC instance | At load — `'Talk to <npc>' cannot mean two things`. Gated ones are allowed; that is how one person gets two conversations |
+| Two *gated* `discoverable` conversations for the same NPC instance, both live at once | At runtime, once — `Two conversations are offered to <npc> at once: ...`. A gate is not proof of exclusivity, so the first is offered and the collision is reported rather than swallowed |
+| An `npcs:` entry with nothing under it | At load — `npc definition must be a mapping`. A half-written definition must not take the rest of the validation down with it |
+| A condition or directive inside a **modal's** elements | Checked at load, same as a screen element. Modal elements are authored content and were silently skipped once |
 
 **Not caught — the ones to watch for:**
 

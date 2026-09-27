@@ -5,6 +5,7 @@ import type {
   ConversationState,
   EngineRuntime,
   ExecutionContext,
+  OutputFn,
   Scenario,
 } from "../types/index.ts";
 import { check } from "./conditions.ts";
@@ -150,6 +151,49 @@ export interface DiscoverableTalk {
 }
 
 /**
+ * Which ambiguity warnings this runtime has already been shown, so a warning that
+ * repeats on every repaint is still shown once.
+ *
+ * Keyed on the runtime rather than held as engine state, so it is not part of a save
+ * snapshot and cannot desynchronise from one: a loaded run gets a clean slate, which
+ * is the right answer anyway since the author's gates may have been fixed since.
+ */
+const reportedOverlaps = new WeakMap<EngineRuntime, Set<string>>();
+
+/**
+ * Tell the author that two conversations for one NPC are both live, and that only the
+ * first will be offered.
+ *
+ * A warning rather than an error, because the run continues correctly — the player
+ * gets a conversation, just not the second one. Silent is the one thing it must not
+ * be: an author who believes their mutually exclusive gates are exclusive has no other
+ * way to find out.
+ */
+function reportOverlap(
+  runtime: EngineRuntime,
+  npcId: string,
+  matches: string[],
+  scenario: Scenario | null,
+  output: OutputFn | undefined,
+): void {
+  if (!output) return;
+  let seen = reportedOverlaps.get(runtime);
+  if (!seen) {
+    seen = new Set();
+    reportedOverlaps.set(runtime, seen);
+  }
+  const key = `${npcId}:${matches.join(",")}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+  output(
+    `Two conversations are offered to ${speakerName(scenario, npcId)} at once: ` +
+      `${matches.join(", ")}. Their conditions overlap, so only "${matches[0]}" is ` +
+      `reachable. Make their \`if\` mutually exclusive.`,
+    "warning",
+  );
+}
+
+/**
  * The `Talk to …` choices a location offers from the NPCs standing in it.
  *
  * Defined as exactly the `talk:` directive the author would otherwise have written on
@@ -158,25 +202,35 @@ export interface DiscoverableTalk {
  * and the only thing presence adds is that the offer exists without being written.
  *
  * Unmarked conversations are never returned, which is what keeps a hidden one hidden.
- * More than one match for the same NPC takes the first in authored order: the
- * validator refuses two that share an NPC with no `if` between them, so reaching here
- * with several means the author gated them and expects one of them to be live.
+ *
+ * More than one match for the same NPC takes the first in authored order, and says so
+ * out loud rather than quietly dropping the rest. The validator only rejects two that
+ * share an NPC with *no* `if` between them, because that is the case it can be certain
+ * of. A gate is not proof of exclusivity — `morning` and `questActive` can both hold —
+ * and refusing every gated pair would take away the ordinary way to write two
+ * conversations with one person, morning and evening being the obvious case. So the
+ * ambiguity is reported at the moment it bites, once per pair of conversations, and
+ * the author decides whether their gates really were exclusive.
  */
 export function discoverableTalks(
   runtime: EngineRuntime,
   scenario: Scenario | null,
   locationId: string,
+  output?: OutputFn,
 ): DiscoverableTalk[] {
   const npcIds = scenario?.locations?.[locationId]?.npcs || [];
   const talks: DiscoverableTalk[] = [];
   for (const npcId of npcIds) {
+    const matches: string[] = [];
     for (const [id, conversation] of Object.entries(scenario?.conversations || {})) {
       if (!conversation?.discoverable) continue;
       if (!(conversation.participants || []).includes(npcId)) continue;
       if (!check(conversation.if, runtime)) continue;
-      talks.push({ npcId, conversationId: id, label: `Talk to ${speakerName(scenario, npcId)}` });
-      break;
+      matches.push(id);
     }
+    if (matches.length > 1) reportOverlap(runtime, npcId, matches, scenario, output);
+    const first = matches[0];
+    if (first) talks.push({ npcId, conversationId: first, label: `Talk to ${speakerName(scenario, npcId)}` });
   }
   return talks;
 }

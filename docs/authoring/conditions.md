@@ -81,7 +81,9 @@ That reads the flat state key `npc.passage_keeper.trust`. Values come from the N
 from `npcSet:` and `inc:` afterwards — see [NPCs](npcs.md).
 
 Unlike `itemVar`, `npcVar` needs no current subject, so it is valid **anywhere** a condition is: a location action, a
-location exit, a UI element, a tool, an item action. Nothing about it depends on which NPC is "current".
+location exit, a UI element (including a modal's), an item action, a conversation, and an NPC conversation gate. Nothing
+about it depends on which NPC is "current". It is *not* valid on a tool: a tool has no `if`, and one added to a tool is
+dropped without a word — gate a tool's visibility with the `hidden` state instead.
 
 The instance has to exist, and that is checked at load: `npcVar names unknown NPC instance 'passage_keeper'`. A spec with
 no dot in it is also an error — `npcVar must be '<npc-instance>.<value>'`. At runtime an unresolvable subject reads an

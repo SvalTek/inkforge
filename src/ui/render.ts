@@ -98,6 +98,10 @@ function choiceButton(choice: AvailableAction): HTMLButtonElement {
   // distinction is load-bearing: a `data-cmd` button would be dispatched, and
   // dispatching clears the transcript, which is the exchange itself.
   if (choice.conversation) button.dataset.conversationOption = choice.conversation.optionId;
+  // A discoverable offer is likewise not a command, for a different reason: dispatching
+  // clears the transcript, and what it would clear is the room description the offer
+  // was made from. The greeting arrives below the room rather than in place of it.
+  else if (choice.talk) button.dataset.talk = choice.talk.conversationId;
   else button.dataset.cmd = choice.cmd;
   button.textContent = choice.text;
   return button;
@@ -186,6 +190,12 @@ export function render(app: AppContext): void {
   });
   $all<HTMLElement>("[data-conversation-option]").forEach((button) => {
     button.onclick = () => void app.runConversationOption(button.dataset.conversationOption ?? "");
+  });
+  $all<HTMLElement>("[data-talk]").forEach((button) => {
+    button.onclick = () => {
+      app.engine?.beginDiscoverableTalk(button.dataset.talk ?? "");
+      app.render();
+    };
   });
   // The command box goes away while a conversation runs: the exchange is a
   // conversation, and typing `north` into the middle of one is not a thing a player
