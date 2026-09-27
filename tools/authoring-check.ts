@@ -184,6 +184,23 @@ async function main(): Promise<void> {
     );
     await page.locator('#projectList [data-project="lantern-below"] button').click();
     await waitFor(page, "#storyTitle", "Stone Entry");
+    // The starter is also the NPC showcase, so its Keeper is played here rather
+    // than only described: the gated action stays closed until trust is raised,
+    // which is the whole `npcVar` -> `npcSet` round trip in a shipped template.
+    await page.locator("#heroChoices button", { hasText: "North" }).first().click();
+    // The title carries the location name; the terminal carries the prose it ran.
+    await waitFor(page, "#storyTitle", "Narrow Passage");
+    await waitFor(page, "#heroTerminal", "The passage runs south");
+    assert(
+      !(await page.locator("#heroChoices").textContent())?.includes("broken"),
+      "the starter offered its npcVar-gated keeper action before trust was raised",
+    );
+    await page.locator("#heroChoices button", { hasText: "Ask the keeper about the lamps" }).click();
+    await waitFor(page, "#heroTerminal", "still burn");
+    assert(
+      (await page.locator("#heroChoices").textContent())?.includes("broken"),
+      "the starter's npcVar-gated action did not open after npcSet raised trust",
+    );
     await page.locator("#loadBtn").click();
     await page.locator('#projectList [data-project="renderer-stage-showcase"] button:not([disabled])').first().click();
     await waitFor(page, "#storyTitle", "The authored visual stage");

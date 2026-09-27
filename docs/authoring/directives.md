@@ -25,6 +25,7 @@ text:
 | `text` | Print a line to the transcript |
 | `set` | Assign one or more state paths |
 | `itemSet` | Assign state belonging to the current inventory item instance |
+| `npcSet` | Assign state belonging to NPC instances, keyed `<instance-id>.<path>` |
 | `inc` | Add to a numeric state path |
 | `dec` | Subtract from a numeric state path |
 | `give` | Put an item into the inventory |
@@ -44,7 +45,7 @@ because the alternative — a typo'd key that is quietly ignored — is the hard
 A mapping directive is tested **key by key, in a fixed order**, and the first match wins:
 
 ```
-text → set → itemSet → inc/dec → give → remove → goto → ui → call → emit → if → end
+text → set → itemSet → npcSet → inc/dec → give → remove → goto → ui → call → emit → if → end
 ```
 
 The consequence that catches people out: **`if` is only consulted if none of the earlier keys are present.** So this
@@ -115,6 +116,34 @@ they have no current item.
 
 `itemSet` assigns fixed values. There are no `itemInc` or `itemDec` directives yet; use Lua when an item-local number
 must be changed relative to its current value.
+
+## `npcSet`
+
+Assigns state to one or more NPC instances, with each key written `<instance-id>.<value>`:
+
+```yaml
+- npcSet:
+    passage_keeper.trust: 3
+    passage_keeper.lampsLit: 0
+```
+
+Those become the flat keys `npc.passage_keeper.trust` and `npc.passage_keeper.lampsLit` — the same store `set:` writes
+to, and the same one `npcVar` reads. Values seeded from an NPC definition's `state:` block are already there unless
+something overwrote them; see [NPCs](npcs.md).
+
+Unlike `itemSet`, this needs no current item, because every key names its own instance. It is therefore valid anywhere a
+directive list runs, and one directive can write several NPCs at once.
+
+The value must be a YAML mapping. A key with no dot in it, or one naming an instance that does not exist, is rejected at
+load; a key that somehow reaches the engine anyway reports
+`npcSet key must be <npc-instance>.<value>, got: <key>` rather than writing nothing.
+
+There is no `npcInc`/`npcDec`. `inc` already takes a full path, so a value that moves by an amount needs no new
+directive:
+
+```yaml
+- inc: { var: npc.passage_keeper.lampsLit, by: 1 }
+```
 
 ## `inc` / `dec`
 

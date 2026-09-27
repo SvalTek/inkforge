@@ -15,6 +15,7 @@ player: !import player.yml
 ui: !import ui.yml
 definitions: !import definitions.yml
 instances: !import instances.yml
+npcs: !import npcs.yml
 locations: !import locations.yml
 
 scripts:
@@ -31,7 +32,8 @@ scripts:
 | `modals` | no | List of modal windows — see [Modals](ui.md#modals) |
 | `tools` | no | Tool rail entries — see [Tools](tools.md) |
 | `definitions` | no | Item definitions |
-| `instances` | no | Placed item instances |
+| `instances` | no | Placed item and NPC instances |
+| `npcs` | no | Who the NPCs are — see [NPCs](npcs.md) |
 | `locations` | no | The locations themselves |
 | `scripts` | no | `{ main: <path> }`, defaulting to `scripts/main.lua` |
 
@@ -94,6 +96,7 @@ entry:
       then: "A pale ring in the dust is all that marks where the lantern stood."
       else: "A brass lantern rests beside the threshold."
   items: [entry_lantern]
+  npcs: [passage_keeper]
   exits:
     north: passage
   actions:
@@ -113,6 +116,7 @@ entry:
 | `title` | Shown in the header and the play view |
 | `text` | Directives run on entry and on `look` |
 | `items` | Items lying here, by instance id |
+| `npcs` | NPCs present here, by instance id — see [NPCs](npcs.md) |
 | `exits` | Movement, keyed by the direction the player types |
 | `actions` | Non-movement things reachable with `@id` |
 
@@ -210,6 +214,20 @@ item:
 
 A location's `items:` list holds **instance** ids. The engine resolves instance → `def` → definition to find the
 display name, which is why `take entry_lantern` prints `Taken: Brass Lantern.`
+
+`instances.yml` is keyed by kind, so the same file places both kinds:
+
+```yaml
+# instances.yml
+item:
+  entry_lantern:
+    def: lantern
+npc:
+  passage_keeper:
+    def: keeper
+```
+
+A location lists its NPC instances in `npcs:`, exactly as `items:` lists item instances. See [NPCs](npcs.md).
 
 `name` and `description` are what the inventory inspector shows when a slot is clicked. `actions` adds buttons below
 the description. Each action has an `id`, an optional `label`, an optional `if` condition, and a `then` directive list.

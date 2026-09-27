@@ -119,6 +119,13 @@ worse than an error.
 | A tool definition that is malformed | When registered — `Tool needs a non-empty id.` and friends |
 | A `modal.page` naming a page that is not in the open modal | When activated |
 | Missing configured Lua entry file | At boot — `Script not found: <path>` |
+| An `npcSet` key with no dot, or naming no instance | At load — `key must be '<npc-instance>.<value>'` |
+| An `npcVar` with no dot, or naming no instance | At load — `npcVar must be '<npc-instance>.<value>'` |
+| An `instances.npc` entry with no `def`, or one that resolves to nothing | At load — `unknown npc definition '<id>'` |
+| A location's `npcs:` listing an instance that does not exist | At load — `unknown npc instance '<id>'` |
+| An NPC `portrait` that is not a project asset path | At load — `npc portrait must be a project asset path such as assets/portrait.webp, got '<path>'` |
+| An NPC `state` that is not a mapping | At load — `npc state must be a mapping of value names to values` |
+| A `portrait` path that is well-formed but not uploaded | When something resolves it — `Asset not found: <path>` |
 
 **Not caught — the ones to watch for:**
 
@@ -131,6 +138,8 @@ worse than an error.
 | A canvas node type that is not drawn | It draws nothing, silently. Its children still render |
 | A `text` node with no `fill` | Draws nothing, since `fill` is the text colour |
 | An `emit:` in a directive list that the run never reaches | Nothing at all |
+| Talking to an NPC who is not in `locations.<id>.npcs` | Nothing — presence is authored and never enforced, so a script may talk to anyone |
+| An `npcVar` naming a real instance but a `<value>` that was never seeded or set | `undefined`, so the comparison behaves as it would for any absent value |
 
 Every one of the unchecked cases is a thing the shape of the data cannot prove. Where a check is possible it exists; the
 rest are worth knowing about rather than being papered over with a guess.

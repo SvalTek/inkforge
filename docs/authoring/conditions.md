@@ -20,6 +20,7 @@ exits:
 | `hasItem` | The inventory contains this item id |
 | `var` | Names the state path to test |
 | `itemVar` | Names state belonging to the current inventory item instance |
+| `npcVar` | Names state belonging to one NPC instance, as `<instance-id>.<path>` |
 | `eq` | The selected state value equals this value |
 | `ne` / `neq` | The selected state value does not equal this value |
 | `gt` `gte` `lt` `lte` | The selected state value is greater/greater-or-equal/less/less-or-equal than this number |
@@ -28,7 +29,7 @@ Anything else is rejected at load time: `unknown condition key 'hasitem'`. See [
 
 ## Comparison conditions
 
-A comparison needs one state-reading key, either `var` or `itemVar`. On its own it is a load-time error. Combining both
+A comparison needs one state-reading key — `var`, `itemVar` or `npcVar`. On its own it is a load-time error. Combining two
 in one condition is also rejected; use `and` when two values need testing.
 
 ```yaml
@@ -66,6 +67,25 @@ closed.
 
 An absent item value behaves like any absent state value: it is `undefined`. This makes `neq: true` useful for flags that
 start unset; `eq: false` matches only a value explicitly seeded or written as `false`.
+
+## `npcVar`
+
+`npcVar` has the same comparison and truthiness rules, but it names its own instance as `<instance-id>.<path>`:
+
+```yaml
+if: { npcVar: passage_keeper.trust, gte: 3 }
+if: { npcVar: passage_keeper.met }
+```
+
+That reads the flat state key `npc.passage_keeper.trust`. Values come from the NPC definition's `state:` block at boot, or
+from `npcSet:` and `inc:` afterwards — see [NPCs](npcs.md).
+
+Unlike `itemVar`, `npcVar` needs no current subject, so it is valid **anywhere** a condition is: a location action, a
+location exit, a UI element, a tool, an item action. Nothing about it depends on which NPC is "current".
+
+The instance has to exist, and that is checked at load: `npcVar names unknown NPC instance 'passage_keeper'`. A spec with
+no dot in it is also an error — `npcVar must be '<npc-instance>.<value>'`. At runtime an unresolvable subject reads an
+absent state key and compares false, the same way any absent value does.
 
 ## Combining
 

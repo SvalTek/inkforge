@@ -9,6 +9,7 @@ const authoringPages = [
   ["Lua", "/authoring/lua"],
   ["UI", "/authoring/ui"],
   ["Tools", "/authoring/tools"],
+  ["NPCs", "/authoring/npcs"],
   ["Canvas", "/authoring/canvas"],
   ["Audio", "/authoring/audio"],
   ["Project format", "/authoring/project-format"],

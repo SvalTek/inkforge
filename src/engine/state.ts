@@ -1,4 +1,4 @@
-import type { EngineRuntime, ExecutionContext } from "../types/index.ts";
+import type { EngineRuntime, ExecutionContext, Scenario } from "../types/index.ts";
 import { markViewDirty, pushEvent } from "./events.ts";
 
 /**
@@ -20,6 +20,43 @@ export function setState(runtime: EngineRuntime, path: string, value: unknown): 
 export function itemStatePath(context: ExecutionContext | undefined, path: string): string | null {
   const itemId = context?.item?.id;
   return itemId ? `item.${itemId}.${path}` : null;
+}
+
+/** Resolve an NPC-local name into the runtime's flat state namespace. */
+export function npcStatePath(instanceId: string, path: string): string {
+  return `npc.${instanceId}.${path}`;
+}
+
+/**
+ * Split an `npcVar`/`npcSet` subject into its instance id and local path.
+ *
+ * The instance is named rather than inferred, so the split is all that stands
+ * between a subject and a state key. A spec with no dot, an empty side, or a
+ * leading dot is rejected here rather than resolving to a key that would read as
+ * absent and fail closed with no explanation of why.
+ */
+export function parseNpcPath(spec: string): { instanceId: string; path: string } | null {
+  const dot = spec.indexOf(".");
+  if (dot < 1 || dot === spec.length - 1) return null;
+  return { instanceId: spec.slice(0, dot), path: spec.slice(dot + 1) };
+}
+
+/**
+ * The default values every NPC instance starts from, flattened into state keys.
+ *
+ * Built once at boot and merged *under* the authored `state` and a resumed save,
+ * so a default is a starting point an author or a save can still override.
+ */
+export function npcInstanceDefaults(scenario: Scenario | null): Record<string, unknown> {
+  const defaults: Record<string, unknown> = {};
+  for (const [instanceId, instance] of Object.entries(scenario?.instances?.npc || {})) {
+    const definition = scenario?.npcs?.[instance?.def as string];
+    if (!definition?.state || typeof definition.state !== "object" || Array.isArray(definition.state)) continue;
+    for (const [path, value] of Object.entries(definition.state)) {
+      defaults[npcStatePath(instanceId, path)] = value;
+    }
+  }
+  return defaults;
 }
 
 /** Add to a numeric state value, treating an absent one as zero. */

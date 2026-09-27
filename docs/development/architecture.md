@@ -103,6 +103,12 @@ Authored content names a function (`call:`) or an event (`emit:`). It never cont
 is `src/lua/invoke.ts`, and every name is checked — `call:` targets at boot, `emit:` targets on first emit, because
 `Events:On` cannot be enumerated.
 
+A `call:` name is a dot-delimited path into Lua globals, and it is resolved **one segment at a time by the engine's own
+envelope**, never by the bridge's direct named-call path — that path resolves a bare global only. This has to be the same
+rule the boot check uses, because `collectUnresolvedLuaNames` walks the segments: if the two disagreed, a name boot
+accepted could still fail at the moment it was reached, which is exactly the silent half of a name that looks fine in
+every diagnostic. The envelope also carries execution context, so the two reasons to stage it are the same mechanism.
+
 Inventory actions add transient execution context to this same engine path rather than using a separate dispatcher. The
 inspector supplies the instance id, definition id and action id; `check` and `execute` carry that subject through nested
 directives, and the Lua seam exposes it as the optional second argument to `call` and `emit` handlers. Context describes
@@ -116,6 +122,17 @@ repainting. An awaited Lua call therefore cannot turn a rapid double click into 
 Contextual item state still uses the ordinary flat runtime store. `itemStatePath` is the single resolver for both
 `itemVar` and `itemSet`, mapping a local name such as `lit` to `item.<instance-id>.lit`. The existing state mutation
 funnel and save projection therefore apply without a second entity-state system.
+
+NPC state follows that same shape one level along. `npcStatePath` maps `<instance-id>.<path>` to
+`npc.<instance-id>.<path>`, and `npcInstanceDefaults` flattens every `npcs.<id>.state` block into state keys once at
+boot. Those defaults are the **bottom** layer of the boot merge, below authored `state`, below `player.state`, and below a
+resumed save, so a default is a starting point rather than a lock and needs no merge logic of its own.
+
+`npcVar` and `npcSet` are deliberately *not* context-bound, unlike `itemVar` and `itemSet`. Each names its own instance,
+so it needs no `ExecutionContext` member, is valid anywhere a condition or directive list runs, and lets one `npcSet`
+write several NPCs. The cost is that a bad subject cannot be caught at runtime, so `validateScenario` resolves every
+subject against the declared `instances.npc` ids instead — the same "validate at load, fail closed" rule as everything
+else, applied one layer earlier.
 
 Item definition metadata crosses a separate read-only seam. `GameItems.get` resolves an instance against the composed
 scenario and `GameItems.definition` performs a direct definition lookup. Both return detached definition copies, so

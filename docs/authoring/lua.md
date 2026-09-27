@@ -98,6 +98,7 @@ appears further down the file.
 | `GameOutput` | Writing to the transcript |
 | `GameState` | Reading and writing state |
 | `GameItems` | Reading item instances and authored definition data |
+| `GameNPCs` | Reading NPC instances and authored NPC data |
 | `GameUI` | Creating and changing UI elements |
 | `GameTools` | The tool rail |
 | `GameAudio` | Sound |
@@ -145,6 +146,22 @@ GameOutput.add(lantern.material)
 `get(instanceId)` resolves an item instance and returns its `id`, its definition id as `def`, and its complete authored
 `definition`. `definition(definitionId)` reads a definition directly. Either method returns `nil` when its id cannot be
 resolved.
+
+### `GameNPCs`
+
+```lua
+local npc = GameNPCs.get("passage_keeper")
+GameOutput.add(npc.definition.name .. " tends " .. npc.definition.lamps .. " lamps.")
+
+local trust = GameState.get("npc.passage_keeper.trust") or 0
+```
+
+The same shape as `GameItems`, for NPCs: `get(instanceId)` resolves an NPC **instance** and returns its `id`, the NPC id
+it points at as `def`, and its authored `definition`; `definition(npcId)` reads an NPC directly. Both return `nil` when
+the id cannot be resolved, and both hand you a detached copy, so changing what you get back cannot alter the scenario.
+
+Only the authored half lives here. An NPC's **current values are state**, not data, so read them with `GameState` using
+the same `npc.<instance-id>.<path>` key that `npcVar` and `npcSet` use. See [NPCs](npcs.md).
 
 Definitions include the standard `name`, `description`, `aliases`, and `actions` fields plus any custom YAML fields the
 author added. Returned definitions are detached copies: Lua can reshape a local result, but doing so does not modify the

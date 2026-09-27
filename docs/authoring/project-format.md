@@ -59,6 +59,33 @@ records what the pack contains so the importer can validate it:
 | `project.version` | Semantic version, `x.y.z` with an optional `-prerelease` |
 | `files` | Every packaged path, in the archive, excluding `manifest.json` itself |
 
+### The source manifest is the pack recipe
+
+A project being worked on has its own `manifest.json` at the project root, and it is the one `deno task pack` reads. **Its
+`files` list is hand-maintained, and it decides what gets packed** — `tools/package.ts` walks that list rather than
+scanning the folder, so a file that is not listed is silently left out of the `.inkforge`.
+
+```jsonc
+// templates/lantern-below/manifest.json
+{
+  "project": { "id": "lantern-below", "version": "0.1.4" },
+  "files": [
+    "scenario.yaml",
+    "npcs.yml",                      // add a file here…
+    "assets/portraits/keeper.svg"    // …and an asset here
+  ]
+}
+```
+
+`deno task check:pack` catches the resulting drift — it unzips each committed pack and compares it file by file against
+the folder, so a pack left behind by an edit fails instead of shipping stale content. It compares only what the manifest
+lists, though, so **a forgotten entry is not drift by that check's reckoning**: the file simply never travels. Add the
+path whenever you add a file to a template folder.
+
+This is the one place a project file is maintained by hand rather than generated. The browser's own export does not use
+it — export walks the project's VFS and writes the archive manifest fresh, so a project you only ever export needs no
+maintained list at all.
+
 `project.version` is what decides whether an import is accepted. Importing a pack with a version **equal to or older
 than** the stored one is declined, and the diagnostics line says so:
 `● <Title> is already v<version>`. Versions compare by SemVer precedence — numeric core first, then prerelease rules, so

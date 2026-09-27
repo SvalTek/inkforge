@@ -1873,6 +1873,201 @@ end)
         "pending actions serialized; malformed payloads failed validation; game over removed and guarded actions";
     });
 
+    await runCheck("8b. An NPC is authored data; an instance places it; its values are state", async () => {
+      // The static half: every way an NPC can be authored wrong has to be loud.
+      const npcIssues = validateScenario({
+        npcs: {
+          keeper: { portrait: "keeper.webp", state: ["trust"] as never },
+          hollow: { name: 7 as never },
+        },
+        instances: { npc: { passage_keeper: { def: "keeper" }, stray: { def: "nobody" }, nameless: {} as never } },
+        locations: { passage: { npcs: ["passage_keeper", "ghost"] } },
+      });
+      assert(
+        npcIssues.some((issue) => issue.message.includes("npc portrait must be a project asset path")),
+        "an npc portrait outside assets/ passed validation",
+      );
+      assert(
+        npcIssues.some((issue) => issue.message === "npc state must be a mapping of value names to values"),
+        "a non-mapping npc state passed validation",
+      );
+      assert(
+        npcIssues.some((issue) => issue.message === "npc name must be a string"),
+        "a non-string npc name passed validation",
+      );
+      assert(
+        npcIssues.some((issue) => issue.message === "unknown npc definition 'nobody'"),
+        "an npc instance pointing at no definition passed validation",
+      );
+      assert(
+        npcIssues.some((issue) => issue.message === "npc instance must name a definition with 'def'"),
+        "an npc instance with no def passed validation",
+      );
+      assert(
+        npcIssues.some((issue) => issue.message === "unknown npc instance 'ghost'"),
+        "a location listing an undeclared npc instance passed validation",
+      );
+
+      // `npcVar` names its own instance, so it needs no context — but the instance
+      // has to exist, or the gate is silently never open.
+      const subjectIssues = validateScenario({
+        instances: { npc: { passage_keeper: { def: "keeper" } } },
+        locations: {
+          passage: {
+            actions: [
+              { id: "bad_subject", if: { npcVar: "tresh" } as never, then: [] },
+              { id: "unresolvable", if: { npcVar: "ghost.trust", gte: 3 }, then: [] },
+              { id: "valid", if: { npcVar: "passage_keeper.trust", gte: 3 }, then: [] },
+            ],
+          },
+        },
+      });
+      assert(
+        subjectIssues.some((issue) => issue.message.includes("npcVar must be '<npc-instance>.<value>'")),
+        "an npcVar with no path passed validation",
+      );
+      assert(
+        subjectIssues.some((issue) => issue.message === "npcVar names unknown NPC instance 'ghost'"),
+        "an npcVar naming an undeclared instance passed validation",
+      );
+      assert(
+        !subjectIssues.some((issue) => issue.path.includes("actions.2")),
+        "a valid npcVar was reported as a problem",
+      );
+
+      // A misspelled `npcSet` key would write nothing at runtime, so it is caught
+      // here rather than left to the directive's own error line.
+      const setIssues = validateScenario({
+        instances: { npc: { passage_keeper: { def: "keeper" } } },
+        locations: {
+          passage: {
+            actions: [
+              { id: "bad_key", then: { npcSet: { trust: 3 } } as never },
+              { id: "bad_subject", then: { npcSet: { "ghost.trust": 3 } } },
+              { id: "not_a_mapping", then: { npcSet: "trust" } as never },
+            ],
+          },
+        },
+      });
+      assert(
+        setIssues.some((issue) => issue.message === "key must be '<npc-instance>.<value>'"),
+        "an unqualified npcSet key passed validation",
+      );
+      assert(
+        setIssues.some((issue) => issue.message === "unknown NPC instance 'ghost'"),
+        "an npcSet key naming an undeclared instance passed validation",
+      );
+      assert(
+        setIssues.some((issue) => issue.message === "npcSet must be a mapping"),
+        "a non-mapping npcSet passed validation",
+      );
+
+      // `npcVar` and `npcSet` are siblings, not alternatives: combining them is
+      // the same mistake as combining `var` and `itemVar`.
+      const combinedIssues = validateScenario({
+        instances: { npc: { passage_keeper: { def: "keeper" } } },
+        locations: {
+          passage: { actions: [{ id: "two_subjects", if: { var: "a", npcVar: "passage_keeper.trust" }, then: [] }] },
+        },
+      });
+      assert(
+        combinedIssues.some((issue) => issue.message.includes("condition cannot combine")),
+        "a condition combining var and npcVar passed validation",
+      );
+
+      // The live half, against a self-contained fixture. The Keeper's `state:`
+      // block seeds trust, so the gated action is closed until something raises
+      // it. A location action dispatches, so each turn replaces the terminal —
+      // the appending behaviour under test later belongs to conversations.
+      const pack: PackShape = {
+        manifest: {
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "npc-fixture", title: "NPC Fixture", version: "1.0.0" },
+          files: ["scenario.yaml", "scripts/main.lua"],
+        },
+        entries: {
+          "scenario.yaml": new TextEncoder().encode(`meta:
+  title: NPC Fixture
+startLocation: hall
+npcs:
+  keeper:
+    name: The Keeper
+    description: A stooped figure who tends the lamps.
+    # Shape is validated at load; whether the asset is present is the resolver's
+    # report, so a scenario can ship the key before uploading the file.
+    portrait: assets/portraits/keeper.svg
+    role: lampkeeper
+    lamps: 7
+    state:
+      trust: 2
+      lampsLit: 0
+instances:
+  npc:
+    passage_keeper:
+      def: keeper
+locations:
+  hall:
+    text: "A lamp burns low along the wall."
+    npcs: [passage_keeper]
+    actions:
+      - id: ask
+        label: Ask the keeper about the lamps
+        then:
+          - call: keeper.asked
+          - npcSet: { passage_keeper.trust: 3 }
+          - { inc: { var: npc.passage_keeper.lampsLit, by: 1 } }
+      - id: which
+        label: Ask which lamp is broken
+        if:
+          npcVar: passage_keeper.trust
+          gte: 3
+        then:
+          - call: keeper.which
+`),
+          "scripts/main.lua": new TextEncoder().encode(`keeper = {}
+
+function keeper.asked()
+  local npc = GameNPCs.get("passage_keeper")
+  if npc == nil then
+    GameOutput.add("There is nobody here to ask.", "warning")
+    return
+  end
+  GameOutput.add("The Keeper grunts. " .. npc.definition.lamps .. " still burn.")
+  GameOutput.add("Trust is " .. tostring(GameState.get("npc.passage_keeper.trust")) .. ".")
+end
+
+function keeper.which()
+  local npc = GameNPCs.get("passage_keeper")
+  local lit = GameState.get("npc.passage_keeper.lampsLit") or 0
+  GameOutput.add("You have lit " .. lit .. " of " .. npc.definition.lamps .. ".")
+end
+`),
+        },
+      };
+      await importPack(page, pack, "passage_keeper", "scenario.yaml");
+      await page.locator('.nav[data-view="play"]').click();
+      await waitForText(page, "#terminal", "A lamp burns low");
+      assert(
+        !(await page.locator("#heroChoices").textContent())?.includes("broken"),
+        "an npcVar-gated action was offered before its condition was met",
+      );
+      await page.locator("#heroChoices button", { hasText: "Ask the keeper about the lamps" }).click();
+      // The handler reads trust before the action's npcSet raises it, so seeing
+      // the seeded value here proves the default reached runtime state.
+      await waitForText(page, "#terminal", "still burn");
+      await waitForText(page, "#terminal", "Trust is 2");
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("broken"),
+        "raising npc trust did not reveal the npcVar-gated action",
+      );
+      await page.locator("#heroChoices button", { hasText: "Ask which lamp is broken" }).click();
+      await waitForText(page, "#terminal", "lit 1 of 7");
+      return "an NPC definition carried portrait and state defaults; an instance placed it; a location listed the " +
+        "instance; trust seeded from state gated an action, npcSet raised it, inc reached the same store, and " +
+        "GameNPCs read the authored half as a detached copy while GameState read the values";
+    });
+
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {
       // The whole persistence contract in one pass: a save is keyed to its own
       // project, survives a genuine restart, is never picked up automatically,

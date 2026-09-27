@@ -1,0 +1,17 @@
+# Who each NPC is. An NPC is not present anywhere until an `instances.npc` entry
+# places it, exactly as an item definition needs an instance to be lying somewhere.
+keeper:
+  name: The Keeper
+  description: A stooped figure who tends the lamps along the passage.
+  # Inkforge never draws this. The key records which asset belongs to the NPC, so
+  # a canvas scene or a UI element can reference one name instead of a path.
+  portrait: assets/portraits/keeper.svg
+  # Authored metadata, read from Lua through `GameNPCs` and never mutated.
+  role: lampkeeper
+  lamps: 7
+  # Default values seeded into the state of every instance of this NPC, under
+  # `npc.<instance-id>.<path>`. Top-level `state` and a resumed save apply over
+  # these, so a default is a starting point rather than a lock.
+  state:
+    trust: 2
+    lampsLit: 0

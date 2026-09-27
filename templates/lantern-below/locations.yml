@@ -17,6 +17,11 @@ passage:
     # A condition in `text` may carry `then` alone; a false branch prints nothing.
     - if: { var: lampLit }
       then: "Lantern light moves on the walls, and the way south is easy to read."
+    - if: { hasItem: entry_lantern }
+      then: "A stooped figure works a lamp along the far wall."
+  # NPC instance ids, exactly as `items` holds item instance ids. The keeper is
+  # here because `instances.npc.passage_keeper` places it here.
+  npcs: [passage_keeper]
   exits:
     south: entry
   actions:
@@ -29,3 +34,20 @@ passage:
       then:
         - "The lantern catches. Warm light fills the passage."
         - { set: { lampLit: true } }
+    # `npcSet` names its own instance, so it needs no context and one directive
+    # could write several NPCs at once.
+    - id: ask_keeper
+      label: Ask the keeper about the lamps
+      then:
+        - call: keeper.asked
+        - npcSet: { passage_keeper.trust: 3 }
+        - { inc: { var: npc.passage_keeper.lampsLit, by: 1 } }
+    # `npcVar` reads the same store, so trust seeded from the NPC's `state:`
+    # block gates this without anyone naming a flat state key.
+    - id: ask_which_lamp
+      label: Ask which lamp is broken
+      if:
+        npcVar: passage_keeper.trust
+        gte: 3
+      then:
+        - call: keeper.which_lamp

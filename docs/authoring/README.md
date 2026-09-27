@@ -87,7 +87,8 @@ state.yml              initial state
 player.yml             the player's starting state and inventory
 ui.yml                 authored UI elements
 definitions.yml        what items are
-instances.yml          where items are placed
+instances.yml          where items and NPCs are placed
+npcs.yml               who the NPCs are
 locations.yml          the world
 scripts/main.lua       the entry script
 scripts/threshold.lua  a required module
@@ -127,10 +128,11 @@ Then, as you need it:
 6. [Lua](lua.md) — the lifecycle, `require`, and every namespace
 7. [UI](ui.md) — authored elements, regions, activations, modals
 8. [Tools](tools.md) — the tool rail
-9. [Canvas](canvas.md) — scenes, nodes, layers, projections, input, animation
-10. [Audio](audio.md) — sound
-11. [Project format](project-format.md) — what a project is on disk, and what a pack contains
-12. [Diagnostics](diagnostics.md) — where errors appear, and what is not checked
+9. [NPCs](npcs.md) — who your characters are, where they are, and what has happened to them
+10. [Canvas](canvas.md) — scenes, nodes, layers, projections, input, animation
+11. [Audio](audio.md) — sound
+12. [Project format](project-format.md) — what a project is on disk, and what a pack contains
+13. [Diagnostics](diagnostics.md) — where errors appear, and what is not checked
 
 ## Two things worth knowing before you start
 

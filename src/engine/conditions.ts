@@ -1,5 +1,5 @@
 import type { Condition, EngineRuntime, ExecutionContext } from "../types/index.ts";
-import { itemStatePath } from "./state.ts";
+import { itemStatePath, npcStatePath, parseNpcPath } from "./state.ts";
 
 function compare(value: unknown, condition: Condition): boolean {
   if ("eq" in condition) return value === condition.eq;
@@ -38,6 +38,16 @@ export function check(
   if ("itemVar" in condition) {
     const path = itemStatePath(context, condition.itemVar as string);
     return path ? compare(runtime.state[path], condition) : false;
+  }
+
+  if ("npcVar" in condition) {
+    // The subject names its own instance, so this needs no scenario lookup and no
+    // context: a spec that does not parse, or one naming an instance nobody
+    // declared, resolves to an absent state key and compares false. The load-time
+    // validator is what turns a typo'd subject into a message rather than a
+    // condition that is quietly never true.
+    const subject = parseNpcPath(condition.npcVar as string);
+    return subject ? compare(runtime.state[npcStatePath(subject.instanceId, subject.path)], condition) : false;
   }
 
   // No recognised key: fail closed rather than open.

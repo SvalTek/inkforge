@@ -145,3 +145,26 @@ function Update(dt)
   elapsed = elapsed + dt
   glow:set({ opacity = 0.18 + math.sin(elapsed * 1.7) * 0.025 })
 end
+
+-- A global, not a local: authored `call: keeper.asked` is resolved against the
+-- loaded globals at boot, and a local table would leave `_G.keeper` nil.
+keeper = {}
+
+function keeper.asked()
+  local npc = GameNPCs.get("passage_keeper")
+  if npc == nil then
+    GameOutput.add("There is nobody here to ask.", "warning")
+    return
+  end
+  -- Authored data comes from the definition and is a detached copy...
+  GameOutput.add("The Keeper grunts. \"" .. npc.definition.lamps .. " still burn. Some don't.\"")
+  -- ...while the current values are ordinary state, in the same store `set:` and
+  -- `npcSet:` write to. This is read before the action's `npcSet` runs.
+  GameOutput.add("The Keeper's trust is " .. tostring(GameState.get("npc.passage_keeper.trust")) .. ".")
+end
+
+function keeper.which_lamp()
+  local npc = GameNPCs.get("passage_keeper")
+  local lit = GameState.get("npc.passage_keeper.lampsLit") or 0
+  GameOutput.add("\"The third one,\" the Keeper says. \"You have lit " .. lit .. " of " .. npc.definition.lamps .. ".\"")
+end

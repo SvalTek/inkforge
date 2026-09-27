@@ -10,7 +10,16 @@ import type {
 } from "../types/index.ts";
 import { check } from "./conditions.ts";
 import { markViewDirty, pushEvent } from "./events.ts";
-import { addItem, adjustState, itemStatePath, removeItem, setLocation, setState } from "./state.ts";
+import {
+  addItem,
+  adjustState,
+  itemStatePath,
+  npcStatePath,
+  parseNpcPath,
+  removeItem,
+  setLocation,
+  setState,
+} from "./state.ts";
 
 export interface DirectiveDeps {
   runtime: EngineRuntime;
@@ -61,6 +70,7 @@ export const DIRECTIVE_KEYS = [
   "text",
   "set",
   "itemSet",
+  "npcSet",
   "inc",
   "dec",
   "give",
@@ -104,6 +114,26 @@ export async function execute(
       }
       for (const [path, value] of Object.entries(itemSet)) {
         setState(deps.runtime, itemStatePath(context, path)!, value);
+      }
+      continue;
+    }
+    if ("npcSet" in x) {
+      const npcSet: unknown = x.npcSet;
+      if (!npcSet || typeof npcSet !== "object" || Array.isArray(npcSet)) {
+        deps.output("npcSet must be a mapping.", "error");
+        continue;
+      }
+      // Every key names its own instance, so this needs no context and one
+      // directive can write several NPCs. An unparseable key is reported rather
+      // than skipped: a typo'd subject is a mistake worth seeing, not a value to
+      // drop on the floor.
+      for (const [spec, value] of Object.entries(npcSet)) {
+        const subject = parseNpcPath(spec);
+        if (!subject) {
+          deps.output(`npcSet key must be <npc-instance>.<value>, got: ${spec}`, "error");
+          continue;
+        }
+        setState(deps.runtime, npcStatePath(subject.instanceId, subject.path), value);
       }
       continue;
     }

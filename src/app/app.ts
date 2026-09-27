@@ -57,6 +57,7 @@ import { runToolAction as runToolActionImpl, runUiAction as runUiActionImpl } fr
 import { exportPack as exportPackImpl, importPack as importPackImpl } from "../import-export/pack.ts";
 import { createToolRegistry } from "../engine/tool-state.ts";
 import { fromSnapshot, hashProjectSources, hashScenario, toSnapshot } from "../engine/save.ts";
+import { npcInstanceDefaults } from "../engine/state.ts";
 import { deleteSave, getSave, listSaves, parseSaveFile, putSave, serializeSaveFile } from "../project/save-storage.ts";
 import { AssetResolver } from "../project/assets.ts";
 import { AudioManager } from "../audio/manager.ts";
@@ -282,9 +283,19 @@ export function createApp(): AppContext {
       // gets its authored default. Inventory deliberately is not: a starting item
       // the player already consumed is absent from the save, so merging would
       // hand it back on every resume.
+      //
+      // NPC instance defaults sit at the bottom, below the authored `state` and
+      // below the save. They are a starting point rather than a lock: a scenario
+      // that wants one NPC to begin somewhere else says so in `state`, and a save
+      // that has moved a value keeps it.
       const runtime: EngineRuntime = {
         location: resume?.location || scenario.startLocation,
-        state: { ...(scenario.state || {}), ...(scenario.player?.state || {}), ...(resume?.state || {}) },
+        state: {
+          ...npcInstanceDefaults(scenario),
+          ...(scenario.state || {}),
+          ...(scenario.player?.state || {}),
+          ...(resume?.state || {}),
+        },
         inventory: resume ? [...resume.inventory] : [...(scenario.player?.inventory || [])],
         events: resume ? [...resume.events] : [],
         droppedEvents: resume?.droppedEvents ?? 0,

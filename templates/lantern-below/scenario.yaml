@@ -2,13 +2,14 @@ meta:
   title: Lantern Below
   author: Inkforge
   version: 0.1.0
-  description: "A short two-room story: take the lantern, light it, and read the passage."
+  description: "A short two-room story: take the lantern, light it, and speak with the keeper."
 startLocation: entry
 state: !import state.yml
 player: !import player.yml
 ui: !import ui.yml
 definitions: !import definitions.yml
 instances: !import instances.yml
+npcs: !import npcs.yml
 locations: !import locations.yml
 scripts:
   main: scripts/main.lua

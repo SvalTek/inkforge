@@ -60,6 +60,29 @@ export function createHostNamespaces(host: LuaHostBindings): Record<string, LuaC
       })
       .readonly(),
 
+    // A ref, like `GameItems`: it resolves the live composed scenario, and the
+    // clone is what stops authored data being mutated through a returned object.
+    // Only the authored half lives here — an NPC's current values are state, so
+    // `GameState.get("npc.<instance>.<path>")` is where those are read.
+    GameNPCs: new LuaClass({ name: "GameNPCs" })
+      .method("get", (id: unknown) => {
+        const npcId = String(id);
+        const instance = scenario.instances?.npc?.[npcId];
+        const definitionId = instance?.def;
+        const definition = definitionId === undefined ? undefined : scenario.npcs?.[definitionId];
+        if (definitionId === undefined || definition === undefined) return undefined;
+        return {
+          id: npcId,
+          def: definitionId,
+          definition: structuredClone(definition),
+        };
+      })
+      .method("definition", (id: unknown) => {
+        const definition = scenario.npcs?.[String(id)];
+        return definition === undefined ? undefined : structuredClone(definition);
+      })
+      .readonly(),
+
     GameUI: new LuaClass({ name: "GameUI" })
       .method("create", (element: unknown) => applyUi({ create: element as UiCommand["create"] }))
       .method(

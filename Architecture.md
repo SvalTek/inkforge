@@ -34,13 +34,15 @@ The start path is:
 
 1. Sync the active editor buffer into the project VFS.
 2. Compose `scenario.yaml` and its imports, then validate the authored data and start location.
-3. Create runtime state, inventory, UI, and tools. A requested resume seeds these from its snapshot.
+3. Create runtime state, inventory, UI, and tools. A requested resume seeds these from its snapshot. NPC instance
+   defaults declared in `npcs.<id>.state` are flattened into the state layer first, so an authored `state`, a
+   `player.state`, and a resumed save each apply over them in that order.
 4. Build the canvas and Lua bridge, load the entry script, and check named Lua callbacks.
 5. Enter the location and render the Play and Author surfaces from the shared runtime.
 
 The engine accepts commands and authored actions through [`src/engine/engine.ts`](src/engine/engine.ts). State changes, output, tools, and UI changes mark the view dirty; the render gate repaints when those changes need to become visible. Lua timers and canvas events use the same runtime state, so they can update the view without a typed command. Authored YAML calls Lua by function or event name through [`src/lua/invoke.ts`](src/lua/invoke.ts); it does not embed Lua source for evaluation.
 
-The canvas runtime keeps its own scenes, hit testing, animation, and pointer routing. The DOM renderer owns text, controls, inventory, inventory item actions, and authored modals. Item actions are serialized while an invocation is pending and run their authored directive lists through the engine with transient context identifying the invoking instance, definition, and action. Lua can resolve that instance through the read-only `GameItems` namespace, which returns detached copies of authored definition data. The two surfaces share scenario state but have different render paths.
+The canvas runtime keeps its own scenes, hit testing, animation, and pointer routing. The DOM renderer owns text, controls, inventory, inventory item actions, and authored modals. Item actions are serialized while an invocation is pending and run their authored directive lists through the engine with transient context identifying the invoking instance, definition, and action. Lua can resolve that instance through the read-only `GameItems` namespace, which returns detached copies of authored definition data. NPCs follow the same shape with `GameNPCs`, but their state is read with `npcVar`/`npcSet` against a named instance rather than through execution context, so the same key works from any authored site. The two surfaces share scenario state but have different render paths.
 
 ## Browser and build boundary
 

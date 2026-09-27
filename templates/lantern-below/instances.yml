@@ -1,3 +1,9 @@
 item:
   entry_lantern:
     def: lantern
+
+# An NPC instance is a placement, exactly as `entry_lantern` is. `passage_keeper`
+# is the Keeper standing in the narrow passage.
+npc:
+  passage_keeper:
+    def: keeper

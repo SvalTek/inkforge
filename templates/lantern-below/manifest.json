@@ -5,7 +5,7 @@
     "id": "lantern-below",
     "title": "Lantern Below",
     "author": "Inkforge",
-    "version": "0.1.3"
+    "version": "0.1.4"
   },
   "files": [
   "scenario.yaml",
@@ -14,8 +14,10 @@
   "ui.yml",
   "definitions.yml",
   "instances.yml",
+  "npcs.yml",
   "locations.yml",
   "scripts/main.lua",
-  "scripts/threshold.lua"
+  "scripts/threshold.lua",
+  "assets/portraits/keeper.svg"
   ]
 }

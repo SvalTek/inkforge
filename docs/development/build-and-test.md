@@ -88,9 +88,16 @@ Builds, serves, and drives Chrome. Captures console messages, page errors and di
 | 7 | New project restores the starter |
 | 8 | A Lua timer repaints a bound meter with no command |
 | 8a | Inventory definition actions validate payloads, isolate per-instance state, serialize pending calls, protect context from Lua mutation, expose detached metadata, and stop after game over |
+| 8b | An NPC definition validates portrait and state defaults; an instance places it; a location lists the instance; `npcVar` gates on seeded state, `npcSet` and `inc` write it, and `GameNPCs` reads the authored half |
 | 9 | Save a run, restart without overwriting it, and resume its state and inventory |
 | 9a | Export a save as JSON, delete it, import it, and resume it |
 | 9b | Importing over the active project's own save asks first, even after a boot that failed |
+
+Assertion 8b runs its Lua legs from a **location** action, deliberately. A dotted `call:` such as `keeper.asked` only
+resolves when the engine walks the name segment by segment, and it used to do that on the execution-context path alone — so
+a dotted name from a contextless site (a location action, a UI `then:`) passed the boot check and then failed at the
+moment it was reached. The two halves of that name are now resolved by one rule, and this assertion is the regression
+guard for the contextless half.
 
 Assertion 1a exists because a Lua error on every tick is invisible in a screenshot — it was written to catch a real
 regression where the runtime leaked stack slots until it trapped. Assertion 8 covers the repaint model: a
