@@ -128,6 +128,12 @@ worse than an error.
 | An NPC instance id containing a `.` | At load — `npc instance id must not contain '.', which separates it from a value name, got '<id>'` |
 | A UI element's `if:` with a bad key, or one naming an unknown NPC | At load — including nested elements and `actions:` as well as `events:` |
 | A `portrait` path that is well-formed but not uploaded | When something resolves it — `Asset not found: <path>` |
+| A conversation's `start` naming no node | At load — `unknown node '<id>'` |
+| An option's `next` naming no node in the same conversation | At load — `unknown node '<id>' in conversation '<id>'` |
+| An option's `talk` naming no conversation | At load — `unknown conversation '<id>'` |
+| A dialogue line or participant naming neither `player` nor an NPC instance | At load — `unknown speaker '<id>'` / `unknown participant '<id>'` |
+| An unknown key on a dialogue line or a conversation option | At load — `unknown dialogue line key '<k>'` / `unknown conversation option key '<k>'` |
+| A `call:` in a conversation option naming a function that does not exist | At boot — `Missing Lua functions: ...` |
 
 **Not caught — the ones to watch for:**
 
@@ -143,6 +149,8 @@ worse than an error.
 | An `emit:` in a directive list that the run never reaches | Nothing at all |
 | Talking to an NPC who is not in `locations.<id>.npcs` | Nothing — presence is authored and never enforced, so a script may talk to anyone |
 | An `npcVar` naming a real instance but a `<value>` that was never seeded or set | `undefined`, so the comparison behaves as it would for any absent value |
+| A conversation node whose options are **all** gated shut, with no options left to answer | The conversation **ends** and the player is returned to the room. Deliberate, and the one place the engine does not fail closed — see [a node with no options ends the conversation](conversations.md#a-node-with-no-options-ends-the-conversation) |
+| Talking to an NPC who is not in the room's `npcs:` list | Nothing — presence is authored and never enforced, so a script may talk to anyone |
 
 Every one of the unchecked cases is a thing the shape of the data cannot prove. Where a check is possible it exists; the
 rest are worth knowing about rather than being papered over with a guess.

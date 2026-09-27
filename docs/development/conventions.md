@@ -164,6 +164,27 @@ mutates something drawn, mark the view dirty; if it starts an animation, the fra
 on `document.body.dataset.projectReady` rather than a timeout, and state the assertion as the behaviour, not the
 implementation — the names are what a failure report shows.
 
+**Add an authored place that runs directives.** Directives and conditions are only
+checked where the validator walks them, so a new site — a conversation option, a tool
+action, a modal binding — has to be added to the walks as well as to the data shape.
+`validateScenario` for what it may get wrong, and `collectReferencedLuaNames` for the
+`call:` targets inside it. Missing the second is the quieter failure: a `call:` that
+nothing resolves still runs, and reports at the moment it is reached rather than in
+the boot diagnostics.
+
+**A contextual feature takes `DirectiveDeps`, not `EngineApi`.** A new kind of authored
+subject — an item action, a conversation — gets its own module that takes
+`DirectiveDeps`, so it can be reached from `execute()` without the engine knowing
+about it and so a Lua entry point later needs one type threaded rather than a
+reshaped dependency. Reaching for `EngineApi` instead couples the feature to the whole
+command surface for no gain, and is the thing that makes a later binding expensive.
+
+**A module may own state that has to survive a save.** Everything else in a snapshot
+is narrowed field by field in `save.ts`; a reserved `unknown` field is a place where
+that was skipped. Narrow it, and if the value can go stale against the scenario — a
+position naming content that no longer exists — decide explicitly which layer reports
+it, because the one that narrows usually cannot.
+
 **Update the docs.** Both trees document the current surface. A change to an authored key, a Lua method or a failure
 message is a change to `docs/authoring/`; a change to a module boundary, a build step or an invariant is a change to
 `docs/development/`.

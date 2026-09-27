@@ -34,6 +34,7 @@ scripts:
 | `definitions` | no | Item definitions |
 | `instances` | no | Placed item and NPC instances |
 | `npcs` | no | Who the NPCs are — see [NPCs](npcs.md) |
+| `conversations` | no | Dialogue trees — see [Conversations](conversations.md) |
 | `locations` | no | The locations themselves |
 | `scripts` | no | `{ main: <path> }`, defaulting to `scripts/main.lua` |
 

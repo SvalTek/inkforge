@@ -168,6 +168,28 @@ An NPC's current values are ordinary state, so they are included in a save and r
 handling. The defaults are re-applied underneath a resumed run, so an NPC introduced since the save still starts from
 its definition.
 
+## Talking to them
+
+An NPC on its own does not speak. To give one something to say, write a
+[conversation](conversations.md): its `speaker` and `participants` name NPC
+*instances*, and a `talk:` directive starts it.
+
+```yaml
+conversations:
+  keeper_greeting:
+    participants: [player, passage_keeper]
+    start: greeting
+    nodes:
+      greeting:
+        dialogue:
+          - { speaker: passage_keeper, text: "You carry a lantern." }
+```
+
+Nothing stops a conversation naming an NPC who is not in the room. That is on purpose:
+presence is authored and never enforced, so a script can talk to anybody, and a
+conversation can be reached from a timer or a `call:` handler as easily as from the
+player.
+
 ## What is not here yet
 
 - **Rendering.** Inkforge draws no portraits, no name plates, and no dialogue UI. That is the author's, through

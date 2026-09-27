@@ -89,6 +89,7 @@ ui.yml                 authored UI elements
 definitions.yml        what items are
 instances.yml          where items and NPCs are placed
 npcs.yml               who the NPCs are
+conversations.yml      what people say to each other
 locations.yml          the world
 scripts/main.lua       the entry script
 scripts/threshold.lua  a required module
@@ -129,10 +130,11 @@ Then, as you need it:
 7. [UI](ui.md) — authored elements, regions, activations, modals
 8. [Tools](tools.md) — the tool rail
 9. [NPCs](npcs.md) — who your characters are, where they are, and what has happened to them
-10. [Canvas](canvas.md) — scenes, nodes, layers, projections, input, animation
-11. [Audio](audio.md) — sound
-12. [Project format](project-format.md) — what a project is on disk, and what a pack contains
-13. [Diagnostics](diagnostics.md) — where errors appear, and what is not checked
+10. [Conversations](conversations.md) — dialogue trees, options, and what ends an exchange
+11. [Canvas](canvas.md) — scenes, nodes, layers, projections, input, animation
+12. [Audio](audio.md) — sound
+13. [Project format](project-format.md) — what a project is on disk, and what a pack contains
+14. [Diagnostics](diagnostics.md) — where errors appear, and what is not checked
 
 ## Two things worth knowing before you start
 

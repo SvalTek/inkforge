@@ -299,6 +299,30 @@ The item context has three fields: `id` is the concrete instance, `definitionId`
 from locations, UI elements and tools omit this second argument. Each handler receives a detached context, so changing
 it inside Lua does not alter the item subject retained by the engine or the context given to the next handler.
 
+### Conversation context
+
+A `call:` in a conversation option's `then` receives the exchange as context, in the same second-argument position:
+
+```lua
+function keeper.asked(params, context)
+  GameOutput.add("Trust is " .. tostring(GameState.get("npc.passage_keeper.trust")) .. ".")
+  -- context.conversation.id           == "keeper_greeting"
+  -- context.conversation.nodeId       == the node the choice was taken at
+  -- context.conversation.optionId     == the option's id
+  -- context.conversation.participants == { "player", "passage_keeper" }
+end
+```
+
+`id` and `nodeId` are always present. `optionId` is present while an option's directives run, and absent while a node's
+own dialogue is being entered. `participants` is whatever the conversation declares.
+
+It is transient, like the item context: it says why these directives are running, and is not part of a save. A
+conversation's *position* is saved, but a handler re-runs `OnInit` on resume and re-derives anything it needs. See
+[Conversations](conversations.md).
+
+There is no `GameConversations` namespace yet. A handler that wants to start a conversation runs the directive through a
+`call:` from YAML, or emits an event that one listens for; the engine is built so that adding a namespace is additive.
+
 ### Value interop
 
 Lua has one table type; JavaScript does not. These helpers tell you which side a value came from:

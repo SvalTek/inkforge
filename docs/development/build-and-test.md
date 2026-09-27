@@ -89,6 +89,7 @@ Builds, serves, and drives Chrome. Captures console messages, page errors and di
 | 8 | A Lua timer repaints a bound meter with no command |
 | 8a | Inventory definition actions validate payloads, isolate per-instance state, serialize pending calls, protect context from Lua mutation, expose detached metadata, and stop after game over |
 | 8b | An NPC definition validates portrait and state defaults; an instance places it; a location lists the instance; `npcVar` gates on seeded state, `npcSet` and `inc` write it, and `GameNPCs` reads the authored half |
+| 8c | A conversation owns the choice list and the command box, a dotted `call:` in an option receives its conversation context, options append to the transcript, and a node with no options ends the exchange |
 | 9 | Save a run, restart without overwriting it, and resume its state and inventory |
 | 9a | Export a save as JSON, delete it, import it, and resume it |
 | 9b | Importing over the active project's own save asks first, even after a boot that failed |

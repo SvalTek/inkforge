@@ -10,6 +10,7 @@ const authoringPages = [
   ["UI", "/authoring/ui"],
   ["Tools", "/authoring/tools"],
   ["NPCs", "/authoring/npcs"],
+  ["Conversations", "/authoring/conversations"],
   ["Canvas", "/authoring/canvas"],
   ["Audio", "/authoring/audio"],
   ["Project format", "/authoring/project-format"],

@@ -134,6 +134,27 @@ write several NPCs. The cost is that a bad subject cannot be caught at runtime, 
 subject against the declared `instances.npc` ids instead — the same "validate at load, fail closed" rule as everything
 else, applied one layer earlier.
 
+A conversation is the second contextual authoring feature, and it is built on the first one's seam rather than beside it.
+`src/engine/conversation.ts` takes `DirectiveDeps` — **not** `EngineApi` — which is the load-bearing decision: `execute()`
+already holds a `DirectiveDeps`, so the `talk:` directive calls straight in, and a Lua entry point later needs one type
+threaded through the bindings instead of the engine reshaped around a new dependency.
+
+It is position, not transcript: `runtime.conversation` holds a conversation id and a node id, and spoken lines go out
+through `output`. That is what makes an exchange capped, saveable and renderable by machinery that already handles prose,
+and it is why a save resumes mid-conversation with the transcript intact. The three things a running conversation owns —
+the choice list, the command box, and `dispatch` being refused — are all consequences of "the player is in a
+conversation", not separate features.
+
+Two decisions there are deliberate exceptions to house rules, and both are documented for authors rather than left to be
+discovered. A node with **no visible options ends the conversation** rather than failing closed, because the command box
+is hidden for the duration and a node with nothing to answer is a soft-lock. And a resumed position whose node has since
+been deleted is kept by `fromSnapshot` — which cannot report — and then cleared and reported by the boot path, where it
+can.
+
+`conversation.ts` and `directives.ts` import each other: `execute` needs the `talk:` key, and an option's `then` needs
+`execute`. That cycle is safe because both sides export hoisted function declarations and neither calls the other while
+its module body runs. It is called out in the module so a later reader does not "fix" it into something broken.
+
 Item definition metadata crosses a separate read-only seam. `GameItems.get` resolves an instance against the composed
 scenario and `GameItems.definition` performs a direct definition lookup. Both return detached definition copies, so
 Lua cannot mutate the scenario object that the renderer and engine share. This remains an item-specific API rather than

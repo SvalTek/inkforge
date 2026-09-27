@@ -31,6 +31,7 @@ text:
 | `give` | Put an item into the inventory |
 | `remove` | Take an item out of the inventory |
 | `goto` | Move to a location and run its text |
+| `talk` | Start a conversation, and offer its options |
 | `ui` | Apply a UI command (create/set/show/hide/remove) |
 | `if` | Run `then` or `else` depending on a condition |
 | `call` | Call a named Lua function |
@@ -45,7 +46,7 @@ because the alternative — a typo'd key that is quietly ignored — is the hard
 A mapping directive is tested **key by key, in a fixed order**, and the first match wins:
 
 ```
-text → set → itemSet → npcSet → inc/dec → give → remove → goto → ui → call → emit → if → end
+text → set → itemSet → npcSet → inc/dec → give → remove → goto → talk → ui → call → emit → if → end
 ```
 
 The consequence that catches people out: **`if` is only consulted if none of the earlier keys are present.** So this
@@ -187,6 +188,31 @@ entering a location by any route produces the same prose.
 ```
 
 An unknown location prints `Unknown location: <id>` as an error and moves nowhere.
+
+## `talk`
+
+Starts a conversation, entering its `start` node and offering that node's options.
+
+```yaml
+- talk: keeper_greeting
+```
+
+The player is then in the conversation: it owns the choice list, and the command box is
+hidden until the exchange ends. An unknown conversation prints `Unknown conversation: <id>`
+as an error and ends any conversation already running, rather than leaving the player
+inside one they cannot see.
+
+Because this is an ordinary directive it composes like any other — inside a conditional
+arm, a UI element's `then:`, or a Lua handler:
+
+```yaml
+- if: { npcVar: passage_keeper.trust, gte: 2 }
+  then:
+    - talk: keeper_greeting
+```
+
+Starting one while another is running replaces it; `talk:` is a cut, not a push. See
+[Conversations](conversations.md).
 
 ## `ui`
 
