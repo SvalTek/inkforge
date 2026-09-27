@@ -1,4 +1,4 @@
-import type { Condition, Directive, DirectiveList, Scenario } from "../types/index.ts";
+import type { Condition, Directive, DirectiveList, Scenario, UiElement } from "../types/index.ts";
 import { DIRECTIVE_KEYS } from "../engine/directives.ts";
 import { parseNpcPath } from "../engine/state.ts";
 import { isAssetPath } from "../project/assets.ts";
@@ -196,6 +196,28 @@ function checkItemAction(
 }
 
 /**
+ * Visit every authored UI element, including nested ones, with its validation path.
+ *
+ * An element carries more than its `events`: `if` is evaluated on every render
+ * (`renderUi`, `renderModals`) and `actions` is read as an alternative to `events`
+ * (`runUiAction`), so a validator that only walks top-level `events` skips a
+ * condition it could have reported and a directive list it could have checked. One
+ * walker serves both validation and Lua-name collection, so the two cannot disagree
+ * about how deep they reach.
+ */
+function walkUiElements(
+  elements: UiElement[] | undefined,
+  visit: (element: UiElement, path: string) => void,
+  path = "ui.elements",
+): void {
+  for (const [index, element] of (elements || []).entries()) {
+    const elementPath = `${path}.${index}`;
+    visit(element, elementPath);
+    walkUiElements(element.elements, visit, `${elementPath}.elements`);
+  }
+}
+
+/**
  * Check a composed scenario for the mistakes that would otherwise fail silently.
  *
  * This covers the static half of "make failure loud": an unknown condition key
@@ -250,6 +272,18 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
     } else if (!scenario.npcs?.[def]) {
       issues.push({ path: `instances.npc.${id}.def`, message: `unknown npc definition '${def}'` });
     }
+    // The instance id is the left side of `<instance>.<value>`, and the dot is the
+    // only thing separating them. An id carrying one would seed, resolve and be
+    // listed by a location, yet be unreachable from `npcVar` and `npcSet` — which
+    // split on the first dot and would read `court.keeper.trust` as the instance
+    // `court`. Refusing the character is louder than a subject that silently never
+    // matches. NPC *definition* ids are exempt: they are only ever exact lookups.
+    if (id.includes(".")) {
+      issues.push({
+        path: `instances.npc.${id}`,
+        message: `npc instance id must not contain '.', which separates it from a value name, got '${id}'`,
+      });
+    }
   }
 
   for (const [id, location] of Object.entries(scenario.locations || {})) {
@@ -280,10 +314,11 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
     );
   }
 
-  (scenario.ui?.elements || []).forEach((element, index) => {
-    for (const [slot, binding] of Object.entries(element.events || {})) {
-      if (binding?.then) {
-        checkDirectives(binding.then, `ui.elements.${index}.events.${slot}.then`, issues, scope);
+  walkUiElements(scenario.ui?.elements, (element, path) => {
+    checkCondition(element.if, `${path}.if`, issues, scope);
+    for (const [source, bindings] of [["events", element.events], ["actions", element.actions]] as const) {
+      for (const [slot, binding] of Object.entries(bindings || {})) {
+        checkDirectives(binding?.then, `${path}.${source}.${slot}.then`, issues, scope);
       }
     }
   });
@@ -320,12 +355,14 @@ export function collectReferencedLuaNames(scenario: Scenario): ValidationIssue[]
       fromDirective(action.then, `definitions.item.${id}.actions.${index}.then`);
     });
   }
-  (scenario.ui?.elements || []).forEach((element, index) => {
-    for (const [slot, binding] of Object.entries(element.events || {})) {
-      if (typeof binding?.callback === "string") {
-        references.push({ path: `ui.elements.${index}.events.${slot}.callback`, message: binding.callback });
+  walkUiElements(scenario.ui?.elements, (element, path) => {
+    for (const [source, bindings] of [["events", element.events], ["actions", element.actions]] as const) {
+      for (const [slot, binding] of Object.entries(bindings || {})) {
+        if (typeof binding?.callback === "string") {
+          references.push({ path: `${path}.${source}.${slot}.callback`, message: binding.callback });
+        }
+        fromDirective(binding?.then, `${path}.${source}.${slot}.then`);
       }
-      fromDirective(binding?.then, `ui.elements.${index}.events.${slot}.then`);
     }
   });
   (scenario.tools || []).forEach((tool, index) => {

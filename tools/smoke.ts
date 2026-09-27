@@ -1975,6 +1975,54 @@ end)
         "a condition combining var and npcVar passed validation",
       );
 
+      // A UI element's `if` is evaluated on every render, and `actions` is read as
+      // an alternative to `events`, so a validator that only walked top-level
+      // `events` would skip a condition it could have reported.
+      const uiIssues = validateScenario({
+        instances: { npc: { passage_keeper: { def: "keeper" } } },
+        ui: {
+          elements: [
+            { id: "ghosted", type: "button", location: "output", if: { npcVar: "ghost.trust", gte: 3 } },
+            {
+              id: "panel",
+              type: "panel",
+              elements: [
+                { id: "nested", type: "text", location: "output", if: { npcVar: "ghost.trust" } },
+              ],
+              actions: { activate: { then: { npcSet: { "ghost.trust": 1 } } } },
+            },
+          ],
+        },
+      });
+      assert(
+        uiIssues.some((issue) =>
+          issue.path === "ui.elements.0.if.npcVar" && issue.message.includes("unknown NPC instance 'ghost'")
+        ),
+        "a UI element's npcVar naming an undeclared instance passed validation",
+      );
+      assert(
+        uiIssues.some((issue) => issue.path === "ui.elements.1.elements.0.if.npcVar"),
+        "a nested UI element's condition was never validated",
+      );
+      assert(
+        uiIssues.some((issue) =>
+          issue.path === "ui.elements.1.actions.activate.then.0.npcSet.ghost.trust" &&
+          issue.message === "unknown NPC instance 'ghost'"
+        ),
+        "a UI element's actions: directive list was never validated",
+      );
+
+      // The instance id is the left side of `<instance>.<value>`; a dot in it would
+      // make the instance listable and seedable but unreachable by name.
+      const dottedIssues = validateScenario({
+        npcs: { keeper: {} },
+        instances: { npc: { "court.keeper": { def: "keeper" } } },
+      });
+      assert(
+        dottedIssues.some((issue) => issue.message.includes("must not contain '.'")),
+        "an npc instance id containing a dot passed validation",
+      );
+
       // The live half, against a self-contained fixture. The Keeper's `state:`
       // block seeds trust, so the gated action is closed until something raises
       // it. A location action dispatches, so each turn replaces the terminal —
@@ -2063,9 +2111,10 @@ end
       );
       await page.locator("#heroChoices button", { hasText: "Ask which lamp is broken" }).click();
       await waitForText(page, "#terminal", "lit 1 of 7");
-      return "an NPC definition carried portrait and state defaults; an instance placed it; a location listed the " +
-        "instance; trust seeded from state gated an action, npcSet raised it, inc reached the same store, and " +
-        "GameNPCs read the authored half as a detached copy while GameState read the values";
+      return "an NPC definition carried portrait and state defaults; an instance placed it; a dotted id was refused; " +
+        "a location listed the instance; trust seeded from state gated an action, npcSet raised it, inc reached the " +
+        "same store, and GameNPCs read the authored half as a detached copy while GameState read the values; " +
+        "npcVar and npcSet subjects were checked in UI element conditions, nested elements and actions: lists too";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {

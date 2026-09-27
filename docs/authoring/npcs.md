@@ -87,11 +87,18 @@ passage:
   npcs: [passage_keeper]
 ```
 
-Three rules are checked when the project loads, and each is an error rather than a shrug:
+Four rules are checked when the project loads, and each is an error rather than a shrug:
 
 - an `instances.npc` entry must name a `def` that exists in `npcs:`
 - a location's `npcs:` entry must be an NPC instance that exists in `instances.npc`
 - `portrait`, if present, must be a project asset path
+- **an instance id must not contain a `.`** — see below
+
+The id is the left side of `<instance-id>.<value>`, and that dot is the only thing separating the two halves, so an id
+carrying one could be listed, seeded and read through `GameNPCs` while never being reachable from `npcVar` or `npcSet`.
+`court.keeper` would be read as the instance `court` with a value named `keeper.trust`. Use `court_keeper`.
+
+NPC **definition** ids have no such restriction: they are only ever exact lookups, never parsed.
 
 Nothing checks that a conversation or a script is talking to an NPC who is *actually standing there* — that is yours to
 arrange, and it is what makes a scripted scene possible.
@@ -105,7 +112,7 @@ actions:
   - id: ask_keeper
     label: Ask the keeper about the lamps
     then:
-      - npcSet: { passage_keeper.trust: 3, lampsLit: 0 }
+      - npcSet: { passage_keeper.trust: 3, passage_keeper.lampsLit: 0 }
 
   - id: ask_which_lamp
     label: Ask which lamp is broken

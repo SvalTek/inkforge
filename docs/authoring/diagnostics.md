@@ -125,6 +125,8 @@ worse than an error.
 | A location's `npcs:` listing an instance that does not exist | At load — `unknown npc instance '<id>'` |
 | An NPC `portrait` that is not a project asset path | At load — `npc portrait must be a project asset path such as assets/portrait.webp, got '<path>'` |
 | An NPC `state` that is not a mapping | At load — `npc state must be a mapping of value names to values` |
+| An NPC instance id containing a `.` | At load — `npc instance id must not contain '.', which separates it from a value name, got '<id>'` |
+| A UI element's `if:` with a bad key, or one naming an unknown NPC | At load — including nested elements and `actions:` as well as `events:` |
 | A `portrait` path that is well-formed but not uploaded | When something resolves it — `Asset not found: <path>` |
 
 **Not caught — the ones to watch for:**
@@ -135,6 +137,7 @@ worse than an error.
 | A typo in a state key | A `get` returns `nil` and the write creates a new key. Nothing is wrong as far as the engine can tell |
 | An exit whose condition can never pass | The exit is simply never offered |
 | An authored UI element whose type its region does not render | It is absent, with no message — see [UI](ui.md#regions) |
+| A UI element nested inside another that the outer one never renders | Absent, with no message |
 | A canvas node type that is not drawn | It draws nothing, silently. Its children still render |
 | A `text` node with no `fill` | Draws nothing, since `fill` is the text colour |
 | An `emit:` in a directive list that the run never reaches | Nothing at all |

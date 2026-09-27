@@ -134,8 +134,9 @@ something overwrote them; see [NPCs](npcs.md).
 Unlike `itemSet`, this needs no current item, because every key names its own instance. It is therefore valid anywhere a
 directive list runs, and one directive can write several NPCs at once.
 
-The value must be a YAML mapping. A key with no dot in it, or one naming an instance that does not exist, is rejected at
-load; a key that somehow reaches the engine anyway reports
+The value must be a YAML mapping, and **every key is qualified** — a bare `lampsLit: 0` is an error, not a shorthand,
+because there is no NPC for it to belong to. A key with no dot in it, or one naming an instance that does not exist, is
+rejected at load; a key that somehow reaches the engine anyway reports
 `npcSet key must be <npc-instance>.<value>, got: <key>` rather than writing nothing.
 
 There is no `npcInc`/`npcDec`. `inc` already takes a full path, so a value that moves by an amount needs no new
