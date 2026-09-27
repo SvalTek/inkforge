@@ -53,7 +53,14 @@ export function npcInstanceDefaults(scenario: Scenario | null): Record<string, u
     const definition = scenario?.npcs?.[instance?.def as string];
     if (!definition?.state || typeof definition.state !== "object" || Array.isArray(definition.state)) continue;
     for (const [path, value] of Object.entries(definition.state)) {
-      defaults[npcStatePath(instanceId, path)] = value;
+      // Cloned per instance. A list or mapping stored by reference would be shared
+      // by every instance of the definition *and* by the authored definition itself,
+      // so one write through `GameState.get("npc.a.<path>")` would reach instance `b`
+      // and leave mutated authored data behind for `GameNPCs` to clone. Primitives
+      // are copied as they are, so a seeded number is the same number it always was.
+      defaults[npcStatePath(instanceId, path)] = value !== null && typeof value === "object"
+        ? structuredClone(value)
+        : value;
     }
   }
   return defaults;

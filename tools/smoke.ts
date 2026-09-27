@@ -5,6 +5,7 @@ import { serveStatic } from "./server.ts";
 import { unzipSync, zipSync } from "fflate";
 import { join } from "node:path";
 import { collectReferencedLuaNames, readScenarioMeta, validateScenario } from "../src/yaml/compose.ts";
+import { npcInstanceDefaults } from "../src/engine/state.ts";
 import type { EditorHarness } from "../src/editor/harness.ts";
 import type { Browser, BrowserContext, ConsoleMessage, Dialog, Page, Request } from "playwright-core";
 
@@ -2210,13 +2211,32 @@ end
               { conversations: { s: { start: "n", participants: { a: 1 }, nodes: { n: {} } } } } as never,
             ),
           ],
+          ["npcs", validateScenario({ locations: { l: { npcs: { a: 1 } } } } as never)],
         ] as [string, ReturnType<typeof validateScenario>][]
       ) {
         assert(
           issues.some((issue) => issue.message.endsWith("must be a list")),
-          `a conversation ${shape} authored as a mapping was not reported as a list`,
+          `a ${shape} list authored as a mapping was not reported as a list`,
         );
       }
+
+      // A definition's `state:` is materialised once per instance, so a list or
+      // mapping default shared by reference would let a write through one instance
+      // reach another — and keep the authored definition's own object alive inside
+      // mutable state, where `GameNPCs` would go on cloning it.
+      const defaults = npcInstanceDefaults({
+        npcs: { keeper: { state: { trust: 2, ledger: ["one"] } } },
+        instances: { npc: { first: { def: "keeper" }, second: { def: "keeper" } } },
+      } as never);
+      const firstLedger = defaults["npc.first.ledger"] as string[];
+      const secondLedger = defaults["npc.second.ledger"] as string[];
+      assert(firstLedger !== secondLedger, "two instances of one definition share a single default object");
+      firstLedger.push("mutated");
+      assert(secondLedger.length === 1, "mutating one instance's default reached the other");
+      assert(
+        (defaults["npc.first.trust"] as number) === 2 && (defaults["npc.second.trust"] as number) === 2,
+        "primitive defaults are still seeded per instance",
+      );
 
       // A `call:` inside an option is a name that has to resolve at boot. Leaving
       // conversations out of the collector would make this the one authored place a
@@ -2248,6 +2268,8 @@ end
           "scenario.yaml": new TextEncoder().encode(`meta:
   title: Conversation Fixture
 startLocation: hall
+state:
+  gateOpen: true
 npcs:
   keeper:
     name: The Keeper
@@ -2270,7 +2292,33 @@ locations:
         label: Look around
         then:
           - "Dust, and a guttering lamp."
+      - id: talk_gated
+        label: Talk about the gate
+        then:
+          - talk: gated_talk
+ui:
+  elements:
+    - id: shut_gate
+      type: button
+      location: output
+      fields:
+        - { id: label, type: text, value: "Shut the gate" }
+      events:
+        activate: { type: instructions, then: [{ set: { gateOpen: false } }] }
 conversations:
+  gated_talk:
+    start: only
+    nodes:
+      only:
+        dialogue:
+          - speaker: hall_keeper
+            text: "Ask while the lamp burns."
+        options:
+          - id: ask_now
+            text: "What do you know?"
+            if: { var: gateOpen, neq: false }
+            then:
+              - "Nothing you did not already know."
   hall_talk:
     participants: [player, hall_keeper]
     start: opening
@@ -2382,12 +2430,36 @@ end
         await page.locator("#heroCommand").isVisible(),
         "the command box did not come back after the conversation ended",
       );
+
+      // Gates closing *mid-exchange*, with no node change at all. Every option on
+      // this node is gated on a state key, and a UI control sets it — so settling on
+      // node entry never runs, and without a settle on availability the choice list
+      // would empty while both command boxes stayed hidden.
+      await page.locator("#heroChoices button", { hasText: "Talk about the gate" }).click();
+      await waitForText(page, "#terminal", "Ask while the lamp burns.");
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("What do you know?"),
+        "the gated conversation did not offer its option while the gate was open",
+      );
+      await page.locator('[data-ui="shut_gate"]').click();
+      // Wait on the room coming back rather than on a timer, then assert both halves
+      // of the state: the conversation ended, and the command box came with it.
+      await waitForText(page, "#choices", "Look around");
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("Look around"),
+        "a conversation whose every gate closed mid-exchange stayed active and emptied the choice list",
+      );
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "a conversation whose every gate closed mid-exchange left the command boxes hidden",
+      );
       return "a talk: directive entered the start node; options replaced the location's choices and both command " +
         "boxes hid; a dotted call: inside an option received its conversation context; taking options appended to " +
         "the transcript; a talk: inside an option's then beat that option's own next; npcSet raised trust and " +
-        "opened a gated line; a node with no options ended the exchange and restored the room; bad " +
-        "start/next/talk/speaker/participant/keys and duplicate option ids were rejected at load, and a list " +
-        "authored as a mapping was reported rather than thrown on";
+        "opened a gated line; a node with no options ended the exchange and restored the room; a gate closing " +
+        "mid-exchange also ended it; bad start/next/talk/speaker/participant/keys and duplicate option ids were " +
+        "rejected at load; a list authored as a mapping was reported rather than thrown on; and NPC defaults are " +
+        "cloned per instance";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {

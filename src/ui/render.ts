@@ -9,6 +9,7 @@ import type {
   UiActivation,
 } from "../types/index.ts";
 import { itemName } from "../engine/directives.ts";
+import { settleConversation } from "../engine/conversation.ts";
 import { uiElement } from "../engine/ui-state.ts";
 import { $all } from "../app/dom.ts";
 import { renderModals } from "./modals.ts";
@@ -147,6 +148,12 @@ function meterRow(element: ResolvedUiElement): HTMLDivElement {
 export function render(app: AppContext): void {
   const { dom } = app;
   const runtime = app.runtime!;
+  // The player is in a conversation exactly while there is something to answer, and
+  // a timer or a control can close every gate mid-exchange. Settling here rather
+  // than on node entry is what makes that hold: this is the one place guaranteed to
+  // run after a mutation from *any* source, and it converges, because by the next
+  // repaint there is nothing left to settle.
+  settleConversation(runtime, app.scenario);
   const scenario = app.scenario;
   const loc = scenario?.locations?.[runtime.location] || {};
   const outputEvents = runtime.events.filter((e): e is OutputEvent => e.type === "output");

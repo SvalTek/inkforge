@@ -454,8 +454,11 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
         checkCondition(exit.if, `locations.${id}.exits.${direction}.if`, issues, scope);
       }
     }
-    for (const npcId of location.npcs || []) {
-      if (!scope.npcInstances.has(npcId)) {
+    if (location.npcs !== undefined && !Array.isArray(location.npcs)) {
+      issues.push({ path: `locations.${id}.npcs`, message: "location npcs must be a list" });
+    }
+    for (const npcId of asList(location.npcs)) {
+      if (typeof npcId !== "string" || !scope.npcInstances.has(npcId)) {
         issues.push({ path: `locations.${id}.npcs`, message: `unknown npc instance '${npcId}'` });
       }
     }

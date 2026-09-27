@@ -143,6 +143,28 @@ export function nodeHasAvailableOption(
 }
 
 /**
+ * End the conversation if the current node has nothing left to answer.
+ *
+ * The invariant is that the player is in a conversation *exactly while* there is
+ * something to say to them, and settling on node entry is not enough to keep it: a
+ * Lua timer, an item action or a UI control can close every remaining gate while
+ * they are still deliberating. Without this, the choice list empties, both command
+ * boxes stay hidden, and a one-way state change leaves the run with no way forward.
+ *
+ * Idempotent, and convergent: ending marks the view dirty, the gate repaints, and by
+ * the next pass there is no conversation left to settle.
+ */
+export function settleConversation(runtime: EngineRuntime, scenario: Scenario | null): void {
+  const state = runtime.conversation;
+  if (!state) return;
+  if (
+    !scenario?.conversations?.[state.id]?.nodes?.[state.nodeId] || !nodeHasAvailableOption(runtime, scenario, state)
+  ) {
+    endConversation(runtime);
+  }
+}
+
+/**
  * Move to a node, speak it, and settle.
  *
  * "Settle" is the part worth stating plainly: **a node with no visible option ends
