@@ -53,3 +53,11 @@ Recent commits commonly use `feat(scope): ...`, `fix(scope): ...`, or `chore(sco
 subject and a relevant scope such as `ui`, `build`, or `docs`. In pull requests, describe the behavior changed, list the
 checks run, link the related issue when one exists, and include screenshots for visible UI changes. Update
 documentation as required above and list those updates in the pull request.
+
+## Review Guidelines
+When reviewing changes and PR's, verify that the behavior matches the description, that all checks pass, and that
+documentation is updated.
+You should take time to verify if a given change or a new feature matches the existing architecture and coding style.
+If you find any issues, provide constructive feedback and request changes.
+When reviewing a PR, pay attention to the scope of the change and whether it is appropriate for the PR.
+As a general rule, be mindfull of usability and accessibility, and whether changes are consistent with the existing user experience.
