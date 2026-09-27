@@ -20,6 +20,7 @@ type OutputEvent = Extract<EngineEvent, { type: "output" }>;
 
 const terminalFollowTail = new WeakMap<HTMLElement, boolean>();
 const selectedInventoryItem = new WeakMap<AppContext, string>();
+const pendingInventoryAction = new WeakSet<AppContext>();
 
 /** Track whether the player is following new output or reading older lines. */
 function shouldFollowTail(terminal: HTMLElement): boolean {
@@ -229,6 +230,7 @@ export function inspectItem(app: AppContext, slot: number): void {
     button.className = "item-action";
     button.dataset.itemAction = action.id;
     button.textContent = action.label || action.id;
+    button.disabled = pendingInventoryAction.has(app);
     button.onclick = () => void runItemAction(app, id, definitionId, action);
     return button;
   }));
@@ -244,13 +246,19 @@ async function runItemAction(
   definitionId: string,
   action: ItemAction,
 ): Promise<void> {
-  if (!app.runtime || app.runtime.over) return;
-  const context = itemActionContext(itemId, definitionId, action.id);
-  // Conditions may have changed since the inspector was painted.
-  if (app.engine?.check(action.if, context) ?? true) await app.engine?.execute(action.then, context);
-  app.flushView();
-  const selectedSlot = app.runtime?.inventory.indexOf(itemId) ?? -1;
-  inspectItem(app, selectedSlot);
+  if (!app.runtime || app.runtime.over || pendingInventoryAction.has(app)) return;
+  pendingInventoryAction.add(app);
+  app.dom.itemActions.querySelectorAll<HTMLButtonElement>("button").forEach((button) => button.disabled = true);
+  try {
+    const context = itemActionContext(itemId, definitionId, action.id);
+    // Conditions may have changed since the inspector was painted.
+    if (app.engine?.check(action.if, context) ?? true) await app.engine?.execute(action.then, context);
+  } finally {
+    pendingInventoryAction.delete(app);
+    app.flushView();
+    const selectedSlot = app.runtime?.inventory.indexOf(itemId) ?? -1;
+    inspectItem(app, selectedSlot);
+  }
 }
 
 /** Open the inventory overlay using an activation's kicker/title. */

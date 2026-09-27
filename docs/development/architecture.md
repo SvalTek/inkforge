@@ -109,6 +109,10 @@ directives, and the Lua seam exposes it as the optional second argument to `call
 one invocation, so it does not belong in runtime state or save snapshots. Each Lua crossing clones the context before
 bridging it; a proxied Lua table must not be able to rewrite the engine's retained execution subject.
 
+The inventory renderer holds a per-app action lock across the complete async directive execution. It disables every
+inspector action before the first await, rejects duplicate or stale handlers, and releases the lock in `finally` before
+repainting. An awaited Lua call therefore cannot turn a rapid double click into two one-shot effects.
+
 Contextual item state still uses the ordinary flat runtime store. `itemStatePath` is the single resolver for both
 `itemVar` and `itemSet`, mapping a local name such as `lit` to `item.<instance-id>.lit`. The existing state mutation
 funnel and save projection therefore apply without a second entity-state system.

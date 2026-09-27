@@ -1748,6 +1748,9 @@ ui:
 item = {}
 
 function item.inspect(params, context)
+  local inspectCalls = (GameState.get('inspectCalls') or 0) + 1
+  GameState.set('inspectCalls', inspectCalls)
+  GameOutput.add('inspect-call:' .. inspectCalls)
   local resolved = GameItems.get(context.item.id)
   local definition = GameItems.definition(context.item.definitionId)
   GameOutput.add('data:' .. resolved.id .. ':' .. resolved.def .. ':' .. resolved.definition.material .. ':' .. resolved.definition.inspect .. ':' .. definition.weight .. ':' .. tostring(definition.usableAsWeapon))
@@ -1779,7 +1782,17 @@ end)
       await page.locator('[data-ui="context_inventory"]').click();
 
       await page.locator('[data-slot="0"]').click();
-      await page.locator('[data-item-action="inspect"]').click();
+      const inspectButton = await page.locator('[data-item-action="inspect"]').elementHandle();
+      assert(inspectButton, "inspect action was not available");
+      const disabledWhilePending = await inspectButton.evaluate((button) => {
+        const actionButton = button as HTMLButtonElement;
+        const handler = actionButton.onclick;
+        handler?.call(actionButton, new PointerEvent("click"));
+        handler?.call(actionButton, new PointerEvent("click"));
+        return actionButton.disabled;
+      });
+      assert(disabledWhilePending, "inventory actions were not disabled while the first invocation was pending");
+      await waitForText(page, "#terminal", "inspect-call:1");
       await waitForText(
         page,
         "#terminal",
@@ -1789,6 +1802,10 @@ end)
       await waitForText(page, "#terminal", "missing:nil");
       await waitForText(page, "#terminal", "call:called:cellar_lantern:lantern:inspect");
       await waitForText(page, "#terminal", "emit:emitted:cellar_lantern:lantern:inspect");
+      assert(
+        !(await page.locator("#terminal").textContent())?.includes("inspect-call:2"),
+        "a second item action invocation ran while the first was pending",
+      );
       assert(
         await page.locator('[data-item-action="inspect"]').count() === 0,
         "itemSet did not mark the invoking cellar lantern as inspected",
@@ -1853,7 +1870,7 @@ end)
       await page.locator("#closeInventory").click();
       return "two instances shared definition actions while itemVar/itemSet kept independent state; GameItems " +
         "resolved arbitrary definition metadata as detached copies; Lua could not redirect retained action context; " +
-        "malformed actions, itemSet payloads, and context use failed validation; game over removed and guarded actions";
+        "pending actions serialized; malformed payloads failed validation; game over removed and guarded actions";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {
