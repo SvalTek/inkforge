@@ -108,11 +108,18 @@ function checkCondition(
   if (comparisons.some((key) => key in condition) && stateKeys.length === 0) {
     issues.push({ path, message: "comparison needs a 'var', 'itemVar' or 'npcVar' to compare against" });
   }
-  if (condition.and) {
-    condition.and.forEach((item, index) => checkCondition(item, `${path}.and.${index}`, issues, scope, hasItemContext));
-  }
-  if (condition.or) {
-    condition.or.forEach((item, index) => checkCondition(item, `${path}.or.${index}`, issues, scope, hasItemContext));
+  // `and`/`or` are recursed into by index, so the array shape is load-bearing rather
+  // than cosmetic: `and: true` has no `.forEach`, and reading it unguarded threw out of
+  // the whole validation, which is the one thing that turns a typo into a boot crash
+  // instead of a line in the diagnostics list.
+  for (const key of ["and", "or"] as const) {
+    const branch = condition[key];
+    if (branch === undefined) continue;
+    if (!Array.isArray(branch)) {
+      issues.push({ path: `${path}.${key}`, message: `'${key}' must be a list of conditions` });
+      continue;
+    }
+    branch.forEach((item, index) => checkCondition(item, `${path}.${key}.${index}`, issues, scope, hasItemContext));
   }
   if (condition.not) checkCondition(condition.not, `${path}.not`, issues, scope, hasItemContext);
 }

@@ -196,11 +196,21 @@ Four things, and only these four:
 | **The node has nothing to answer** | See below |
 | **The player moves** | A `goto:` in an option's `then`, or anything that changes location |
 
-Moving *away* ends it; entering the room you are already in does not, which is what
-lets a `GameConversations.start()` in `OnInit` survive boot — the first line of boot
-after Lua runs is a `move` to the location the run is already in, and clearing the
-conversation there would wipe every conversation an author opens at startup.
 | **The run ends** | `end: true` anywhere it can reach |
+
+Moving *away* ends a conversation; entering the room you are already in does not, which
+is what lets a `GameConversations.start()` in `OnInit` survive boot. The first thing
+boot does after Lua runs is a `move` to the location the run is already in, and
+clearing the conversation there would wipe every conversation an author opens at
+startup.
+
+**On a resumed run, the save wins.** A conversation started or finished in `OnInit`
+applies to a *fresh* boot only: the saved position is restored after Lua has run, and it
+overwrites whatever `OnInit` decided. That is the right order of authority — where the
+player actually was beats what the script would have opened now — but it does mean
+`GameConversations.start()` in `OnInit` is not a way to reopen a conversation someone
+walked out of. To make somebody talkable again on load, gate the conversation on the
+state the run saved, not on a boot-time call.
 
 An option needs no `end` key of its own: having nowhere to continue *is* the ending.
 `end:` at the top level of a directive list still means the game, which is a

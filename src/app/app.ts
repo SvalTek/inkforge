@@ -356,7 +356,8 @@ export function createApp(): AppContext {
         invokeLua: (name, params, context) => invokeNamedFunction(app.lua, name, params, reportSeam, context),
         emitEvent: (name, data, context) => emitNamedEvent(app.lua, name, data, reportSeam, context),
       };
-      const engine = createEngine(engineDeps);
+      const directives = createDirectiveDeps(engineDeps);
+      const engine = createEngine(engineDeps, directives);
       app.engine = engine;
       await bootRuntime(app, scenario, {
         flushView: () => flushView(),
@@ -364,7 +365,7 @@ export function createApp(): AppContext {
         output,
         onError: reportProblem,
         audio: app.audio,
-        directives: createDirectiveDeps(engineDeps),
+        directives,
       });
       await engine.move(runtime.location);
       // A newer boot has already replaced everything this one built; announcing

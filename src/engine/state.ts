@@ -98,3 +98,25 @@ export function setLocation(runtime: EngineRuntime, id: string): void {
   pushEvent(runtime, { type: "location:enter", locationId: id });
   markViewDirty(runtime);
 }
+
+/**
+ * End the run.
+ *
+ * Clearing the conversation here rather than leaving it to each caller is the point of
+ * this existing: a conversation cannot outlive the run that was holding it, and the
+ * caller that has to remember that is `directives.ts`, which cannot reach
+ * `endConversation` without importing the module that already imports it.
+ *
+ * Leaving it out was a real defect. `available()` consults the conversation before it
+ * consults `over`, so an option whose `then` ended the run kept rendering its
+ * remaining options as live buttons — choices that look answerable, accept a click, and
+ * do nothing, on a screen the player has been told is finished.
+ *
+ * Assigning the field needs no import of its own, which is what keeps this in `state`.
+ */
+export function endRun(runtime: EngineRuntime): void {
+  runtime.over = true;
+  runtime.conversation = null;
+  pushEvent(runtime, { type: "game:over" });
+  markViewDirty(runtime);
+}

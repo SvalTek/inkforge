@@ -5,7 +5,8 @@ import { serveStatic } from "./server.ts";
 import { unzipSync, zipSync } from "fflate";
 import { join } from "node:path";
 import { collectReferencedLuaNames, readScenarioMeta, validateScenario } from "../src/yaml/compose.ts";
-import { npcInstanceDefaults, setLocation } from "../src/engine/state.ts";
+import { endRun, npcInstanceDefaults, setLocation } from "../src/engine/state.ts";
+import { flushView, markViewDirty } from "../src/engine/events.ts";
 import { discoverableTalks } from "../src/engine/conversation.ts";
 import type { EngineRuntime } from "../src/types/index.ts";
 import type { EditorHarness } from "../src/editor/harness.ts";
@@ -2494,6 +2495,64 @@ end
         "moving to a different location did not end the conversation, so a player could not walk out of one",
       );
 
+      // Ending the run ends the conversation holding it. `available()` reads the
+      // conversation before it reads `over`, so a conversation left set by `end: true`
+      // kept rendering its remaining options as live buttons on a screen the player has
+      // been told is over: they look answerable, accept a click, and do nothing.
+      const overRuntime = engineRuntimeFixture("hall");
+      overRuntime.conversation = { id: "keeper_greeting", nodeId: "opening" };
+      endRun(overRuntime);
+      assert(
+        overRuntime.conversation === null,
+        "ending the run left the conversation in place, so its options stayed on screen as buttons that do nothing",
+      );
+      assert(overRuntime.over, "endRun did not end the run");
+
+      // A paint that settles a conversation must not leave a repaint behind it. The flag
+      // is cleared before the paint so a repaint from inside one is not re-entrant, and
+      // consuming what the paint raises is what makes "one command repaints once" true
+      // on this path too.
+      const flushRuntime = engineRuntimeFixture("hall");
+      let paints = 0;
+      flushRuntime.viewDirty = true;
+      flushView(flushRuntime, () => {
+        paints += 1;
+        // Only the first paint settles; a second one would mean the loop cannot settle.
+        if (paints === 1) markViewDirty(flushRuntime);
+      });
+      assert(paints === 2, `a paint that marked the view dirty was followed by ${paints} paints, expected 2`);
+      assert(
+        !flushRuntime.viewDirty,
+        "a repaint was left scheduled after the paint that caused it, rebuilding a DOM that already showed the result",
+      );
+
+      // `and` and `or` are recursed into by index, so `and: true` has no `.forEach` and
+      // reading it unguarded threw out of the entire validation — the one thing that
+      // turns a typo into a boot crash rather than a line in the diagnostics list.
+      for (const key of ["and", "or"]) {
+        const malformed = validateScenario({
+          locations: { hall: { actions: [{ id: "a", label: "A", if: { [key]: true } }] } },
+        } as never);
+        assert(
+          malformed.some((issue) =>
+            issue.path === `locations.hall.actions.0.if.${key}` && issue.message.includes("list of conditions")
+          ),
+          `a malformed '${key}' condition was not reported against its own path`,
+        );
+      }
+      // `not` recurses through the same guard, so a scalar there is already caught by
+      // the object check rather than by the new list check. Worth pinning: the two
+      // recursion sites have to agree, and only one of them needed a new branch.
+      const badNot = validateScenario({
+        locations: { hall: { actions: [{ id: "a", label: "A", if: { not: "nope" } }] } },
+      } as never);
+      assert(
+        badNot.some((issue) =>
+          issue.path === "locations.hall.actions.0.if.not" && issue.message.includes("must be an object")
+        ),
+        "a scalar 'not' was not reported against its own path",
+      );
+
       // The live half, against a self-contained fixture.
       const pack: PackShape = {
         manifest: {
@@ -2534,6 +2593,10 @@ locations:
         label: Talk about the gate
         then:
           - talk: gated_talk
+      - id: farewell
+        label: Say goodbye
+        then:
+          - talk: farewell_talk
       - id: "talk:bell"
         label: Ring the bell
         then:
@@ -2587,6 +2650,21 @@ conversations:
             if: { var: gateOpen, neq: false }
             then:
               - "Nothing you did not already know."
+  farewell_talk:
+    participants: [player, hall_keeper]
+    start: only
+    nodes:
+      only:
+        dialogue:
+          - speaker: hall_keeper
+            text: "Then go, and mind the third lamp."
+        options:
+          - id: go
+            text: Goodnight.
+            then:
+              - end: true
+          - id: not_yet
+            text: Not yet.
   hall_talk:
     participants: [player, hall_keeper]
     start: opening
@@ -2779,6 +2857,26 @@ end
       assert(
         await page.locator("#heroCommand").isVisible(),
         "a conversation whose every gate closed mid-exchange left the command boxes hidden",
+      );
+
+      // The last thing 8c does, because it ends the run: an option whose `then` ends
+      // the game has to take the conversation down with it. `available()` reads the
+      // conversation before it reads `over`, so a conversation left set by `end: true`
+      // went on rendering its *other* options as live buttons on a finished screen.
+      await page.locator("#heroChoices button", { hasText: "Say goodbye" }).click();
+      await waitForText(page, "#terminal", "mind the third lamp");
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("Goodnight."),
+        "the farewell conversation did not offer its options",
+      );
+      await page.locator("#heroChoices button", { hasText: "Goodnight." }).click();
+      assert(
+        !(await page.locator("#heroChoices").textContent())?.includes("Not yet."),
+        "an option that ended the run left the conversation's other options on screen as buttons that do nothing",
+      );
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "an option that ended the run left the command boxes hidden, as if a conversation were still running",
       );
       return "a talk: directive entered the start node; options replaced the location's choices and both command " +
         "boxes hid; a dotted call: inside an option received its conversation context; taking options appended to " +

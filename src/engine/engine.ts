@@ -9,12 +9,26 @@ import type {
 } from "../types/index.ts";
 import { check as checkCondition } from "./conditions.ts";
 import { chooseOption, conversationOptions, discoverableTalks, startConversation } from "./conversation.ts";
-import { createDirectiveDeps, execute as executeDirectives, itemName, move as moveTo } from "./directives.ts";
+import {
+  createDirectiveDeps,
+  type DirectiveDeps,
+  execute as executeDirectives,
+  itemName,
+  move as moveTo,
+} from "./directives.ts";
 import { clearTranscript } from "./events.ts";
 
-export function createEngine(deps: EngineDeps): EngineApi {
-  const dirDeps = createDirectiveDeps(deps);
-
+/**
+ * Build the engine API over a set of host dependencies.
+ *
+ * `dirDeps` is accepted rather than only derived so the host that also needs the
+ * directive surface — the Lua bindings, which expose `GameConversations` — can build
+ * it once and hand over the same object. Two views over the same dependencies behave
+ * identically today, because every field is a function or the one runtime, but
+ * "behaves identically" is not the property worth relying on: it is the drift that
+ * the phrase "the same call rather than two that could drift" is actually about.
+ */
+export function createEngine(deps: EngineDeps, dirDeps: DirectiveDeps = createDirectiveDeps(deps)): EngineApi {
   function check(c: Condition | undefined, context?: ExecutionContext): boolean {
     return checkCondition(c, deps.runtime, context);
   }

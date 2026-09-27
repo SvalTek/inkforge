@@ -107,6 +107,8 @@ worse than an error.
 |---|---|
 | Unknown condition key (`{ vara: x }`) | At load — `unknown condition key 'vara'` |
 | Empty condition | At load — `condition is empty` |
+| `and:` or `or:` that is not a list | At load — `'and' must be a list of conditions` |
+| A condition that is not an object at all | At load — `condition must be an object` |
 | Comparison without a `var` | At load — `comparison needs a 'var' to compare against` |
 | Unknown directive key | At load — `unrecognised directive [...] — nothing will happen` |
 | A directive that is neither a string nor an object | At load |

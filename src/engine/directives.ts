@@ -11,10 +11,10 @@ import type {
 } from "../types/index.ts";
 import { check } from "./conditions.ts";
 import { startConversation } from "./conversation.ts";
-import { markViewDirty, pushEvent } from "./events.ts";
 import {
   addItem,
   adjustState,
+  endRun,
   itemStatePath,
   npcStatePath,
   parseNpcPath,
@@ -203,10 +203,10 @@ export async function execute(
       continue;
     }
     if (x.end) {
-      deps.runtime.over = true;
-      pushEvent(deps.runtime, { type: "game:over" });
-      // `over` drops every remaining choice, so the list on screen is stale.
-      markViewDirty(deps.runtime);
+      // Not `runtime.over = true` here: ending the run also ends any conversation
+      // holding it, so that the choices on screen are not a conversation's worth of
+      // buttons that accept a click and do nothing. See `endRun`.
+      endRun(deps.runtime);
     }
   }
 }
