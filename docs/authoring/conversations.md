@@ -170,12 +170,17 @@ same reason an item action's output appends.
 
 ## While a conversation is running
 
-The player is *in* the conversation, and that changes three things:
+The player is *in* the conversation, and that changes four things:
 
 - **The choice list is the conversation's.** Location exits and actions are not
   offered, so there is no way to walk away in the middle of an exchange.
 - **The command box is hidden.** Typing `north` into the middle of a conversation is
   not a thing a player means, so the input is removed rather than left to fail.
+- **Inline `command` buttons are hidden.** An authored button in the `output` region
+  that dispatches a command would be refused by the engine, so it would sit on screen
+  looking answerable and doing nothing. Buttons that run directives or call Lua still
+  work — which is what keeps `GameConversations.finish()` reachable from the UI. See
+  [during a conversation](ui.md#during-a-conversation).
 - **The transcript accumulates.** Spoken lines are ordinary output, so taking an
   option *appends* rather than replacing what is on screen. The whole exchange stays
   readable afterwards, the same way an item action's output does. See

@@ -2603,6 +2603,13 @@ locations:
           - "The bell answers once, somewhere below."
 ui:
   elements:
+    - id: look_around_again
+      type: button
+      location: output
+      fields:
+        - { id: label, type: text, value: "Look around again" }
+      events:
+        activate: { type: command, command: look }
     - id: shut_gate
       type: button
       location: output
@@ -2796,7 +2803,24 @@ end
         !(await page.locator("#commandForm").isVisible()),
         "the author run panel's command box stayed visible during a conversation",
       );
-
+      // Authored inline controls on the same story surface as the two above, and a
+      // conversation owns the ones it can actually use. The distinction is not "any
+      // inline control" — it is the ones that would be inert.
+      assert(
+        (await page.locator('#uiOutput [data-ui="look_around_again"]').count()) === 0,
+        "a `command` button stayed on screen during a conversation, where dispatch refuses it and it does nothing",
+      );
+      // And the ones that still work stay. `finish_from_lua` is the strongest case for
+      // this: ending a conversation from outside it is the one thing a conversation
+      // most needs a way to do, and it is reached by exactly this kind of control.
+      assert(
+        (await page.locator('#uiOutput [data-ui="finish_from_lua"]').count()) === 1,
+        "a `callback` button was hidden during a conversation, making GameConversations.finish() unreachable from the UI",
+      );
+      assert(
+        (await page.locator('#uiOutput [data-ui="shut_gate"]').count()) === 1,
+        "an `instructions` button was hidden during a conversation, though its directives still run",
+      );
       await page.locator("#heroChoices button", { hasText: "What is your name?" }).click();
       await waitForText(page, "#terminal", "[talking: hall_talk/opening]");
       await waitForText(page, "#terminal", "A name is a thing you are given.");
@@ -2834,6 +2858,13 @@ end
       assert(
         await page.locator("#heroCommand").isVisible(),
         "the command box did not come back after the conversation ended",
+      );
+      // The inline controls come back with the room. Asserted here rather than trusted,
+      // because the failure mode of a fix like this is not "they stay visible" but
+      // "they never come back" — which is a quieter and more permanent bug.
+      assert(
+        (await page.locator('#uiOutput [data-ui="look_around_again"]').count()) === 1,
+        "the `command` button did not come back after the conversation ended",
       );
 
       // Gates closing *mid-exchange*, with no node change at all. Every option on
