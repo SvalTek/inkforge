@@ -6,9 +6,10 @@ export type SeamReport = (message: string, severity: "error" | "warning") => voi
 
 /**
  * WebLuaBridge's direct named-call path cannot safely push two proxied object
- * arguments. Stage one envelope instead, then unpack it inside the runtime.
- * This is fixed host plumbing: authored YAML still names a function and never
- * supplies Lua source for evaluation.
+ * arguments, and it resolves a bare global name only — it does not walk a
+ * dot-delimited path. Stage one envelope instead, then resolve the name and
+ * unpack the arguments inside the runtime. This is fixed host plumbing: authored
+ * YAML still names a function and never supplies Lua source for evaluation.
  */
 const CONTEXTUAL_CALL = String.raw`
 local invocation = ...
@@ -26,8 +27,8 @@ function detachContext(context: ExecutionContext): ExecutionContext {
 /**
  * Call a named Lua function, optionally with params.
  *
- * Names are dot-delimited paths into Lua globals (`cellar.arrive`), which
- * `bridge.call` resolves natively. A missing function surfaces as a bridge
+ * Names are dot-delimited paths into Lua globals (`cellar.arrive`), resolved one
+ * segment at a time by the envelope above. A missing function surfaces as a bridge
  * `CALL` error rather than a silent no-op.
  */
 export async function invokeNamedFunction(
@@ -42,8 +43,17 @@ export async function invokeNamedFunction(
     return;
   }
   try {
-    if (context) await lua.execute(CONTEXTUAL_CALL, { name, params, context: detachContext(context) });
-    else await lua.call(name, params);
+    // The envelope is used whenever the name is dot-delimited, not only when there
+    // is a context to carry. `bridge.call` resolves a bare global name and nothing
+    // more, so a dotted name pushed as one global raises instead of reaching a
+    // function on a table. Boot already walks the segments when it *checks* the
+    // same name, so reusing one rule for both is what keeps a name boot accepted
+    // from failing at the moment it is reached.
+    if (context || name.includes(".")) {
+      await lua.execute(CONTEXTUAL_CALL, { name, params, context: context ? detachContext(context) : null });
+    } else {
+      await lua.call(name, params);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     report(message.includes(name) ? message : `Failed to call '${name}': ${message}`, "error");
