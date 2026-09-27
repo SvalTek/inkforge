@@ -1,7 +1,27 @@
 import type LuaBridge from "WebLuaBridge";
+import type { ExecutionContext } from "../types/index.ts";
 
 /** Reports a seam failure (missing handler, thrown error) to the author. */
 export type SeamReport = (message: string, severity: "error" | "warning") => void;
+
+/**
+ * WebLuaBridge's direct named-call path cannot safely push two proxied object
+ * arguments. Stage one envelope instead, then unpack it inside the runtime.
+ * This is fixed host plumbing: authored YAML still names a function and never
+ * supplies Lua source for evaluation.
+ */
+const CONTEXTUAL_CALL = String.raw`
+local invocation = ...
+local target = _G
+for part in string.gmatch(invocation.name, "[^.]+") do
+  target = target[part]
+end
+return target(invocation.params, invocation.context)
+`;
+
+function detachContext(context: ExecutionContext): ExecutionContext {
+  return structuredClone(context);
+}
 
 /**
  * Call a named Lua function, optionally with params.
@@ -15,15 +35,18 @@ export async function invokeNamedFunction(
   name: string,
   params: Record<string, unknown>,
   report: SeamReport,
+  context?: ExecutionContext,
 ): Promise<void> {
   if (!lua) {
     report(`Cannot call '${name}': no Lua runtime is loaded.`, "warning");
     return;
   }
   try {
-    await lua.call(name, params);
+    if (context) await lua.execute(CONTEXTUAL_CALL, { name, params, context: detachContext(context) });
+    else await lua.call(name, params);
   } catch (error) {
-    report(error instanceof Error ? error.message : `Failed to call '${name}'.`, "error");
+    const message = error instanceof Error ? error.message : String(error);
+    report(message.includes(name) ? message : `Failed to call '${name}': ${message}`, "error");
   }
 }
 
@@ -43,12 +66,13 @@ export function emitNamedEvent(
   name: string,
   data: Record<string, unknown>,
   report: SeamReport,
+  context?: ExecutionContext,
 ): void {
   if (!lua) {
     report(`Cannot emit '${name}': no Lua runtime is loaded.`, "warning");
     return;
   }
-  const handled = lua.emit(name, data);
+  const handled = context ? lua.emit(name, data, detachContext(context)) : lua.emit(name, data);
   if (handled === 0) {
     report(`Event '${name}' was emitted but nothing is listening for it.`, "warning");
   }

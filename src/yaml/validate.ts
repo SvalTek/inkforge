@@ -8,6 +8,7 @@ export const CONDITION_KEYS = [
   "not",
   "hasItem",
   "var",
+  "itemVar",
   "eq",
   "ne",
   "neq",
@@ -19,6 +20,7 @@ export const CONDITION_KEYS = [
 
 const CONDITION_KEY_SET = new Set<string>(CONDITION_KEYS);
 const DIRECTIVE_KEY_SET = new Set<string>(DIRECTIVE_KEYS);
+const ITEM_ACTION_KEY_SET = new Set(["id", "label", "if", "then"]);
 
 /** One problem found in the composed scenario, with the path to it. */
 export interface ValidationIssue {
@@ -26,7 +28,12 @@ export interface ValidationIssue {
   message: string;
 }
 
-function checkCondition(condition: Condition | undefined, path: string, issues: ValidationIssue[]): void {
+function checkCondition(
+  condition: Condition | undefined,
+  path: string,
+  issues: ValidationIssue[],
+  hasItemContext = false,
+): void {
   if (condition === undefined || condition === null) return;
   if (typeof condition !== "object") {
     issues.push({ path, message: "condition must be an object" });
@@ -42,17 +49,33 @@ function checkCondition(condition: Condition | undefined, path: string, issues: 
       issues.push({ path, message: `unknown condition key '${key}'` });
     }
   }
-  // Comparison keys only mean something alongside `var`.
-  const comparisons = ["eq", "ne", "neq", "gt", "gte", "lt", "lte"];
-  if (comparisons.some((key) => key in condition) && !("var" in condition)) {
-    issues.push({ path, message: "comparison needs a 'var' to compare against" });
+  const stateKeys = ["var", "itemVar"].filter((key) => key in condition);
+  if (stateKeys.length > 1) {
+    issues.push({ path, message: "condition cannot combine 'var' and 'itemVar'" });
   }
-  if (condition.and) condition.and.forEach((item, index) => checkCondition(item, `${path}.and.${index}`, issues));
-  if (condition.or) condition.or.forEach((item, index) => checkCondition(item, `${path}.or.${index}`, issues));
-  if (condition.not) checkCondition(condition.not, `${path}.not`, issues);
+  if ("itemVar" in condition && !hasItemContext) {
+    issues.push({ path, message: "'itemVar' requires an inventory item action context" });
+  }
+  // Comparison keys only mean something alongside one state-reading key.
+  const comparisons = ["eq", "ne", "neq", "gt", "gte", "lt", "lte"];
+  if (comparisons.some((key) => key in condition) && stateKeys.length === 0) {
+    issues.push({ path, message: "comparison needs a 'var' or 'itemVar' to compare against" });
+  }
+  if (condition.and) {
+    condition.and.forEach((item, index) => checkCondition(item, `${path}.and.${index}`, issues, hasItemContext));
+  }
+  if (condition.or) {
+    condition.or.forEach((item, index) => checkCondition(item, `${path}.or.${index}`, issues, hasItemContext));
+  }
+  if (condition.not) checkCondition(condition.not, `${path}.not`, issues, hasItemContext);
 }
 
-function checkDirectives(list: DirectiveList | undefined, path: string, issues: ValidationIssue[]): void {
+function checkDirectives(
+  list: DirectiveList | undefined,
+  path: string,
+  issues: ValidationIssue[],
+  hasItemContext = false,
+): void {
   if (list === undefined || list === null) return;
   const items = Array.isArray(list) ? list : [list];
   items.forEach((item, index) => {
@@ -72,10 +95,39 @@ function checkDirectives(list: DirectiveList | undefined, path: string, issues: 
         message: `unrecognised directive ${JSON.stringify(Object.keys(directive))} — nothing will happen`,
       });
     }
-    if (directive.if) checkCondition(directive.if as Condition, `${itemPath}.if`, issues);
-    if (directive.then) checkDirectives(directive.then as DirectiveList, `${itemPath}.then`, issues);
-    if (directive.else) checkDirectives(directive.else as DirectiveList, `${itemPath}.else`, issues);
+    if ("itemSet" in directive) {
+      if (!directive.itemSet || typeof directive.itemSet !== "object" || Array.isArray(directive.itemSet)) {
+        issues.push({ path: `${itemPath}.itemSet`, message: "itemSet must be a mapping" });
+      }
+      if (!hasItemContext) {
+        issues.push({ path: itemPath, message: "'itemSet' requires an inventory item action context" });
+      }
+    }
+    if (directive.if) checkCondition(directive.if as Condition, `${itemPath}.if`, issues, hasItemContext);
+    if (directive.then) checkDirectives(directive.then as DirectiveList, `${itemPath}.then`, issues, hasItemContext);
+    if (directive.else) checkDirectives(directive.else as DirectiveList, `${itemPath}.else`, issues, hasItemContext);
   });
+}
+
+function checkItemAction(action: unknown, path: string, issues: ValidationIssue[]): void {
+  if (!action || typeof action !== "object" || Array.isArray(action)) {
+    issues.push({ path, message: "item action must be an object" });
+    return;
+  }
+  const value = action as Record<string, unknown>;
+  for (const key of Object.keys(value)) {
+    if (!ITEM_ACTION_KEY_SET.has(key)) {
+      issues.push({ path: `${path}.${key}`, message: `unknown item action key '${key}'` });
+    }
+  }
+  if (typeof value.id !== "string" || !value.id.trim()) {
+    issues.push({ path: `${path}.id`, message: "item action id must be a non-empty string" });
+  }
+  if (value.label !== undefined && typeof value.label !== "string") {
+    issues.push({ path: `${path}.label`, message: "item action label must be a string" });
+  }
+  checkCondition(value.if as Condition | undefined, `${path}.if`, issues, true);
+  checkDirectives(value.then as DirectiveList | undefined, `${path}.then`, issues, true);
 }
 
 /**
@@ -101,6 +153,16 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
         checkCondition(exit.if, `locations.${id}.exits.${direction}.if`, issues);
       }
     }
+  }
+
+  for (const [id, definition] of Object.entries(scenario.definitions?.item || {})) {
+    if (definition.actions !== undefined && !Array.isArray(definition.actions)) {
+      issues.push({ path: `definitions.item.${id}.actions`, message: "item actions must be a list" });
+      continue;
+    }
+    (definition.actions || []).forEach((action, index) =>
+      checkItemAction(action, `definitions.item.${id}.actions.${index}`, issues)
+    );
   }
 
   (scenario.ui?.elements || []).forEach((element, index) => {
@@ -134,6 +196,11 @@ export function collectReferencedLuaNames(scenario: Scenario): ValidationIssue[]
     fromDirective(location.text, `locations.${id}.text`);
     (location.actions || []).forEach((action, index) => {
       fromDirective(action.then, `locations.${id}.actions.${index}.then`);
+    });
+  }
+  for (const [id, definition] of Object.entries(scenario.definitions?.item || {})) {
+    (definition.actions || []).forEach((action, index) => {
+      fromDirective(action.then, `definitions.item.${id}.actions.${index}.then`);
     });
   }
   (scenario.ui?.elements || []).forEach((element, index) => {

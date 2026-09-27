@@ -1,4 +1,12 @@
-import type { AvailableAction, Condition, DirectiveList, EngineApi, EngineDeps, ExitValue } from "../types/index.ts";
+import type {
+  AvailableAction,
+  Condition,
+  DirectiveList,
+  EngineApi,
+  EngineDeps,
+  ExecutionContext,
+  ExitValue,
+} from "../types/index.ts";
 import { check as checkCondition } from "./conditions.ts";
 import type { DirectiveDeps } from "./directives.ts";
 import { execute as executeDirectives, itemName, move as moveTo } from "./directives.ts";
@@ -14,16 +22,16 @@ export function createEngine(deps: EngineDeps): EngineApi {
     emitEvent: deps.emitEvent,
   };
 
-  function check(c: Condition | undefined): boolean {
-    return checkCondition(c, deps.runtime);
+  function check(c: Condition | undefined, context?: ExecutionContext): boolean {
+    return checkCondition(c, deps.runtime, context);
   }
 
-  async function move(id: string): Promise<void> {
-    await moveTo(id, dirDeps);
+  async function move(id: string, context?: ExecutionContext): Promise<void> {
+    await moveTo(id, dirDeps, context);
   }
 
-  async function execute(list: DirectiveList | undefined): Promise<void> {
-    await executeDirectives(list, dirDeps);
+  async function execute(list: DirectiveList | undefined, context?: ExecutionContext): Promise<void> {
+    await executeDirectives(list, dirDeps, context);
   }
 
   function available(): AvailableAction[] {

@@ -97,6 +97,7 @@ appears further down the file.
 |---|---|
 | `GameOutput` | Writing to the transcript |
 | `GameState` | Reading and writing state |
+| `GameItems` | Reading item instances and authored definition data |
 | `GameUI` | Creating and changing UI elements |
 | `GameTools` | The tool rail |
 | `GameAudio` | Sound |
@@ -130,6 +131,24 @@ GameState.set("oil", oil - 1)
 
 A flat store shared with YAML. `get` returns `nil` for a key that has never been set, so `or 0` is the usual guard.
 Setting a value repaints anything bound to it, which is why a meter can follow a timer with nothing else asking.
+
+### `GameItems`
+
+```lua
+local item = GameItems.get("entry_lantern")
+GameOutput.add(item.definition.inspect)
+
+local lantern = GameItems.definition("lantern")
+GameOutput.add(lantern.material)
+```
+
+`get(instanceId)` resolves an item instance and returns its `id`, its definition id as `def`, and its complete authored
+`definition`. `definition(definitionId)` reads a definition directly. Either method returns `nil` when its id cannot be
+resolved.
+
+Definitions include the standard `name`, `description`, `aliases`, and `actions` fields plus any custom YAML fields the
+author added. Returned definitions are detached copies: Lua can reshape a local result, but doing so does not modify the
+composed scenario or a later lookup. Use `GameState` or `itemSet` for data that should change during play.
 
 ### `GameUI`
 
@@ -242,6 +261,26 @@ other listeners.
 
 Because a listener list cannot be enumerated, an `emit:` that reaches nobody is reported the first time it fires rather
 than being caught at boot.
+
+### Item action context
+
+Definition-level inventory actions are shared, but each invocation carries the selected instance. A `call:` handler
+receives it after params, and an `emit:` listener receives it after data:
+
+```lua
+function lantern.light(params, context)
+  GameOutput.add("Lighting " .. context.item.id)
+end
+
+Events:On("lantern:lit", function(data, context)
+  GameOutput.add(context.item.definitionId .. ":" .. context.item.actionId)
+end)
+```
+
+The item context has three fields: `id` is the concrete instance, `definitionId` is its shared definition, and
+`actionId` is the invoked definition action. It is transient invocation information, not saved state. Calls and events
+from locations, UI elements and tools omit this second argument. Each handler receives a detached context, so changing
+it inside Lua does not alter the item subject retained by the engine or the context given to the next handler.
 
 ### Value interop
 

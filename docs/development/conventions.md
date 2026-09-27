@@ -82,6 +82,10 @@ layer over everything is the anti-pattern this codebase was rebuilt to remove. T
 `readonly`, so authored Lua cannot reassign `GameState.get` and quietly break the API. Method names follow the bridge's
 own bindings — `setVolume`, not `set_volume` — so the whole Lua surface reads the same way.
 
+**Read-only authored data is returned as a detached value.** `GameItems` may resolve the live composed scenario, but
+the definition handed to Lua is a clone. Namespace immutability protects the API surface; cloning separately protects
+the source data from mutation through a returned object.
+
 **Every handle method has a host operation.** `GameCanvas`'s Lua handles do not do work locally; they send a command and
 the host applies it. A method with no matching host op is a dead method. When you add one, add both halves.
 
@@ -126,8 +130,8 @@ takes the **first** match, so a new key's position is a behavioural decision, no
 itself is a set used for validation and is not in execution order — the two lists are separate and both need updating.
 
 **Add a condition key.** `CONDITION_KEYS` in `src/yaml/validate.ts` and `check()` in `src/engine/conditions.ts`. A
-comparison-shaped key also needs the "needs a `var`" rule in `checkCondition` and a branch inside the `"var" in condition`
-block.
+state-reading key also participates in the comparison-subject rules in `checkCondition`; `var` and `itemVar` share the
+same comparison implementation. Contextual keys must be validated only at sites that can actually supply their subject.
 
 **Add a Lua namespace.** Add it to `createHostNamespaces` in `src/lua/bindings.ts` as a `readonly` `LuaClass`. It is
 installed by being present in the globals map passed to `createLuaBridge` — there is no registration step. If it needs

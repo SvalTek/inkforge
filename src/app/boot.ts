@@ -115,6 +115,7 @@ export async function bootRuntime(app: AppContext, scenario: Scenario, hooks: Bo
 
   const lua = await createLuaEngine({
     runtime,
+    scenario,
     vfs: app.project.vfs,
     scriptPath,
     canvasHost: canvas,

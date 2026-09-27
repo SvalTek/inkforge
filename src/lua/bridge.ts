@@ -6,6 +6,7 @@ import type { CanvasCommand, CanvasHost } from "../types/canvas.ts";
 import type { ApplyUiFn, EngineRuntime, OutputFn } from "../types/engine.ts";
 import type { Vfs } from "../types/vfs.ts";
 import type { AudioManagerLike } from "../types/audio.ts";
+import type { Scenario } from "../types/scenario.ts";
 
 /** Tick interval for the bridge's main loop, in milliseconds. */
 const MAIN_LOOP_INTERVAL_MS = 16;
@@ -19,6 +20,7 @@ declare const __INKFORGE_WASM_URI__: string;
 /** Injected dependencies for {@link createLuaEngine}. */
 export interface LuaEngineOptions {
   runtime: EngineRuntime;
+  scenario: Scenario;
   vfs: Vfs;
   scriptPath: string;
   canvasHost: CanvasHost;
@@ -34,7 +36,7 @@ export interface LuaEngineOptions {
  *
  * Boot order:
  * 1. create the bridge, which installs the host namespaces (`GameOutput`,
- *    `GameState`, `GameUI`, `GameTools`, `GameAudio`), the bridge's `timers`
+ *    `GameState`, `GameItems`, `GameUI`, `GameTools`, `GameAudio`), the bridge's `timers`
  *    binding, and every project `.lua` file, before anything executes
  * 2. run the Lua-side API (`GameCanvas` and the canvas event router)
  * 3. run the scenario entry file, which defines `OnInit`/`Update`/`OnShutdown`
@@ -49,7 +51,7 @@ export interface LuaEngineOptions {
  * before any work.
  */
 export async function createLuaEngine(options: LuaEngineOptions): Promise<LuaBridge> {
-  const { runtime, vfs, scriptPath, canvasHost, applyUi, output, audio, onError } = options;
+  const { runtime, scenario, vfs, scriptPath, canvasHost, applyUi, output, audio, onError } = options;
 
   if (vfs[scriptPath] === undefined) throw new Error(`Script not found: ${scriptPath}`);
 
@@ -64,7 +66,7 @@ export async function createLuaEngine(options: LuaEngineOptions): Promise<LuaBri
   // `injectObjects`/`enableProxy` are the bridge defaults; stated explicitly so
   // the dependency on direct object bridging is visible where it matters.
   const bridge = await createLuaBridge({
-    ...createHostNamespaces({ runtime, applyUi, output, audio }),
+    ...createHostNamespaces({ runtime, scenario, applyUi, output, audio }),
     // Internal transport for the Lua-side `GameCanvas` handles. Double
     // underscore marks it as plumbing rather than authored API.
     __canvas_command: (payload: unknown) => canvasHost.command(payload as CanvasCommand),

@@ -154,6 +154,9 @@
 }
 
 .item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   border-top: 1px solid #49382a;
   padding-top: 15px;
   color: #978675;

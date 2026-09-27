@@ -3,13 +3,14 @@ import type {
   Directive,
   DirectiveList,
   EngineRuntime,
+  ExecutionContext,
   IncDecSpec,
   OutputFn,
   Scenario,
 } from "../types/index.ts";
 import { check } from "./conditions.ts";
 import { markViewDirty, pushEvent } from "./events.ts";
-import { addItem, adjustState, removeItem, setLocation, setState } from "./state.ts";
+import { addItem, adjustState, itemStatePath, removeItem, setLocation, setState } from "./state.ts";
 
 export interface DirectiveDeps {
   runtime: EngineRuntime;
@@ -24,14 +25,14 @@ export interface DirectiveDeps {
    * inline keeps authored ordering correct — a statement after `call:` runs
    * after it, not before it.
    */
-  invokeLua(name: string, params: Record<string, unknown>): Promise<void>;
+  invokeLua(name: string, params: Record<string, unknown>, context?: ExecutionContext): Promise<void>;
   /**
    * Emit a named event to Lua subscribers.
    *
    * Synchronous in practice, but typed as possibly-async so the inline `await`
    * in `execute` keeps its ordering guarantee if that ever stops being true.
    */
-  emitEvent(name: string, data: Record<string, unknown>): void | Promise<void>;
+  emitEvent(name: string, data: Record<string, unknown>, context?: ExecutionContext): void | Promise<void>;
 }
 
 export function lines(value: DirectiveList | undefined): Directive[] {
@@ -44,7 +45,7 @@ export function itemName(scenario: Scenario | null, id: string): string {
   return definition.name || id;
 }
 
-export async function move(id: string, deps: DirectiveDeps): Promise<void> {
+export async function move(id: string, deps: DirectiveDeps, context?: ExecutionContext): Promise<void> {
   const scenario = deps.getScenario();
   const location = scenario?.locations?.[id];
   if (!location) {
@@ -52,13 +53,14 @@ export async function move(id: string, deps: DirectiveDeps): Promise<void> {
     return;
   }
   setLocation(deps.runtime, id);
-  await execute(location.text, deps);
+  await execute(location.text, deps, context);
 }
 
 /** The recognised directive keys, used for validation diagnostics. */
 export const DIRECTIVE_KEYS = [
   "text",
   "set",
+  "itemSet",
   "inc",
   "dec",
   "give",
@@ -71,7 +73,11 @@ export const DIRECTIVE_KEYS = [
   "emit",
 ] as const;
 
-export async function execute(list: DirectiveList | undefined, deps: DirectiveDeps): Promise<void> {
+export async function execute(
+  list: DirectiveList | undefined,
+  deps: DirectiveDeps,
+  context?: ExecutionContext,
+): Promise<void> {
   for (const x of lines(list)) {
     if (typeof x === "string") {
       deps.output(x);
@@ -84,6 +90,21 @@ export async function execute(list: DirectiveList | undefined, deps: DirectiveDe
     }
     if (x.set) {
       for (const [path, value] of Object.entries(x.set)) setState(deps.runtime, path, value);
+      continue;
+    }
+    if ("itemSet" in x) {
+      const itemSet: unknown = x.itemSet;
+      if (!itemSet || typeof itemSet !== "object" || Array.isArray(itemSet)) {
+        deps.output("itemSet must be a mapping.", "error");
+        continue;
+      }
+      if (!context?.item) {
+        deps.output("itemSet requires an inventory item action context.", "error");
+        continue;
+      }
+      for (const [path, value] of Object.entries(itemSet)) {
+        setState(deps.runtime, itemStatePath(context, path)!, value);
+      }
       continue;
     }
     if (x.inc || x.dec) {
@@ -103,7 +124,7 @@ export async function execute(list: DirectiveList | undefined, deps: DirectiveDe
       continue;
     }
     if (x.goto) {
-      await move(x.goto, deps);
+      await move(x.goto, deps, context);
       continue;
     }
     if (x.ui) {
@@ -111,15 +132,15 @@ export async function execute(list: DirectiveList | undefined, deps: DirectiveDe
       continue;
     }
     if (x.call) {
-      await deps.invokeLua(x.call, x.params || {});
+      await deps.invokeLua(x.call, x.params || {}, context);
       continue;
     }
     if (x.emit) {
-      await deps.emitEvent(x.emit, x.data || {});
+      await deps.emitEvent(x.emit, x.data || {}, context);
       continue;
     }
     if (x.if) {
-      await execute(check(x.if, deps.runtime) ? x.then : x.else, deps);
+      await execute(check(x.if, deps.runtime, context) ? x.then : x.else, deps, context);
       continue;
     }
     if (x.end) {

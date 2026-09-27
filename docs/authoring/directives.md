@@ -24,6 +24,7 @@ text:
 |---|---|
 | `text` | Print a line to the transcript |
 | `set` | Assign one or more state paths |
+| `itemSet` | Assign state belonging to the current inventory item instance |
 | `inc` | Add to a numeric state path |
 | `dec` | Subtract from a numeric state path |
 | `give` | Put an item into the inventory |
@@ -43,7 +44,7 @@ because the alternative — a typo'd key that is quietly ignored — is the hard
 A mapping directive is tested **key by key, in a fixed order**, and the first match wins:
 
 ```
-text → set → inc/dec → give → remove → goto → ui → call → emit → if → end
+text → set → itemSet → inc/dec → give → remove → goto → ui → call → emit → if → end
 ```
 
 The consequence that catches people out: **`if` is only consulted if none of the earlier keys are present.** So this
@@ -95,6 +96,25 @@ Assigns state. The value can be any YAML scalar, list or mapping.
 
 State paths are flat keys. `set` is the same store Lua's `GameState.set` writes to, so a value set in YAML is visible
 to a script and vice versa.
+
+## `itemSet`
+
+Assigns state to the concrete inventory item whose definition action is running:
+
+```yaml
+- itemSet:
+    lit: true
+    oil: 100
+```
+
+For an instance called `cellar_lantern`, those become the flat keys `item.cellar_lantern.lit` and
+`item.cellar_lantern.oil`. The writes use the normal state mutation path, so they repaint immediately and are included in
+saves. `itemSet` is valid only inside `definitions.item.<id>.actions[]` and nested directive lists belonging to those
+actions. Its value must be a YAML mapping; scalar and list payloads fail validation. Other sites fail validation because
+they have no current item.
+
+`itemSet` assigns fixed values. There are no `itemInc` or `itemDec` directives yet; use Lua when an item-local number
+must be changed relative to its current value.
 
 ## `inc` / `dec`
 
@@ -186,6 +206,17 @@ function cellar.arrive(params)
 end
 ```
 
+When the call runs inside an inventory item action, the concrete item is available as an optional second argument:
+
+```lua
+function lantern.light(params, context)
+  GameOutput.add("Lighting " .. context.item.id)
+end
+```
+
+`context.item` contains `id`, `definitionId` and `actionId`. Calls from sites without an explicit subject omit the
+second argument, so existing one-argument handlers continue to work.
+
 The call is awaited, so directives after it run after it has finished.
 
 ## `emit`
@@ -204,6 +235,14 @@ react to the same moment without the YAML naming any of them.
 `emit` cannot be checked at boot, because `Events:On` offers no way to enumerate listeners. Instead, an emit that
 reaches nobody is reported the first time it fires: `Event 'door:opened' was emitted but nothing is listening for it.`
 That is a warning, not an error — an unhandled event is legal.
+
+An event emitted by an inventory item action passes the same optional execution context after its data:
+
+```lua
+Events:On("item:inspected", function(data, context)
+  GameOutput.add("Inspected " .. context.item.id)
+end)
+```
 
 ## `if` / `then` / `else`
 
@@ -228,4 +267,5 @@ Ends the game. Sets the run to over and emits `game:over`; the remaining choices
 - end: true
 ```
 
-Once `end` has run, further commands are ignored until the run is restarted.
+Once `end` has run, further commands and inventory actions are ignored until the run is restarted. An open inventory
+inspector removes its action buttons when the run ends.

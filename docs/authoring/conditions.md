@@ -19,16 +19,17 @@ exits:
 | `not` | Inverts the condition inside it |
 | `hasItem` | The inventory contains this item id |
 | `var` | Names the state path to test |
-| `eq` | `var` equals this value |
-| `ne` / `neq` | `var` does not equal this value |
-| `gt` `gte` `lt` `lte` | `var` is greater/greater-or-equal/less/less-or-equal than this number |
+| `itemVar` | Names state belonging to the current inventory item instance |
+| `eq` | The selected state value equals this value |
+| `ne` / `neq` | The selected state value does not equal this value |
+| `gt` `gte` `lt` `lte` | The selected state value is greater/greater-or-equal/less/less-or-equal than this number |
 
 Anything else is rejected at load time: `unknown condition key 'hasitem'`. See [why that matters](#failing-closed).
 
 ## Comparison conditions
 
-A comparison needs a `var` to compare against. On its own it is a load-time error —
-`comparison needs a 'var' to compare against`.
+A comparison needs one state-reading key, either `var` or `itemVar`. On its own it is a load-time error. Combining both
+in one condition is also rejected; use `and` when two values need testing.
 
 ```yaml
 if: { var: courage, gte: 3 }
@@ -50,6 +51,21 @@ if: { var: doorOpen }
 ```
 
 This is the idiomatic way to test a flag set with `set: { doorOpen: true }`.
+
+`itemVar` has the same comparison and truthiness rules, but resolves its path against the concrete item that invoked a
+definition action:
+
+```yaml
+if: { itemVar: lit, neq: true }
+```
+
+For an instance called `cellar_lantern`, that reads the flat state key `item.cellar_lantern.lit`. `itemVar` is valid only
+in `definitions.item.<id>.actions[]` and conditions nested inside those actions. Using it at a location, exit or UI site
+is a load-time error because those sites have no current item. If context is absent at runtime, the condition fails
+closed.
+
+An absent item value behaves like any absent state value: it is `undefined`. This makes `neq: true` useful for flags that
+start unset; `eq: false` matches only a value explicitly seeded or written as `false`.
 
 ## Combining
 
@@ -88,13 +104,14 @@ The same principle applies to directives: an unknown directive key is reported r
 |---|---|
 | An exit | `exits.<direction>.if` |
 | A location action | `actions[].if` |
+| An inventory item action | `definitions.item.<id>.actions[].if` |
 | A line of location text | `if` on a directive inside `text` |
 | A UI element | `if` on the element itself |
 | A directive | `if` on the directive mapping |
 
-A UI element whose condition is false is not rendered at all, and a location action whose condition is false does not
-appear in the available actions list. Exits whose condition is false are hidden from the choice list; typing the
-direction anyway prints `That way is not available.`
+A UI element whose condition is false is not rendered at all. A location action or inventory item action whose condition
+fails does not appear in its available actions. Exits whose condition is false are hidden from the choice list; typing
+the direction anyway prints `That way is not available.`
 
 ## Conditional location text
 
