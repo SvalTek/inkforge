@@ -183,6 +183,17 @@ item:
     name: Brass Lantern
     description: A hand lantern with a hooded flame.
     aliases: [lantern]
+    actions:
+      - id: light
+        label: Light
+        if: { itemVar: lit, neq: true }
+        then:
+          - itemSet: { lit: true }
+          - call: lantern.light
+      - id: inspect
+        label: Inspect
+        then:
+          - emit: item:inspected
 ```
 
 **Instances** place it:
@@ -197,8 +208,43 @@ item:
 A location's `items:` list holds **instance** ids. The engine resolves instance → `def` → definition to find the
 display name, which is why `take entry_lantern` prints `Taken: Brass Lantern.`
 
-`name` and `description` are what the inventory inspector shows when a slot is clicked. `aliases` is currently
-documentation rather than a lookup — `take` matches the instance id or the definition name, not aliases.
+`name` and `description` are what the inventory inspector shows when a slot is clicked. `actions` adds buttons below
+the description. Each action has an `id`, an optional `label`, an optional `if` condition, and a `then` directive list.
+The `then` list can use `call` for one named Lua function or `emit` for an event; see [Directives](directives.md#call)
+for when to use each. Conditions use the current runtime state and inventory. Actions belong to the definition, so all
+instances of that definition show the same actions.
+
+When an inventory action runs, Inkforge carries the concrete instance through its condition and directive list as
+execution context. A Lua function called by that action receives the context as its second argument:
+
+```lua
+function lantern.light(params, context)
+  GameOutput.add("Lighting " .. context.item.id)
+  -- context.item.definitionId == "lantern"
+  -- context.item.actionId == "light"
+end
+```
+
+An event listener receives the same context after its data argument. Other action sites do not invent an item context,
+so the second argument is absent for an ordinary location, UI or tool action.
+
+`itemVar` and `itemSet` read and write state for the invoking instance. For `entry_lantern`, `itemVar: lit` and
+`itemSet: { lit: true }` resolve to the ordinary flat state key `item.entry_lantern.lit`. The definition remains shared,
+while each instance receives an independent value in the existing state store. These contextual keys are valid only in
+an inventory definition action and its nested conditions/directives.
+
+There are no definition-level state defaults or instance overrides yet. You can seed a value explicitly in top-level
+state when needed:
+
+```yaml
+state:
+  item.entry_lantern.lit: false
+```
+
+Otherwise the value begins absent, like any other state key. `itemSet` creates it on first write.
+
+`aliases` is currently documentation rather than a lookup — `take` matches the instance id or the definition name, not
+aliases.
 
 Taking an item removes it from the location, so it disappears from the choices and reappears in the inventory. `take`
 matches case-insensitively on either the instance id or the lowercased definition name:

@@ -335,8 +335,8 @@ export function createApp(): AppContext {
         output,
         applyUi: (command) => applyUiState(command, runtime),
         render: () => flushView(),
-        invokeLua: (name, params) => invokeNamedFunction(app.lua, name, params, reportSeam),
-        emitEvent: (name, data) => emitNamedEvent(app.lua, name, data, reportSeam),
+        invokeLua: (name, params, context) => invokeNamedFunction(app.lua, name, params, reportSeam, context),
+        emitEvent: (name, data, context) => emitNamedEvent(app.lua, name, data, reportSeam, context),
       });
       app.engine = engine;
       await bootRuntime(app, scenario, {

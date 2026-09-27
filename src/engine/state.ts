@@ -1,4 +1,4 @@
-import type { EngineRuntime } from "../types/index.ts";
+import type { EngineRuntime, ExecutionContext } from "../types/index.ts";
 import { markViewDirty, pushEvent } from "./events.ts";
 
 /**
@@ -14,6 +14,12 @@ import { markViewDirty, pushEvent } from "./events.ts";
 export function setState(runtime: EngineRuntime, path: string, value: unknown): void {
   runtime.state[path] = value;
   markViewDirty(runtime);
+}
+
+/** Resolve an item-local name into the runtime's flat state namespace. */
+export function itemStatePath(context: ExecutionContext | undefined, path: string): string | null {
+  const itemId = context?.item?.id;
+  return itemId ? `item.${itemId}.${path}` : null;
 }
 
 /** Add to a numeric state value, treating an absent one as zero. */

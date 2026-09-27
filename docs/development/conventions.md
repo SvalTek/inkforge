@@ -126,8 +126,8 @@ takes the **first** match, so a new key's position is a behavioural decision, no
 itself is a set used for validation and is not in execution order — the two lists are separate and both need updating.
 
 **Add a condition key.** `CONDITION_KEYS` in `src/yaml/validate.ts` and `check()` in `src/engine/conditions.ts`. A
-comparison-shaped key also needs the "needs a `var`" rule in `checkCondition` and a branch inside the `"var" in condition`
-block.
+state-reading key also participates in the comparison-subject rules in `checkCondition`; `var` and `itemVar` share the
+same comparison implementation. Contextual keys must be validated only at sites that can actually supply their subject.
 
 **Add a Lua namespace.** Add it to `createHostNamespaces` in `src/lua/bindings.ts` as a `readonly` `LuaClass`. It is
 installed by being present in the globals map passed to `createLuaBridge` — there is no registration step. If it needs

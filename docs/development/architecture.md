@@ -21,7 +21,7 @@ Two views, one runtime:
 | YAML | `src/yaml/compose.ts`, `loader.ts`, `validate.ts` | `!import`/`!mixin` composition, static validation, Lua-name collection |
 | Lua | `src/lua/bridge.ts`, `bindings.ts`, `lua-api.ts`, `facades/*.ts`, `invoke.ts`, `boundary.ts` | Bridge construction, host namespaces, the Lua-side canvas API, the seam |
 | Canvas | `src/canvas/runtime.ts`, `projection.ts`, `math.ts`, `easings.ts` | Scene/node model, hit-testing, drawing, animations, the frame loop |
-| UI | `src/ui/render.ts`, `actions.ts`, `modals.ts`, `tools.ts` | DOM painting, activation handling, modals, the tool rail |
+| UI | `src/ui/render.ts`, `actions.ts`, `modals.ts`, `tools.ts` | DOM painting, inventory item actions, activation handling, modals, the tool rail |
 | Project | `src/project/project.ts`, `storage.ts`, `save-storage.ts`, `db.ts`, `assets.ts`, `starter.ts` | Project and run-save records in IndexedDB, asset resolution, the starter |
 | Pack | `src/import-export/pack.ts` | `.inkforge` export and import, version precedence |
 | Editor | `src/editor/editor.ts`, `tree.ts`, `codemirror.ts` | Nested file tree, creation and guarded deletion, tabs, buffer sync and language-aware editing |
@@ -102,6 +102,15 @@ duties onto rAF.
 Authored content names a function (`call:`) or an event (`emit:`). It never contains a Lua string to evaluate. The seam
 is `src/lua/invoke.ts`, and every name is checked — `call:` targets at boot, `emit:` targets on first emit, because
 `Events:On` cannot be enumerated.
+
+Inventory actions add transient execution context to this same engine path rather than using a separate dispatcher. The
+inspector supplies the instance id, definition id and action id; `check` and `execute` carry that subject through nested
+directives, and the Lua seam exposes it as the optional second argument to `call` and `emit` handlers. Context describes
+one invocation, so it does not belong in runtime state or save snapshots.
+
+Contextual item state still uses the ordinary flat runtime store. `itemStatePath` is the single resolver for both
+`itemVar` and `itemSet`, mapping a local name such as `lit` to `item.<instance-id>.lit`. The existing state mutation
+funnel and save projection therefore apply without a second entity-state system.
 
 ## Canvas
 

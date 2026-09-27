@@ -4,7 +4,7 @@ import { DIST, TEMPLATES } from "./paths.ts";
 import { serveStatic } from "./server.ts";
 import { unzipSync, zipSync } from "fflate";
 import { join } from "node:path";
-import { readScenarioMeta } from "../src/yaml/compose.ts";
+import { readScenarioMeta, validateScenario } from "../src/yaml/compose.ts";
 import type { EditorHarness } from "../src/editor/harness.ts";
 import type { Browser, BrowserContext, ConsoleMessage, Dialog, Page, Request } from "playwright-core";
 
@@ -1617,6 +1617,160 @@ end
       return `a Lua timers.setInterval decremented a bound state var with no command or click: ` +
         `#gameHud "${short(initial.text, 30)}" -> "${short(after.text, 30)}"; ${frames} frames in the ` +
         `following second (one per mutation, not one per animation frame)`;
+    });
+
+    await runCheck("8a. Inventory item actions keep their invoking instance context", async () => {
+      const invalidContextIssues = validateScenario({
+        locations: {
+          entry: {
+            actions: [{
+              id: "invalid_item_context",
+              if: { itemVar: "lit" },
+              then: { itemSet: { lit: true } },
+            }],
+          },
+        },
+      });
+      assert(
+        invalidContextIssues.some((issue) => issue.message.includes("'itemVar' requires")),
+        "itemVar outside an inventory action passed validation",
+      );
+      assert(
+        invalidContextIssues.some((issue) => issue.message.includes("'itemSet' requires")),
+        "itemSet outside an inventory action passed validation",
+      );
+      const pack: PackShape = {
+        manifest: {
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "item-action-context-fixture", title: "Item Action Context", version: "1.0.0" },
+          files: ["scenario.yaml", "scripts/main.lua"],
+        },
+        entries: {
+          "scenario.yaml": new TextEncoder().encode(`meta:
+  title: Item Action Context
+startLocation: entry
+state:
+  inspectEnabled: true
+  item.cellar_lantern.lit: false
+  item.gate_lantern.lit: true
+player:
+  inventory: [cellar_lantern, gate_lantern]
+definitions:
+  item:
+    lantern:
+      name: Brass Lantern
+      description: One definition, two concrete lanterns.
+      actions:
+        - id: inspect
+          label: Inspect
+          if: { var: inspectEnabled }
+          then:
+            - if: { var: inspectEnabled }
+              then:
+                - call: item.inspect
+                  params: { marker: called }
+                - emit: item:inspected
+                  data: { marker: emitted }
+        - id: light
+          label: Light
+          if: { itemVar: lit, neq: true }
+          then:
+            - if: { itemVar: lit, neq: true }
+              then:
+                - itemSet: { lit: true }
+        - id: extinguish
+          label: Extinguish
+          if: { itemVar: lit, eq: true }
+          then:
+            - itemSet: { lit: false }
+        - id: disable
+          label: Disable inspections
+          if: { var: inspectEnabled }
+          then:
+            - set: { inspectEnabled: false }
+instances:
+  item:
+    cellar_lantern: { def: lantern }
+    gate_lantern: { def: lantern }
+locations:
+  entry:
+    title: Context Room
+    text: Two lanterns share one definition.
+ui:
+  elements:
+    - id: context_inventory
+      type: button
+      location: sidebar
+      fields:
+        - { id: label, type: text, value: Inventory }
+      events:
+        activate: { type: inventory.open, title: Inventory }
+`),
+          "scripts/main.lua": new TextEncoder().encode(`-- item-action-context-fixture
+item = {}
+
+function item.inspect(params, context)
+  GameOutput.add('call:' .. params.marker .. ':' .. context.item.id .. ':' .. context.item.definitionId .. ':' .. context.item.actionId)
+end
+
+Events:On('item:inspected', function(data, context)
+  GameOutput.add('emit:' .. data.marker .. ':' .. context.item.id .. ':' .. context.item.definitionId .. ':' .. context.item.actionId)
+end)
+`),
+        },
+      };
+      await importPack(page, pack, "item-action-context-fixture", "scripts/main.lua");
+      await page.locator('.nav[data-view="play"]').click();
+      await page.locator('[data-ui="context_inventory"]').click();
+
+      await page.locator('[data-slot="0"]').click();
+      await page.locator('[data-item-action="inspect"]').click();
+      await waitForText(page, "#terminal", "call:called:cellar_lantern:lantern:inspect");
+      await waitForText(page, "#terminal", "emit:emitted:cellar_lantern:lantern:inspect");
+      assert(
+        await page.locator('[data-item-action="light"]').count() === 1,
+        "unlit cellar lantern has no Light action",
+      );
+      assert(
+        await page.locator('[data-item-action="extinguish"]').count() === 0,
+        "unlit cellar lantern offered Extinguish",
+      );
+      await page.locator('[data-item-action="light"]').click();
+      assert(await page.locator('[data-item-action="light"]').count() === 0, "itemSet did not light cellar lantern");
+      assert(
+        await page.locator('[data-item-action="extinguish"]').count() === 1,
+        "lit cellar lantern did not refresh to Extinguish",
+      );
+
+      await page.locator('[data-slot="1"]').click();
+      assert(await page.locator('[data-item-action="light"]').count() === 0, "lit gate lantern offered Light");
+      assert(
+        await page.locator('[data-item-action="extinguish"]').count() === 1,
+        "lit gate lantern has no Extinguish action",
+      );
+      await page.locator('[data-item-action="inspect"]').click();
+      await waitForText(page, "#terminal", "call:called:gate_lantern:lantern:inspect");
+      await waitForText(page, "#terminal", "emit:emitted:gate_lantern:lantern:inspect");
+      await page.locator('[data-item-action="extinguish"]').click();
+      assert(await page.locator('[data-item-action="light"]').count() === 1, "itemSet did not extinguish gate lantern");
+      assert(
+        await page.locator('[data-item-action="extinguish"]').count() === 0,
+        "extinguished gate lantern did not refresh to Light",
+      );
+
+      await page.locator('[data-item-action="disable"]').click();
+      assert(
+        await page.locator('[data-item-action="inspect"]').count() === 0,
+        "conditioned item action remained after its state changed",
+      );
+      assert(
+        await page.locator('[data-item-action="disable"]').count() === 0,
+        "item action inspector did not refresh after execution",
+      );
+      await page.locator("#closeInventory").click();
+      return "two instances shared definition actions while itemVar/itemSet kept independent lit state, call/emit " +
+        "received distinct item ids plus definition/action ids, and invalid context use failed validation";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {

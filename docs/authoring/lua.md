@@ -243,6 +243,25 @@ other listeners.
 Because a listener list cannot be enumerated, an `emit:` that reaches nobody is reported the first time it fires rather
 than being caught at boot.
 
+### Item action context
+
+Definition-level inventory actions are shared, but each invocation carries the selected instance. A `call:` handler
+receives it after params, and an `emit:` listener receives it after data:
+
+```lua
+function lantern.light(params, context)
+  GameOutput.add("Lighting " .. context.item.id)
+end
+
+Events:On("lantern:lit", function(data, context)
+  GameOutput.add(context.item.definitionId .. ":" .. context.item.actionId)
+end)
+```
+
+The item context has three fields: `id` is the concrete instance, `definitionId` is its shared definition, and
+`actionId` is the invoked definition action. It is transient invocation information, not saved state. Calls and events
+from locations, UI elements and tools omit this second argument.
+
 ### Value interop
 
 Lua has one table type; JavaScript does not. These helpers tell you which side a value came from:

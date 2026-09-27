@@ -40,7 +40,7 @@ The start path is:
 
 The engine accepts commands and authored actions through [`src/engine/engine.ts`](src/engine/engine.ts). State changes, output, tools, and UI changes mark the view dirty; the render gate repaints when those changes need to become visible. Lua timers and canvas events use the same runtime state, so they can update the view without a typed command. Authored YAML calls Lua by function or event name through [`src/lua/invoke.ts`](src/lua/invoke.ts); it does not embed Lua source for evaluation.
 
-The canvas runtime keeps its own scenes, hit testing, animation, and pointer routing. The DOM renderer owns text, controls, inventory, and authored modals. The two surfaces share scenario state but have different render paths.
+The canvas runtime keeps its own scenes, hit testing, animation, and pointer routing. The DOM renderer owns text, controls, inventory, inventory item actions, and authored modals. Item actions run their authored directive lists through the engine with transient context identifying the invoking instance, definition, and action. The two surfaces share scenario state but have different render paths.
 
 ## Browser and build boundary
 

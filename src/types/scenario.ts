@@ -26,6 +26,15 @@ export interface ItemDefinition {
   name?: string;
   description?: string;
   aliases?: string[];
+  actions?: ItemAction[];
+}
+
+/** An action shown for every inventory instance of an item definition. */
+export interface ItemAction {
+  id: string;
+  label?: string;
+  if?: Condition;
+  then?: DirectiveList;
 }
 
 /** A placed item instance referencing a definition by `def`. */
@@ -69,7 +78,7 @@ export interface Location {
 
 /**
  * Conditional predicate. Evaluation order in `check` is: and, or, not,
- * hasItem, then var+comparison (eq/ne/neq/gt/gte/lt/lte), else `true`.
+ * hasItem, then var/itemVar+comparison (eq/ne/neq/gt/gte/lt/lte), else false.
  */
 export interface Condition {
   and?: Condition[];
@@ -77,6 +86,7 @@ export interface Condition {
   not?: Condition;
   hasItem?: string;
   var?: string;
+  itemVar?: string;
   eq?: unknown;
   ne?: unknown;
   neq?: unknown;
@@ -97,6 +107,7 @@ export interface IncDecSpec {
 export interface DirectiveObject {
   text?: unknown;
   set?: Record<string, unknown>;
+  itemSet?: Record<string, unknown>;
   inc?: IncDecSpec | unknown;
   dec?: IncDecSpec | unknown;
   give?: string | { id?: string };

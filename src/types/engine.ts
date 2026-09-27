@@ -46,6 +46,23 @@ export interface AvailableAction {
   cmd: string;
 }
 
+/** The concrete inventory item that caused an authored action to run. */
+export interface ItemExecutionContext {
+  id: string;
+  definitionId: string;
+  actionId: string;
+}
+
+/**
+ * Transient subject information carried through one authored execution chain.
+ *
+ * This is deliberately not runtime state: it describes why directives are
+ * running, and disappears when that invocation finishes.
+ */
+export interface ExecutionContext {
+  item?: ItemExecutionContext;
+}
+
 /**
  * The engine surface (`check`/`move`/`execute`/`available`/`dispatch`).
  *
@@ -53,9 +70,9 @@ export interface AvailableAction {
  * into Lua, and the bridge is async. Everything else stays synchronous.
  */
 export interface EngineApi {
-  check(c: Condition | undefined): boolean;
-  move(id: string): Promise<void>;
-  execute(list: DirectiveList | undefined): Promise<void>;
+  check(c: Condition | undefined, context?: ExecutionContext): boolean;
+  move(id: string, context?: ExecutionContext): Promise<void>;
+  execute(list: DirectiveList | undefined, context?: ExecutionContext): Promise<void>;
   available(): AvailableAction[];
   dispatch(raw: string): Promise<void>;
 }
@@ -74,7 +91,7 @@ export interface EngineDeps {
   applyUi: ApplyUiFn;
   render(): void;
   /** Run a named Lua function with params (a `call:` directive). */
-  invokeLua(name: string, params: Record<string, unknown>): Promise<void>;
+  invokeLua(name: string, params: Record<string, unknown>, context?: ExecutionContext): Promise<void>;
   /** Emit a named event to Lua subscribers (an `emit:` directive). */
-  emitEvent(name: string, data: Record<string, unknown>): void | Promise<void>;
+  emitEvent(name: string, data: Record<string, unknown>, context?: ExecutionContext): void | Promise<void>;
 }

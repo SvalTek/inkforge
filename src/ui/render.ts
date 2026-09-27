@@ -1,5 +1,13 @@
 import type { AppContext } from "../app/context.ts";
-import type { AvailableAction, EngineEvent, ResolvedUiElement, Scenario, UiActivation } from "../types/index.ts";
+import type {
+  AvailableAction,
+  EngineEvent,
+  ExecutionContext,
+  ItemAction,
+  ResolvedUiElement,
+  Scenario,
+  UiActivation,
+} from "../types/index.ts";
 import { itemName } from "../engine/directives.ts";
 import { uiElement } from "../engine/ui-state.ts";
 import { $all } from "../app/dom.ts";
@@ -11,6 +19,7 @@ import { projectTitle } from "../project/project.ts";
 type OutputEvent = Extract<EngineEvent, { type: "output" }>;
 
 const terminalFollowTail = new WeakMap<HTMLElement, boolean>();
+const selectedInventoryItem = new WeakMap<AppContext, string>();
 
 /** Track whether the player is following new output or reading older lines. */
 function shouldFollowTail(terminal: HTMLElement): boolean {
@@ -183,6 +192,11 @@ export function renderInventory(app: AppContext): void {
   $all<HTMLElement>("[data-slot]").forEach((button) => {
     button.onclick = () => inspectItem(app, Number(button.dataset.slot));
   });
+  const selectedId = selectedInventoryItem.get(app);
+  if (selectedId) {
+    const selectedSlot = app.runtime?.inventory.indexOf(selectedId) ?? -1;
+    inspectItem(app, selectedSlot);
+  }
 }
 
 /** Show one inventory slot's item in the inspector pane. */
@@ -190,6 +204,7 @@ export function inspectItem(app: AppContext, slot: number): void {
   const { dom } = app;
   const id = app.runtime!.inventory[slot];
   if (!id) {
+    selectedInventoryItem.delete(app);
     dom.itemName.textContent = "";
     dom.itemDescription.textContent = "";
     dom.itemArt.textContent = "";
@@ -197,11 +212,42 @@ export function inspectItem(app: AppContext, slot: number): void {
     return;
   }
   const instance = app.scenario?.instances?.item?.[id] || {};
-  const definition = app.scenario?.definitions?.item?.[instance.def as string] || {};
+  const definitionId = instance.def as string;
+  const definition = app.scenario?.definitions?.item?.[definitionId] || {};
+  selectedInventoryItem.set(app, id);
   dom.itemName.textContent = definition.name || id;
   renderBlocks(dom.itemDescription, definition.description || "");
   dom.itemArt.textContent = "◆";
-  dom.itemActions.replaceChildren();
+  const actions = (definition.actions || []).filter((action) =>
+    app.engine?.check(action.if, itemActionContext(id, definitionId, action.id)) ?? true
+  );
+  dom.itemActions.replaceChildren(...actions.map((action) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "item-action";
+    button.dataset.itemAction = action.id;
+    button.textContent = action.label || action.id;
+    button.onclick = () => void runItemAction(app, id, definitionId, action);
+    return button;
+  }));
+}
+
+function itemActionContext(itemId: string, definitionId: string, actionId: string): ExecutionContext {
+  return { item: { id: itemId, definitionId, actionId } };
+}
+
+async function runItemAction(
+  app: AppContext,
+  itemId: string,
+  definitionId: string,
+  action: ItemAction,
+): Promise<void> {
+  const context = itemActionContext(itemId, definitionId, action.id);
+  // Conditions may have changed since the inspector was painted.
+  if (app.engine?.check(action.if, context) ?? true) await app.engine?.execute(action.then, context);
+  app.flushView();
+  const selectedSlot = app.runtime?.inventory.indexOf(itemId) ?? -1;
+  inspectItem(app, selectedSlot);
 }
 
 /** Open the inventory overlay using an activation's kicker/title. */
@@ -210,6 +256,11 @@ export function openInventory(app: AppContext, element: ResolvedUiElement, actio
   dom.inventoryKicker.textContent = action.kicker || "";
   renderInline(dom.inventoryTitle, (action.title || element.values.label || "") as string);
   dom.itemKicker.textContent = "";
+  selectedInventoryItem.delete(app);
+  dom.itemName.textContent = "";
+  dom.itemDescription.textContent = "";
+  dom.itemArt.textContent = "";
+  dom.itemActions.replaceChildren();
   dom.inventoryOverlay.classList.remove("hidden");
   renderInventory(app);
 }
