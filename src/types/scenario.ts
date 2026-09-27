@@ -250,6 +250,17 @@ export interface ConversationNode {
 export interface Conversation {
   /** NPC instance ids taking part, optionally with `player`. */
   participants?: string[];
+  /**
+   * Offer this conversation as a `Talk to …` choice while one of its NPCs is in the
+   * room, without the author writing an action to start it.
+   *
+   * For interactions that are meant to be obvious. A conversation left unmarked stays
+   * reachable only through a `talk:` directive, which is how you author somebody the
+   * player has to *try* — and how the two are told apart.
+   */
+  discoverable?: boolean;
+  /** Condition gating the offer, and nothing else. Starting it is never conditional. */
+  if?: Condition;
   /** The node entered when the conversation starts. */
   start: string;
   nodes: Record<string, ConversationNode>;

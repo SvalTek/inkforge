@@ -137,6 +137,9 @@ worse than an error.
 | `dialogue`, `options` or `participants` written as a mapping instead of a list | At load — `<path>: ... must be a list`, rather than a `forEach is not a function` crash |
 | A location's `npcs` written as a mapping instead of a list | At load — `locations.<id>.npcs: location npcs must be a list` |
 | A `call:` in a conversation option naming a function that does not exist | At boot — `Missing Lua functions: ...` |
+| `discoverable` written as anything but `true`/`false` | At load — `discoverable must be true or false` |
+| A `discoverable` conversation with no NPC instance in `participants` | At load — `a discoverable conversation needs an npc instance in participants to be offered from` |
+| Two ungated `discoverable` conversations for the same NPC instance | At load — `'Talk to <npc>' cannot mean two things`. Gated ones are allowed; that is how one person gets two conversations |
 
 **Not caught — the ones to watch for:**
 
@@ -154,6 +157,7 @@ worse than an error.
 | An `npcVar` naming a real instance but a `<value>` that was never seeded or set | `undefined`, so the comparison behaves as it would for any absent value |
 | A conversation node whose options are **all** gated shut, with no options left to answer | The conversation **ends** and the player is returned to the room. Deliberate, and the one place the engine does not fail closed — see [a node with no options ends the conversation](conversations.md#a-node-with-no-options-ends-the-conversation) |
 | Talking to an NPC who is not in the room's `npcs:` list | Nothing — presence is authored and never enforced, so a script may talk to anyone |
+| An NPC standing in the room with no `discoverable` conversation | No `Talk to` button, and no message. There is no conversation to have, so there is nothing to talk *about* |
 
 Every one of the unchecked cases is a thing the shape of the data cannot prove. Where a check is possible it exists; the
 rest are worth knowing about rather than being papered over with a guess.

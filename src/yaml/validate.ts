@@ -398,6 +398,10 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
     if (conversation?.participants !== undefined && !Array.isArray(conversation.participants)) {
       issues.push({ path: `conversations.${id}.participants`, message: "participants must be a list" });
     }
+    if (conversation?.discoverable !== undefined && typeof conversation.discoverable !== "boolean") {
+      issues.push({ path: `conversations.${id}.discoverable`, message: "discoverable must be true or false" });
+    }
+    checkCondition(conversation?.if, `conversations.${id}.if`, issues, scope);
     // Only iterate what is actually a list. Reporting the wrong shape and then
     // calling `.forEach` on it anyway turns a path-specific diagnostic into a
     // `forEach is not a function` crash, which tells the author nothing about
@@ -409,6 +413,21 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
           message: `unknown participant '${participant}' — expected 'player' or an npc instance`,
         });
       }
+    }
+    // `discoverable` is offered from whoever is standing in the room, so a
+    // conversation with no NPC participant could never be offered by anything. It
+    // would simply never appear, which is the one failure an author cannot diagnose
+    // from what they can see.
+    if (
+      conversation?.discoverable === true &&
+      !asList(conversation?.participants).some((participant) =>
+        typeof participant === "string" && scope.npcInstances.has(participant)
+      )
+    ) {
+      issues.push({
+        path: `conversations.${id}.discoverable`,
+        message: "a discoverable conversation needs an npc instance in participants to be offered from",
+      });
     }
     for (const [nodeId, node] of Object.entries(conversation?.nodes || {})) {
       const nodePath = `conversations.${id}.nodes.${nodeId}`;
@@ -440,6 +459,33 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
         }
         checkConversationOption(option, `${nodePath}.options.${index}`, issues, scope, id);
       });
+    }
+  }
+
+  // Two `discoverable` conversations for the same NPC, with nothing to choose between
+  // them. `Talk to the Keeper` would mean two different things at once, and the engine
+  // can only take the first in authored order — which would silently hide the second
+  // conversation rather than report it.
+  //
+  // A gate is enough to make the overlap intentional: the author has then said which
+  // one is live, so this only refuses the case where nothing *could* ever separate
+  // them. Mutually exclusive `if` conditions are the supported way to author two
+  // conversations with one person.
+  const ungatedTalks = new Map<string, string>();
+  for (const [id, conversation] of Object.entries(scenario.conversations || {})) {
+    if (conversation?.discoverable !== true || conversation?.if !== undefined) continue;
+    for (const participant of asList(conversation?.participants)) {
+      if (typeof participant !== "string" || !scope.npcInstances.has(participant)) continue;
+      const existing = ungatedTalks.get(participant);
+      if (existing !== undefined) {
+        issues.push({
+          path: `conversations.${id}.discoverable`,
+          message: `npc instance '${participant}' is offered by both '${existing}' and '${id}', and neither has an ` +
+            `if to choose between them — 'Talk to <npc>' cannot mean two things`,
+        });
+      } else {
+        ungatedTalks.set(participant, id);
+      }
     }
   }
 

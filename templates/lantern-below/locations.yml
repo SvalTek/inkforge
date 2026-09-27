@@ -25,12 +25,13 @@ passage:
   exits:
     south: entry
   actions:
-    # A conversation is started by an ordinary directive, so it composes with
-    # everything else: this could sit inside an `if`, a `call` handler or a timer.
-    - id: talk_keeper
-      label: Talk to the keeper
+    # `keeper_greeting` is `discoverable`, so the passage offers "Talk to Rowan" on
+    # its own and no action is needed for it. This one reaches a conversation that is
+    # *not* discoverable — the difference being that the player has to think of it.
+    - id: watch_keeper
+      label: Watch Rowan work
       then:
-        - talk: keeper_greeting
+        - talk: keeper_lamps
     - id: light_lantern
       label: Light the lantern
       if:

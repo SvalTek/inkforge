@@ -8,7 +8,7 @@ import type {
   ExitValue,
 } from "../types/index.ts";
 import { check as checkCondition } from "./conditions.ts";
-import { chooseOption, conversationOptions } from "./conversation.ts";
+import { chooseOption, conversationOptions, discoverableTalks, startConversation } from "./conversation.ts";
 import type { DirectiveDeps } from "./directives.ts";
 import { execute as executeDirectives, itemName, move as moveTo } from "./directives.ts";
 import { clearTranscript } from "./events.ts";
@@ -56,6 +56,12 @@ export function createEngine(deps: EngineDeps): EngineApi {
     }
     for (const a of loc.actions || []) {
       if (check(a.if)) out.push({ text: a.label || a.id, cmd: `@${a.id}` });
+    }
+    // Ambient, so after the location's own deliberate actions and before picking
+    // things up: walking into a room should offer the person in it, without that
+    // outranking an exit the author ordered or a "Take" the player did not ask about.
+    for (const talk of discoverableTalks(deps.runtime, scenario, deps.runtime.location)) {
+      out.push({ text: talk.label, cmd: `@talk:${talk.conversationId}` });
     }
     for (const id of loc.items || []) {
       if (!deps.runtime.inventory.includes(id)) {
@@ -105,6 +111,14 @@ export function createEngine(deps: EngineDeps): EngineApi {
           deps.output(`Taken: ${itemName(scenario, id)}.`);
           return;
         }
+      }
+      if (lower.startsWith("@talk:")) {
+        // The offer a location makes for an NPC standing in it. A dispatched command
+        // rather than a bound closure, because that is what a `talk:` written by hand
+        // on a location action would be — the room is re-read, then the exchange
+        // begins, exactly as clicking that action would.
+        startConversation(cmd.slice("@talk:".length), dirDeps);
+        return;
       }
       if (lower.startsWith("@")) {
         const a = (loc.actions || []).find((x) => x.id === lower.slice(1));

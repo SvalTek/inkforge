@@ -1,8 +1,12 @@
 # Who each NPC is. An NPC is not present anywhere until an `instances.npc` entry
 # places it, exactly as an item definition needs an instance to be lying somewhere.
+#
+# The name is a name, with no leading article: presence-driven offers the player
+# "Talk to <name>", and a definite article in front of it reads as a bug in a
+# sentence the author has to write by hand.
 keeper:
-  name: The Keeper
-  description: A stooped figure who tends the lamps along the passage.
+  name: Rowan
+  description: Rowan tends the lamps along the passage, and has done for a long time.
   # Inkforge never draws this. The key records which asset belongs to the NPC, so
   # a canvas scene or a UI element can reference one name instead of a path.
   portrait: assets/portraits/keeper.svg

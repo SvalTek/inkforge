@@ -2256,6 +2256,84 @@ end
         "a call: inside a conversation option was never collected for the boot check",
       );
 
+      // Presence-driven: the opt-in, and the two ways it can be authored wrong.
+      const presenceIssues = validateScenario({
+        instances: { npc: { hall_keeper: { def: "keeper" } } },
+        conversations: {
+          no_npc: {
+            discoverable: true,
+            participants: ["player"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+          not_boolean: {
+            discoverable: "yes" as never,
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+        },
+      } as never);
+      assert(
+        presenceIssues.some((issue) => issue.message.includes("needs an npc instance in participants")),
+        "a discoverable conversation with nobody to offer it from passed validation",
+      );
+      assert(
+        presenceIssues.some((issue) => issue.message === "discoverable must be true or false"),
+        "a non-boolean discoverable passed validation",
+      );
+
+      // Two ungated discoverable conversations for one NPC: `Talk to <npc>` cannot mean
+      // two things, and the engine would take the first rather than report the second.
+      const ambiguous = validateScenario({
+        instances: { npc: { hall_keeper: { def: "keeper" } } },
+        conversations: {
+          first: {
+            discoverable: true,
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+          second: {
+            discoverable: true,
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+        },
+      } as never);
+      assert(
+        ambiguous.some((issue) => issue.message.includes("cannot mean two things")),
+        "two ungated discoverable conversations for one NPC passed validation",
+      );
+
+      // A gate is enough to make the overlap deliberate, so this must be allowed:
+      // mutually exclusive conditions are how an author writes two conversations
+      // with the same person.
+      const gatedOverlap = validateScenario({
+        instances: { npc: { hall_keeper: { def: "keeper" } } },
+        conversations: {
+          morning: {
+            discoverable: true,
+            if: { var: "morning", eq: true },
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+          evening: {
+            discoverable: true,
+            if: { var: "morning", eq: false },
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+        },
+      } as never);
+      assert(
+        !gatedOverlap.some((issue) => issue.message.includes("cannot mean two things")),
+        "two gated discoverable conversations for one NPC were rejected; that is the supported way to write them",
+      );
+
       // The live half, against a self-contained fixture.
       const pack: PackShape = {
         manifest: {
@@ -2306,6 +2384,18 @@ ui:
       events:
         activate: { type: instructions, then: [{ set: { gateOpen: false } }] }
 conversations:
+  ambient_talk:
+    discoverable: true
+    participants: [player, hall_keeper]
+    start: only
+    nodes:
+      only:
+        dialogue:
+          - speaker: hall_keeper
+            text: "The Keeper looks up. Ambient line."
+        options:
+          - id: nod
+            text: "Nod."
   gated_talk:
     start: only
     nodes:
@@ -2375,6 +2465,22 @@ end
         await page.locator("#heroCommand").isVisible(),
         "the command box was hidden before any conversation ran",
       );
+
+      // Presence-driven: the offer exists because the NPC is in the room, with no
+      // action written to start it, and its label is built from the NPC's name.
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("Talk to The Keeper"),
+        "a discoverable conversation was not offered for the NPC standing in the room",
+      );
+      assert(
+        (await page.locator("#heroChoices button", { hasText: "Talk to" }).count()) === 1,
+        "more than one talk choice was offered for a single NPC",
+      );
+      await page.locator("#heroChoices button", { hasText: "Talk to The Keeper" }).click();
+      await waitForText(page, "#terminal", "Ambient line.");
+      // Walking away from it is a terminal node, so the room comes back.
+      await page.locator("#heroChoices button", { hasText: "Nod." }).click();
+      await waitForText(page, "#choices", "Greet the keeper");
 
       await page.locator("#heroChoices button", { hasText: "Greet the keeper" }).click();
       await waitForText(page, "#terminal", "The Keeper: You came down.");
@@ -2457,8 +2563,10 @@ end
         "boxes hid; a dotted call: inside an option received its conversation context; taking options appended to " +
         "the transcript; a talk: inside an option's then beat that option's own next; npcSet raised trust and " +
         "opened a gated line; a node with no options ended the exchange and restored the room; a gate closing " +
-        "mid-exchange also ended it; bad start/next/talk/speaker/participant/keys and duplicate option ids were " +
-        "rejected at load; a list authored as a mapping was reported rather than thrown on; and NPC defaults are " +
+        "mid-exchange also ended it; a discoverable conversation was offered from the NPC's presence alone, once, " +
+        "labelled from its name; bad start/next/talk/speaker/participant/keys and duplicate option ids were " +
+        "rejected at load; a list authored as a mapping was reported rather than thrown on; two ungated " +
+        "discoverable conversations for one NPC were rejected while gated ones were allowed; and NPC defaults are " +
         "cloned per instance";
     });
 

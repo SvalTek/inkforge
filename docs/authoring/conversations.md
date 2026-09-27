@@ -37,6 +37,8 @@ is yours to do through [Canvas](canvas.md) or [UI](ui.md) — see
 | Field | Purpose |
 |---|---|
 | `participants` | NPC instance ids, plus `player`. Carried as execution context, not enforced |
+| `discoverable` | Offer this as `Talk to <npc>` while one of its NPCs is in the room |
+| `if` | [Condition](conditions.md) gating that offer, and nothing else |
 | `start` | The node entered when the conversation begins |
 | `nodes` | The beats, keyed by name |
 
@@ -92,6 +94,66 @@ return to the conversation you left by talking again.
 From Lua, a conversation is started by emitting a directive or by calling a handler
 that does — see [Lua](lua.md). There is no separate conversation namespace yet; the
 seam is designed so adding one is additive rather than a change to this.
+
+## Presence-driven: `discoverable`
+
+Sometimes an interaction is so obvious it should not need an action written to offer
+it. You walk into a room, somebody is standing there, and `Talk to Rowan` is simply
+one of the things you can do:
+
+```yaml
+conversations:
+  keeper_greeting:
+    discoverable: true
+    if: { npcVar: passage_keeper.trust, gte: 2 }
+    participants: [player, passage_keeper]
+    start: greeting
+    nodes: { ... }
+```
+
+**Nothing appears unless you ask for it.** A conversation without `discoverable` is
+never offered, so a project that never writes the key behaves exactly as if this
+feature did not exist.
+
+The offer appears while one of the conversation's NPC **instances** is listed in the
+room's `npcs:`, and while the conversation's `if` passes. The button is labelled
+`Talk to <name>` from `npcs.<id>.name`, so name your NPCs without a leading article —
+`Talk to Rowan` reads, `Talk to The Keeper` does not.
+
+This is defined as *exactly* the `talk:` directive you would otherwise have written on
+a location action: same state machine, same entry, same ending. Which is why every
+question about *when* somebody may be talked to is answered by `if`, and why the two
+ways coexist:
+
+- **`discoverable: true`** for the person in the room who is plainly there to be
+  talked to
+- **no `discoverable`**, reached by an explicit action, for the person you have to
+  *notice* — plenty of IF games have somebody you only find out is talkable by trying
+
+Lantern Below has both: `keeper_greeting` is discoverable, and `keeper_lamps` is not,
+reached by watching Rowan work.
+
+Four things worth knowing:
+
+- **An NPC present with no eligible conversation gets no button.** That is not a
+  failure — there is no conversation, so there is nothing to talk *about*.
+- **`if` gates the offer, not the conversation.** Starting one is never conditional; a
+  discovered conversation is always enterable once offered.
+- **Taking it restarts at `start` every time.** To make somebody stop being talkable
+  once spoken to, gate on a flag the conversation itself sets:
+  ```yaml
+  keeper_greeting:
+    discoverable: true
+    if: { var: spokeToRowan, neq: true }
+  ```
+  with `- set: { spokeToRowan: true }` in its last node.
+- **Two ungated `discoverable` conversations for the same NPC are refused at load**,
+  because `Talk to Rowan` cannot mean two things. If you *do* gate them — a morning
+  and an evening conversation, say — that is allowed, and is the supported way to
+  write two conversations with one person.
+
+Offered talks appear after the location's own actions and before `Take`, so they never
+outrank an exit you ordered or a thing the player did not ask about.
 
 ## While a conversation is running
 
@@ -208,7 +270,8 @@ If you want a portrait or a panel, you have everything you need:
   adding one threads a single type rather than reshaping anything.
 - **Nesting.** A `talk:` cuts; it does not push. There is no "return to the previous
   conversation".
-- **A typed `talk <npc>` command**, and offering "Talk to X" for whoever is in the
-  room. Both are cheap to add later and neither is authored for now.
+- **A typed `talk <npc>` command.** `discoverable` covers the obvious case and an
+  action covers a deliberate one; typing somebody's name is a third door, and it is
+  cheap to add later.
 - **Moving NPCs.** `locations.<id>.npcs` is static, so a conversation can name an NPC
   who is not present without anything objecting.

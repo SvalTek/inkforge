@@ -142,6 +142,45 @@ export function nodeHasAvailableOption(
   return optionsAt(runtime, scenario, state, base).length > 0;
 }
 
+/** One `Talk to …` choice a location should offer, derived from an NPC's presence. */
+export interface DiscoverableTalk {
+  npcId: string;
+  conversationId: string;
+  label: string;
+}
+
+/**
+ * The `Talk to …` choices a location offers from the NPCs standing in it.
+ *
+ * Defined as exactly the `talk:` directive the author would otherwise have written on
+ * a location action: same state machine, same entry, same ending. So every question
+ * about *when* somebody may be talked to is answered by the conversation's own `if`,
+ * and the only thing presence adds is that the offer exists without being written.
+ *
+ * Unmarked conversations are never returned, which is what keeps a hidden one hidden.
+ * More than one match for the same NPC takes the first in authored order: the
+ * validator refuses two that share an NPC with no `if` between them, so reaching here
+ * with several means the author gated them and expects one of them to be live.
+ */
+export function discoverableTalks(
+  runtime: EngineRuntime,
+  scenario: Scenario | null,
+  locationId: string,
+): DiscoverableTalk[] {
+  const npcIds = scenario?.locations?.[locationId]?.npcs || [];
+  const talks: DiscoverableTalk[] = [];
+  for (const npcId of npcIds) {
+    for (const [id, conversation] of Object.entries(scenario?.conversations || {})) {
+      if (!conversation?.discoverable) continue;
+      if (!(conversation.participants || []).includes(npcId)) continue;
+      if (!check(conversation.if, runtime)) continue;
+      talks.push({ npcId, conversationId: id, label: `Talk to ${speakerName(scenario, npcId)}` });
+      break;
+    }
+  }
+  return talks;
+}
+
 /**
  * End the conversation if the current node has nothing left to answer.
  *

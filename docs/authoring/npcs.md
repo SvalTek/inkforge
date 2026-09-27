@@ -55,13 +55,21 @@ save you resume. A default is a starting point, not a lock.
 
 | Field | Purpose |
 |---|---|
-| `name` | Display name |
+| `name` | Display name — a name, with no leading article. See [below](#names-and-articles) |
 | `description` | A longer description, free prose |
 | `portrait` | Project-relative path to a portrait asset — see [below](#portraits) |
 | `state` | Default values for every instance, as a mapping |
 | anything else | Author-defined metadata, read from Lua and never mutated |
 
 `name` and `description` must be strings and `state` must be a mapping; all three are checked at load.
+
+### Names and articles
+
+`name` is used in prose, so `Rowan: You carry a lantern.` reads well. It is also used
+in the label a [discoverable conversation](conversations.md#presence-driven-discoverable)
+offers: `Talk to Rowan`. That is why it wants a plain name — `Talk to The Keeper` reads
+as a mistake in a sentence the engine writes for you, and Inkforge will not quietly
+strip an article to hide that.
 
 ## An NPC is not present until an instance places it
 
