@@ -59,6 +59,10 @@ own conversation stops being writable past a few exchanges.
 | `next` | Continue at another node of this conversation |
 | `talk` | Cut to a different conversation |
 
+`id` must be unique within its node. An option is chosen by its id, so two options
+sharing one would draw two buttons that both ran the first one's directives — refused
+at load rather than resolved, because which of them you meant is not guessable.
+
 A participant or speaker that is neither `player` nor a declared NPC instance is
 rejected at load. Nothing checks that the NPC is *in the room* — presence is authored
 in `locations.<id>.npcs` and never enforced, which is what lets a script talk to

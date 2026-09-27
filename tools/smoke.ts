@@ -2170,6 +2170,53 @@ end
         bad.some((issue) => issue.message === "unknown conversation option key 'nxt'"),
         "a misspelled conversation option key passed validation",
       );
+      // An option is chosen by its id, so a repeated one makes two buttons that both
+      // run the first option's directives.
+      const duplicate = validateScenario({
+        conversations: {
+          dup: {
+            start: "only",
+            nodes: {
+              only: {
+                options: [
+                  { id: "same", text: "One", then: { text: "one" } },
+                  { id: "same", text: "Two", then: { text: "two" } },
+                ],
+              },
+            },
+          },
+        },
+      } as never);
+      assert(
+        duplicate.some((issue) => issue.message === "duplicate conversation option id 'same' in this node"),
+        "two options sharing an id passed validation",
+      );
+
+      // A list authored as a mapping must be reported, not thrown on: iterating it
+      // would replace a path-specific diagnostic with `forEach is not a function`.
+      for (
+        const [shape, issues] of [
+          [
+            "options",
+            validateScenario({ conversations: { s: { start: "n", nodes: { n: { options: { a: 1 } } } } } } as never),
+          ],
+          [
+            "dialogue",
+            validateScenario({ conversations: { s: { start: "n", nodes: { n: { dialogue: { a: 1 } } } } } } as never),
+          ],
+          [
+            "participants",
+            validateScenario(
+              { conversations: { s: { start: "n", participants: { a: 1 }, nodes: { n: {} } } } } as never,
+            ),
+          ],
+        ] as [string, ReturnType<typeof validateScenario>][]
+      ) {
+        assert(
+          issues.some((issue) => issue.message.endsWith("must be a list")),
+          `a conversation ${shape} authored as a mapping was not reported as a list`,
+        );
+      }
 
       // A `call:` inside an option is a name that has to resolve at boot. Leaving
       // conversations out of the collector would make this the one authored place a
@@ -2250,6 +2297,11 @@ conversations:
             then:
               - npcSet: { hall_keeper.trust: 4 }
             next: warm
+          - id: ask_again
+            text: "Start over."
+            then:
+              - talk: hall_talk
+            next: warm
       warm:
         dialogue:
           - speaker: hall_keeper
@@ -2303,8 +2355,21 @@ end
         "taking a conversation option replaced the transcript instead of appending to it",
       );
 
+      // A `talk:` inside `then` targeting the conversation already running replaces
+      // the state with a *new* object carrying the same id, so a guard comparing ids
+      // alone reads the cut as "nothing changed" and then applies this option's own
+      // `next` on top of the exchange it just restarted.
+      await page.locator("#heroChoices button", { hasText: "Start over." }).click();
+      await waitForText(page, "#terminal", "The Keeper: You came down.");
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("What is your name?"),
+        "a talk: inside an option's then was overwritten by that option's own next",
+      );
+
+      // Back at the opening node, so walk forward again to reach the terminal one.
+      await page.locator("#heroChoices button", { hasText: "What is your name?" }).click();
+      await waitForText(page, "#terminal", "A name is a thing you are given.");
       await page.locator("#heroChoices button", { hasText: "Then give me one." }).click();
-      // The farewell line is gated on the trust the previous option raised.
       await waitForText(page, "#terminal", "Rowan. It is Rowan.");
 
       // `warm` declares no options, so it is a terminal beat: the conversation ends
@@ -2319,8 +2384,10 @@ end
       );
       return "a talk: directive entered the start node; options replaced the location's choices and both command " +
         "boxes hid; a dotted call: inside an option received its conversation context; taking options appended to " +
-        "the transcript; npcSet raised trust and opened a gated line; a node with no options ended the exchange and " +
-        "restored the room; bad start/next/talk/speaker/participant/keys were rejected at load";
+        "the transcript; a talk: inside an option's then beat that option's own next; npcSet raised trust and " +
+        "opened a gated line; a node with no options ended the exchange and restored the room; bad " +
+        "start/next/talk/speaker/participant/keys and duplicate option ids were rejected at load, and a list " +
+        "authored as a mapping was reported rather than thrown on";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {

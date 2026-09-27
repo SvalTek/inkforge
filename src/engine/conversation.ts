@@ -104,19 +104,42 @@ function emitNode(
   }
 }
 
+/** The current node's options whose condition passes, in authored order. */
+function optionsAt(
+  runtime: EngineRuntime,
+  scenario: Scenario | null,
+  state: ConversationState,
+  base?: ExecutionContext,
+): ConversationOption[] {
+  const node = scenario?.conversations?.[state.id]?.nodes?.[state.nodeId];
+  if (!node) return [];
+  const context = conversationContext(scenario, state, base);
+  return (node.options || []).filter((option) => check(option.if, runtime, context));
+}
+
 /** The options of the current node whose condition passes, in authored order. */
 export function conversationOptions(
   deps: DirectiveDeps,
   base?: ExecutionContext,
 ): ConversationOption[] {
   const state = deps.runtime.conversation;
-  if (!state) return [];
-  const scenario = deps.getScenario();
-  const node = scenario?.conversations?.[state.id]?.nodes?.[state.nodeId];
-  if (!node) return [];
-  return (node.options || []).filter((option) =>
-    check(option.if, deps.runtime, conversationContext(scenario, state, base))
-  );
+  return state ? optionsAt(deps.runtime, deps.getScenario(), state, base) : [];
+}
+
+/**
+ * Whether a node has any option the player could take right now.
+ *
+ * Separate from {@link conversationOptions} so a caller that only needs the answer
+ * does not have to be handed a whole `DirectiveDeps` — the boot path, which has a
+ * runtime and a scenario but no directive seams yet, needs exactly this.
+ */
+export function nodeHasAvailableOption(
+  runtime: EngineRuntime,
+  scenario: Scenario | null,
+  state: ConversationState,
+  base?: ExecutionContext,
+): boolean {
+  return optionsAt(runtime, scenario, state, base).length > 0;
 }
 
 /**
@@ -191,12 +214,17 @@ export async function chooseOption(
   const context = conversationContext(scenario, state, base, option.id);
   if (!check(option.if, deps.runtime, context)) return;
 
+  // Identity, not id: a `talk:` inside `then` that targets the conversation already
+  // running replaces the state with a new object carrying the same id, and the rule
+  // is that such a cut wins. Comparing ids alone would miss it and let this option's
+  // own `next` overwrite the exchange that was just started.
+  const before = deps.runtime.conversation;
   await execute(option.then, deps, context);
 
   // `then` is arbitrary authored content and may have ended the run, moved the
   // player, or cut to another conversation. Any of those is the outcome, and
   // continuing into `next` on top of it would resurrect a scene the author left.
-  if (deps.runtime.over || deps.runtime.conversation?.id !== state.id) return;
+  if (deps.runtime.over || deps.runtime.conversation !== before) return;
 
   if (option.talk !== undefined) {
     startConversation(option.talk, deps, context);

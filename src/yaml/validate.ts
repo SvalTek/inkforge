@@ -48,6 +48,11 @@ export interface ValidationScope {
   conversations: Map<string, Set<string>>;
 }
 
+/** A value that is a list, or nothing at all. */
+function asList(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 /** A speaker or participant is the player, or an NPC instance placed in the world. */
 function isKnownSpeaker(name: string, scope: ValidationScope): boolean {
   return name === "player" || scope.npcInstances.has(name);
@@ -393,7 +398,11 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
     if (conversation?.participants !== undefined && !Array.isArray(conversation.participants)) {
       issues.push({ path: `conversations.${id}.participants`, message: "participants must be a list" });
     }
-    for (const participant of conversation?.participants || []) {
+    // Only iterate what is actually a list. Reporting the wrong shape and then
+    // calling `.forEach` on it anyway turns a path-specific diagnostic into a
+    // `forEach is not a function` crash, which tells the author nothing about
+    // which of their keys was wrong.
+    for (const participant of asList(conversation?.participants)) {
       if (typeof participant !== "string" || !isKnownSpeaker(participant, scope)) {
         issues.push({
           path: `conversations.${id}.participants`,
@@ -406,15 +415,31 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
       if (node?.dialogue !== undefined && !Array.isArray(node.dialogue)) {
         issues.push({ path: `${nodePath}.dialogue`, message: "dialogue must be a list" });
       }
-      (node?.dialogue || []).forEach((line, index) =>
+      asList(node?.dialogue).forEach((line, index) =>
         checkDialogueLine(line, `${nodePath}.dialogue.${index}`, issues, scope)
       );
       if (node?.options !== undefined && !Array.isArray(node.options)) {
         issues.push({ path: `${nodePath}.options`, message: "conversation options must be a list" });
       }
-      (node?.options || []).forEach((option, index) =>
-        checkConversationOption(option, `${nodePath}.options.${index}`, issues, scope, id)
-      );
+      const options = asList(node?.options);
+      // An option is chosen by its id, so two options sharing one are
+      // indistinguishable: both buttons would be drawn, and picking the second
+      // would run the first one's directives. Refused rather than silently
+      // resolved, because which one an author meant is not guessable.
+      const seenOptionIds = new Set<string>();
+      options.forEach((option, index) => {
+        const optionId = (option as { id?: unknown } | undefined)?.id;
+        if (typeof optionId === "string" && optionId.trim()) {
+          if (seenOptionIds.has(optionId)) {
+            issues.push({
+              path: `${nodePath}.options.${index}.id`,
+              message: `duplicate conversation option id '${optionId}' in this node`,
+            });
+          }
+          seenOptionIds.add(optionId);
+        }
+        checkConversationOption(option, `${nodePath}.options.${index}`, issues, scope, id);
+      });
     }
   }
 
@@ -493,7 +518,7 @@ export function collectReferencedLuaNames(scenario: Scenario): ValidationIssue[]
   // surface as a failed call in play rather than as the boot diagnostic.
   for (const [id, conversation] of Object.entries(scenario.conversations || {})) {
     for (const [nodeId, node] of Object.entries(conversation?.nodes || {})) {
-      (node?.options || []).forEach((option, index) => {
+      asList(node?.options).forEach((option, index) => {
         fromDirective(
           (option as { then?: DirectiveList } | undefined)?.then,
           `conversations.${id}.nodes.${nodeId}.options.${index}.then`,

@@ -133,6 +133,8 @@ worse than an error.
 | An option's `talk` naming no conversation | At load — `unknown conversation '<id>'` |
 | A dialogue line or participant naming neither `player` nor an NPC instance | At load — `unknown speaker '<id>'` / `unknown participant '<id>'` |
 | An unknown key on a dialogue line or a conversation option | At load — `unknown dialogue line key '<k>'` / `unknown conversation option key '<k>'` |
+| Two options in one node sharing an `id` | At load — `duplicate conversation option id '<id>' in this node` |
+| `dialogue`, `options` or `participants` written as a mapping instead of a list | At load — `<path>: ... must be a list`, rather than a `forEach is not a function` crash |
 | A `call:` in a conversation option naming a function that does not exist | At boot — `Missing Lua functions: ...` |
 
 **Not caught — the ones to watch for:**

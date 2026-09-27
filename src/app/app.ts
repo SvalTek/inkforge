@@ -58,6 +58,7 @@ import { exportPack as exportPackImpl, importPack as importPackImpl } from "../i
 import { createToolRegistry } from "../engine/tool-state.ts";
 import { fromSnapshot, hashProjectSources, hashScenario, toSnapshot } from "../engine/save.ts";
 import { npcInstanceDefaults } from "../engine/state.ts";
+import { nodeHasAvailableOption } from "../engine/conversation.ts";
 import { deleteSave, getSave, listSaves, parseSaveFile, putSave, serializeSaveFile } from "../project/save-storage.ts";
 import { AssetResolver } from "../project/assets.ts";
 import { AudioManager } from "../audio/manager.ts";
@@ -320,21 +321,6 @@ export function createApp(): AppContext {
       app.runtime = runtime;
       const output = createOutput(runtime);
       app.output = output;
-      // A save carries the conversation the player was in, and `fromSnapshot` keeps
-      // that position even when it looks stale, precisely so it can be reported here
-      // where there is a transcript to report into. The run then continues outside the
-      // conversation rather than holding one whose node cannot be read — the same
-      // "end it rather than strand the player" rule a terminal node follows.
-      if (runtime.conversation) {
-        const { id, nodeId } = runtime.conversation;
-        if (!scenario.conversations?.[id]?.nodes?.[nodeId]) {
-          runtime.conversation = null;
-          output(
-            `Conversation '${id}' no longer has node '${nodeId}' in this scenario; the run resumes outside it.`,
-            "warning",
-          );
-        }
-      }
       // A boot problem — a `call:` naming a function that does not exist, a
       // script that will not load — goes to the transcript, which is where it
       // stays visible. Diagnostics is a single slot and the "Ready" that
@@ -399,6 +385,31 @@ export function createApp(): AppContext {
         runtime.droppedEvents = resume.droppedEvents;
         runtime.over = resume.over;
         runtime.conversation = resume.conversation;
+        // Settled here, after the restoration above and not when the runtime was
+        // first built: `runtime.conversation = resume.conversation` a line up
+        // overwrites anything decided earlier, so a check placed before it is not a
+        // check at all. The symptom that hid this was a live conversation whose node
+        // no longer existed — no options to offer, and the command boxes already
+        // hidden, which is a soft-lock with no way out.
+        if (runtime.conversation) {
+          const { id, nodeId } = runtime.conversation;
+          if (!scenario.conversations?.[id]?.nodes?.[nodeId]) {
+            runtime.conversation = null;
+            output(
+              `Conversation '${id}' no longer has node '${nodeId}' in this scenario; the run resumes outside it.`,
+              "warning",
+            );
+          } else if (!nodeHasAvailableOption(runtime, scenario, runtime.conversation)) {
+            // The same soft-lock the terminal-node rule exists to prevent, reached a
+            // different way: the node is still there but every option on it is gated
+            // shut by state the run no longer satisfies.
+            runtime.conversation = null;
+            output(
+              `Conversation '${id}' has no answerable option at node '${nodeId}'; the run resumes outside it.`,
+              "warning",
+            );
+          }
+        }
         runtime.viewDirty = true;
       }
       if (problems === 0) {
