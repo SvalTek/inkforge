@@ -97,6 +97,7 @@ appears further down the file.
 |---|---|
 | `GameOutput` | Writing to the transcript |
 | `GameState` | Reading and writing state |
+| `GameItems` | Reading item instances and authored definition data |
 | `GameUI` | Creating and changing UI elements |
 | `GameTools` | The tool rail |
 | `GameAudio` | Sound |
@@ -130,6 +131,24 @@ GameState.set("oil", oil - 1)
 
 A flat store shared with YAML. `get` returns `nil` for a key that has never been set, so `or 0` is the usual guard.
 Setting a value repaints anything bound to it, which is why a meter can follow a timer with nothing else asking.
+
+### `GameItems`
+
+```lua
+local item = GameItems.get("entry_lantern")
+GameOutput.add(item.definition.inspect)
+
+local lantern = GameItems.definition("lantern")
+GameOutput.add(lantern.material)
+```
+
+`get(instanceId)` resolves an item instance and returns its `id`, its definition id as `def`, and its complete authored
+`definition`. `definition(definitionId)` reads a definition directly. Either method returns `nil` when its id cannot be
+resolved.
+
+Definitions include the standard `name`, `description`, `aliases`, and `actions` fields plus any custom YAML fields the
+author added. Returned definitions are detached copies: Lua can reshape a local result, but doing so does not modify the
+composed scenario or a later lookup. Use `GameState` or `itemSet` for data that should change during play.
 
 ### `GameUI`
 

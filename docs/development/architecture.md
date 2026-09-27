@@ -112,6 +112,11 @@ Contextual item state still uses the ordinary flat runtime store. `itemStatePath
 `itemVar` and `itemSet`, mapping a local name such as `lit` to `item.<instance-id>.lit`. The existing state mutation
 funnel and save projection therefore apply without a second entity-state system.
 
+Item definition metadata crosses a separate read-only seam. `GameItems.get` resolves an instance against the composed
+scenario and `GameItems.definition` performs a direct definition lookup. Both return detached definition copies, so
+Lua cannot mutate the scenario object that the renderer and engine share. This remains an item-specific API rather than
+exposing a generic path into the whole scenario.
+
 ## Canvas
 
 `InkforgeCanvasRuntime` owns scenes, nodes, animations and the frame loop. It is driven from two directions: Lua through

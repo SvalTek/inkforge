@@ -92,6 +92,23 @@ export const LUA_API_MANIFEST: readonly LuaApiNamespace[] = [
     ],
   },
   {
+    name: "GameItems",
+    call: ".",
+    summary: "Reading item instances and their authored definition data.",
+    members: [
+      {
+        name: "get",
+        args: "(instanceId)",
+        summary: "Resolve an item instance to its id, definition id, and a detached copy of its definition.",
+      },
+      {
+        name: "definition",
+        args: "(definitionId)",
+        summary: "Read a detached copy of an item definition by definition id.",
+      },
+    ],
+  },
+  {
     name: "GameUI",
     call: ".",
     summary: "Creating and changing UI elements.",

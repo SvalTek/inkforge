@@ -1678,6 +1678,10 @@ definitions:
     lantern:
       name: Brass Lantern
       description: One definition, two concrete lanterns.
+      inspect: The brass is scratched around the hinge.
+      material: brass
+      weight: 3.2
+      usableAsWeapon: false
       actions:
         - id: inspect
           label: Inspect
@@ -1728,6 +1732,14 @@ ui:
 item = {}
 
 function item.inspect(params, context)
+  local resolved = GameItems.get(context.item.id)
+  local definition = GameItems.definition(context.item.definitionId)
+  GameOutput.add('data:' .. resolved.id .. ':' .. resolved.def .. ':' .. resolved.definition.material .. ':' .. resolved.definition.inspect .. ':' .. definition.weight .. ':' .. tostring(definition.usableAsWeapon))
+  resolved.definition.material = 'rust'
+  GameOutput.add('fresh:' .. GameItems.get(context.item.id).definition.material)
+  if GameItems.get('missing') == nil and GameItems.definition('missing') == nil then
+    GameOutput.add('missing:nil')
+  end
   GameOutput.add('call:' .. params.marker .. ':' .. context.item.id .. ':' .. context.item.definitionId .. ':' .. context.item.actionId)
 end
 
@@ -1743,6 +1755,13 @@ end)
 
       await page.locator('[data-slot="0"]').click();
       await page.locator('[data-item-action="inspect"]').click();
+      await waitForText(
+        page,
+        "#terminal",
+        "data:cellar_lantern:lantern:brass:The brass is scratched around the hinge.:3.2:false",
+      );
+      await waitForText(page, "#terminal", "fresh:brass");
+      await waitForText(page, "#terminal", "missing:nil");
       await waitForText(page, "#terminal", "call:called:cellar_lantern:lantern:inspect");
       await waitForText(page, "#terminal", "emit:emitted:cellar_lantern:lantern:inspect");
       assert(
@@ -1786,8 +1805,9 @@ end)
         "item action inspector did not refresh after execution",
       );
       await page.locator("#closeInventory").click();
-      return "two instances shared definition actions while itemVar/itemSet kept independent lit state, call/emit " +
-        "received distinct item ids plus definition/action ids, and malformed actions or context use failed validation";
+      return "two instances shared definition actions while itemVar/itemSet kept independent lit state; GameItems " +
+        "resolved arbitrary definition metadata as detached copies; call/emit received distinct item ids plus " +
+        "definition/action ids; malformed actions or context use failed validation";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {

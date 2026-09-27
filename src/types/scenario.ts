@@ -27,6 +27,8 @@ export interface ItemDefinition {
   description?: string;
   aliases?: string[];
   actions?: ItemAction[];
+  /** Author-defined metadata exposed to Lua through `GameItems`. */
+  [key: string]: unknown;
 }
 
 /** An action shown for every inventory instance of an item definition. */

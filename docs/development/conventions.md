@@ -82,6 +82,10 @@ layer over everything is the anti-pattern this codebase was rebuilt to remove. T
 `readonly`, so authored Lua cannot reassign `GameState.get` and quietly break the API. Method names follow the bridge's
 own bindings — `setVolume`, not `set_volume` — so the whole Lua surface reads the same way.
 
+**Read-only authored data is returned as a detached value.** `GameItems` may resolve the live composed scenario, but
+the definition handed to Lua is a clone. Namespace immutability protects the API surface; cloning separately protects
+the source data from mutation through a returned object.
+
 **Every handle method has a host operation.** `GameCanvas`'s Lua handles do not do work locally; they send a command and
 the host applies it. A method with no matching host op is a dead method. When you add one, add both halves.
 

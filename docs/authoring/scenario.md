@@ -183,6 +183,9 @@ item:
     name: Brass Lantern
     description: A hand lantern with a hooded flame.
     aliases: [lantern]
+    inspect: Tiny runes are etched beneath the guard.
+    material: brass
+    weight: 3.2
     actions:
       - id: light
         label: Light
@@ -215,12 +218,18 @@ The `then` list can use `call` for one named Lua function or `emit` for an event
 for when to use each. Conditions use the current runtime state and inventory. Actions belong to the definition, so all
 instances of that definition show the same actions.
 
+Beyond `name`, `description`, `aliases`, and `actions`, an item definition may contain any author-defined YAML data.
+Use those fields for facts an action needs to read — inspection prose, material, weight, rarity, lore ids, and similar
+metadata — rather than runtime state. Lua can read them through [`GameItems`](lua.md#gameitems). Custom values may be
+strings, numbers, booleans, lists, or nested objects.
+
 When an inventory action runs, Inkforge carries the concrete instance through its condition and directive list as
 execution context. A Lua function called by that action receives the context as its second argument:
 
 ```lua
 function lantern.light(params, context)
-  GameOutput.add("Lighting " .. context.item.id)
+  local item = GameItems.get(context.item.id)
+  GameOutput.add(item.definition.inspect)
   -- context.item.definitionId == "lantern"
   -- context.item.actionId == "light"
 end
