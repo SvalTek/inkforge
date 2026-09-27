@@ -52,7 +52,7 @@ import {
   removeEntry,
 } from "../editor/tree.ts";
 import { installEditorHarness } from "../editor/harness.ts";
-import { render as renderDom } from "../ui/render.ts";
+import { render as renderDom, runConversationOption as runConversationOptionImpl } from "../ui/render.ts";
 import { runToolAction as runToolActionImpl, runUiAction as runUiActionImpl } from "../ui/actions.ts";
 import { exportPack as exportPackImpl, importPack as importPackImpl } from "../import-export/pack.ts";
 import { createToolRegistry } from "../engine/tool-state.ts";
@@ -137,6 +137,7 @@ export function createApp(): AppContext {
     flushView,
     runUiAction,
     runToolAction,
+    runConversationOption,
     newProject,
     openProjectLibrary,
     loadProject,
@@ -319,6 +320,21 @@ export function createApp(): AppContext {
       app.runtime = runtime;
       const output = createOutput(runtime);
       app.output = output;
+      // A save carries the conversation the player was in, and `fromSnapshot` keeps
+      // that position even when it looks stale, precisely so it can be reported here
+      // where there is a transcript to report into. The run then continues outside the
+      // conversation rather than holding one whose node cannot be read — the same
+      // "end it rather than strand the player" rule a terminal node follows.
+      if (runtime.conversation) {
+        const { id, nodeId } = runtime.conversation;
+        if (!scenario.conversations?.[id]?.nodes?.[nodeId]) {
+          runtime.conversation = null;
+          output(
+            `Conversation '${id}' no longer has node '${nodeId}' in this scenario; the run resumes outside it.`,
+            "warning",
+          );
+        }
+      }
       // A boot problem — a `call:` naming a function that does not exist, a
       // script that will not load — goes to the transcript, which is where it
       // stays visible. Diagnostics is a single slot and the "Ready" that
@@ -712,6 +728,10 @@ export function createApp(): AppContext {
 
   function runToolAction(entry: ToolEntry): Promise<void> | void {
     return runToolActionImpl(app, entry);
+  }
+
+  function runConversationOption(optionId: string): Promise<void> {
+    return runConversationOptionImpl(app, optionId);
   }
 
   async function openProjectLibrary(): Promise<void> {

@@ -1,4 +1,5 @@
 import type { EngineEvent } from "./events.ts";
+import type { ConversationState } from "./engine.ts";
 import type { ModalRuntimeState, ToolEntry, ToolRegistry } from "./tools.ts";
 import type { UiElement, UiOverrideMap, UiRuntimeState } from "./ui.ts";
 
@@ -43,7 +44,7 @@ export interface SaveSnapshot {
   ui: { hidden: string[]; overrides: UiOverrideMap; elements: UiElement[] };
   tools: ToolEntry[];
   modals: ModalRuntimeState;
-  conversation: unknown;
+  conversation: ConversationState | null;
 }
 
 /**
@@ -63,7 +64,7 @@ export interface ResumedRuntime {
   ui: UiRuntimeState;
   tools: ToolRegistry;
   modals: ModalRuntimeState;
-  conversation: unknown;
+  conversation: ConversationState | null;
 }
 
 /** One stored save. The library holds at most one of these per project and slot. */

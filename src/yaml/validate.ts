@@ -24,6 +24,8 @@ export const CONDITION_KEYS = [
 const CONDITION_KEY_SET = new Set<string>(CONDITION_KEYS);
 const DIRECTIVE_KEY_SET = new Set<string>(DIRECTIVE_KEYS);
 const ITEM_ACTION_KEY_SET = new Set(["id", "label", "if", "then"]);
+const DIALOGUE_LINE_KEY_SET = new Set(["speaker", "text", "if"]);
+const CONVERSATION_OPTION_KEY_SET = new Set(["id", "text", "if", "then", "next", "talk"]);
 
 /** One problem found in the composed scenario, with the path to it. */
 export interface ValidationIssue {
@@ -42,6 +44,13 @@ export interface ValidationIssue {
 export interface ValidationScope {
   /** Every declared `instances.npc` id, so an `npcVar` subject can be resolved. */
   npcInstances: Set<string>;
+  /** Every conversation id mapped to the node ids inside it. */
+  conversations: Map<string, Set<string>>;
+}
+
+/** A speaker or participant is the player, or an NPC instance placed in the world. */
+function isKnownSpeaker(name: string, scope: ValidationScope): boolean {
+  return name === "player" || scope.npcInstances.has(name);
 }
 
 function checkCondition(
@@ -195,6 +204,86 @@ function checkItemAction(
   checkDirectives(value.then as DirectiveList | undefined, `${path}.then`, issues, scope, true);
 }
 
+function checkDialogueLine(
+  line: unknown,
+  path: string,
+  issues: ValidationIssue[],
+  scope: ValidationScope,
+): void {
+  if (!line || typeof line !== "object" || Array.isArray(line)) {
+    issues.push({ path, message: "dialogue line must be a mapping" });
+    return;
+  }
+  const value = line as Record<string, unknown>;
+  for (const key of Object.keys(value)) {
+    if (!DIALOGUE_LINE_KEY_SET.has(key)) {
+      issues.push({ path: `${path}.${key}`, message: `unknown dialogue line key '${key}'` });
+    }
+  }
+  if (typeof value.speaker !== "string" || !value.speaker.trim()) {
+    issues.push({ path: `${path}.speaker`, message: "dialogue line speaker must be a non-empty string" });
+  } else if (!isKnownSpeaker(value.speaker, scope)) {
+    // A line attributed to nobody is dropped silently at play, and a conversation
+    // whose opening beat is dropped is a very confusing way to lose a turn.
+    issues.push({
+      path: `${path}.speaker`,
+      message: `unknown speaker '${value.speaker}' — expected 'player' or an npc instance`,
+    });
+  }
+  if (typeof value.text !== "string" || !value.text.trim()) {
+    issues.push({ path: `${path}.text`, message: "dialogue line text must be a non-empty string" });
+  }
+  checkCondition(value.if as Condition | undefined, `${path}.if`, issues, scope);
+}
+
+function checkConversationOption(
+  option: unknown,
+  path: string,
+  issues: ValidationIssue[],
+  scope: ValidationScope,
+  conversationId: string,
+): void {
+  if (!option || typeof option !== "object" || Array.isArray(option)) {
+    issues.push({ path, message: "conversation option must be a mapping" });
+    return;
+  }
+  const value = option as Record<string, unknown>;
+  for (const key of Object.keys(value)) {
+    if (!CONVERSATION_OPTION_KEY_SET.has(key)) {
+      issues.push({ path: `${path}.${key}`, message: `unknown conversation option key '${key}'` });
+    }
+  }
+  if (typeof value.id !== "string" || !value.id.trim()) {
+    issues.push({ path: `${path}.id`, message: "conversation option id must be a non-empty string" });
+  }
+  if (typeof value.text !== "string" || !value.text.trim()) {
+    issues.push({ path: `${path}.text`, message: "conversation option text must be a non-empty string" });
+  }
+  // Both continuations are checked against what is actually declared. A `next` that
+  // names nothing ends the conversation one beat early — quietly, since the player
+  // simply gets their turn back — and a `talk` that names nothing reports and stops.
+  // Both are worth naming now rather than discovering in play.
+  if (value.next !== undefined) {
+    if (typeof value.next !== "string" || !value.next.trim()) {
+      issues.push({ path: `${path}.next`, message: "conversation option next must be a non-empty string" });
+    } else if (!scope.conversations.get(conversationId)?.has(value.next)) {
+      issues.push({
+        path: `${path}.next`,
+        message: `unknown node '${value.next}' in conversation '${conversationId}'`,
+      });
+    }
+  }
+  if (value.talk !== undefined) {
+    if (typeof value.talk !== "string" || !value.talk.trim()) {
+      issues.push({ path: `${path}.talk`, message: "conversation option talk must be a non-empty string" });
+    } else if (!scope.conversations.has(value.talk)) {
+      issues.push({ path: `${path}.talk`, message: `unknown conversation '${value.talk}'` });
+    }
+  }
+  checkCondition(value.if as Condition | undefined, `${path}.if`, issues, scope);
+  checkDirectives(value.then as DirectiveList | undefined, `${path}.then`, issues, scope);
+}
+
 /**
  * Visit every authored UI element, including nested ones, with its validation path.
  *
@@ -230,6 +319,12 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   const scope: ValidationScope = {
     npcInstances: new Set(Object.keys(scenario.instances?.npc || {})),
+    conversations: new Map(
+      Object.entries(scenario.conversations || {}).map(([id, conversation]) => [
+        id,
+        new Set(Object.keys(conversation?.nodes || {})),
+      ]),
+    ),
   };
 
   // NPCs first: the locations and directives below resolve against them, and an
@@ -283,6 +378,43 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
         path: `instances.npc.${id}`,
         message: `npc instance id must not contain '.', which separates it from a value name, got '${id}'`,
       });
+    }
+  }
+
+  // Conversations before locations, so a node that names nothing is reported before
+  // the room that starts it.
+  for (const [id, conversation] of Object.entries(scenario.conversations || {})) {
+    const nodeIds = scope.conversations.get(id) || new Set<string>();
+    if (typeof conversation?.start !== "string" || !conversation.start.trim()) {
+      issues.push({ path: `conversations.${id}.start`, message: "conversation start must be a non-empty string" });
+    } else if (!nodeIds.has(conversation.start)) {
+      issues.push({ path: `conversations.${id}.start`, message: `unknown node '${conversation.start}'` });
+    }
+    if (conversation?.participants !== undefined && !Array.isArray(conversation.participants)) {
+      issues.push({ path: `conversations.${id}.participants`, message: "participants must be a list" });
+    }
+    for (const participant of conversation?.participants || []) {
+      if (typeof participant !== "string" || !isKnownSpeaker(participant, scope)) {
+        issues.push({
+          path: `conversations.${id}.participants`,
+          message: `unknown participant '${participant}' — expected 'player' or an npc instance`,
+        });
+      }
+    }
+    for (const [nodeId, node] of Object.entries(conversation?.nodes || {})) {
+      const nodePath = `conversations.${id}.nodes.${nodeId}`;
+      if (node?.dialogue !== undefined && !Array.isArray(node.dialogue)) {
+        issues.push({ path: `${nodePath}.dialogue`, message: "dialogue must be a list" });
+      }
+      (node?.dialogue || []).forEach((line, index) =>
+        checkDialogueLine(line, `${nodePath}.dialogue.${index}`, issues, scope)
+      );
+      if (node?.options !== undefined && !Array.isArray(node.options)) {
+        issues.push({ path: `${nodePath}.options`, message: "conversation options must be a list" });
+      }
+      (node?.options || []).forEach((option, index) =>
+        checkConversationOption(option, `${nodePath}.options.${index}`, issues, scope, id)
+      );
     }
   }
 
@@ -354,6 +486,20 @@ export function collectReferencedLuaNames(scenario: Scenario): ValidationIssue[]
     (definition.actions || []).forEach((action, index) => {
       fromDirective(action.then, `definitions.item.${id}.actions.${index}.then`);
     });
+  }
+  // An option's `then` is a directive list like any other, so a `call:` in one is a
+  // name that has to resolve. Leaving this walk out would mean a typo inside a
+  // conversation is the one authored place never checked at boot — and it would
+  // surface as a failed call in play rather than as the boot diagnostic.
+  for (const [id, conversation] of Object.entries(scenario.conversations || {})) {
+    for (const [nodeId, node] of Object.entries(conversation?.nodes || {})) {
+      (node?.options || []).forEach((option, index) => {
+        fromDirective(
+          (option as { then?: DirectiveList } | undefined)?.then,
+          `conversations.${id}.nodes.${nodeId}.options.${index}.then`,
+        );
+      });
+    }
   }
   walkUiElements(scenario.ui?.elements, (element, path) => {
     for (const [source, bindings] of [["events", element.events], ["actions", element.actions]] as const) {

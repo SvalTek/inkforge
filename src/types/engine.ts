@@ -5,6 +5,12 @@ import type { Condition, DirectiveList, Scenario } from "./scenario.ts";
 import type { ModalRuntimeState, ToolRegistry } from "./tools.ts";
 import type { UiCommand, UiRuntimeState } from "./ui.ts";
 
+/** Where the player currently is in a conversation. */
+export interface ConversationState {
+  id: string;
+  nodeId: string;
+}
+
 /** Live engine runtime object created by `start` and mutated by the engine. */
 export interface EngineRuntime {
   location: string;
@@ -25,7 +31,16 @@ export interface EngineRuntime {
   ui: UiRuntimeState;
   modals: ModalRuntimeState;
   tools: ToolRegistry;
-  conversation: unknown;
+  /**
+   * The conversation the player is currently in, or null.
+   *
+   * Position only, not a log: spoken lines are ordinary transcript entries, so they
+   * are capped, restorable and renderable by the machinery that already handles
+   * them. Holding the position separately is what lets a save resume a conversation
+   * mid-exchange without duplicating the transcript. Cleared by `setLocation`, since
+   * moving somewhere else is not something you can still be talking through.
+   */
+  conversation: ConversationState | null;
   lua: LuaBridge | null;
   canvasEngine: CanvasHost | null;
   /**
@@ -44,6 +59,15 @@ export interface EngineRuntime {
 export interface AvailableAction {
   text: string;
   cmd: string;
+  /**
+   * Present when this choice is a conversation option rather than a command.
+   *
+   * An option is bound to a closure instead of dispatched, and that is not a detail:
+   * dispatching clears the transcript, which would erase the very exchange the
+   * player is reading. The engine stays pure data and says which kind of choice
+   * this is; turning that into a handler is the renderer's job.
+   */
+  conversation?: { optionId: string };
 }
 
 /** The concrete inventory item that caused an authored action to run. */
@@ -51,6 +75,18 @@ export interface ItemExecutionContext {
   id: string;
   definitionId: string;
   actionId: string;
+}
+
+/** Which conversation, and which choice inside it, is being executed. */
+export interface ConversationExecutionContext {
+  /** The conversation id. */
+  id: string;
+  /** The node the choice was taken at. */
+  nodeId: string;
+  /** Absent while a node's own directives run, rather than an option's. */
+  optionId?: string;
+  /** NPC instance ids taking part, plus `player` when the player is one. */
+  participants: string[];
 }
 
 /**
@@ -61,6 +97,7 @@ export interface ItemExecutionContext {
  */
 export interface ExecutionContext {
   item?: ItemExecutionContext;
+  conversation?: ConversationExecutionContext;
 }
 
 /**
@@ -75,6 +112,8 @@ export interface EngineApi {
   execute(list: DirectiveList | undefined, context?: ExecutionContext): Promise<void>;
   available(): AvailableAction[];
   dispatch(raw: string): Promise<void>;
+  /** Take a conversation option, by id. A no-op when no conversation is running. */
+  chooseConversationOption(optionId: string): Promise<void>;
 }
 
 /** Output sink: coerces any text to a string and tags it with a kind. */

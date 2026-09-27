@@ -4,7 +4,7 @@ import { DIST, TEMPLATES } from "./paths.ts";
 import { serveStatic } from "./server.ts";
 import { unzipSync, zipSync } from "fflate";
 import { join } from "node:path";
-import { readScenarioMeta, validateScenario } from "../src/yaml/compose.ts";
+import { collectReferencedLuaNames, readScenarioMeta, validateScenario } from "../src/yaml/compose.ts";
 import type { EditorHarness } from "../src/editor/harness.ts";
 import type { Browser, BrowserContext, ConsoleMessage, Dialog, Page, Request } from "playwright-core";
 
@@ -2115,6 +2115,212 @@ end
         "a location listed the instance; trust seeded from state gated an action, npcSet raised it, inc reached the " +
         "same store, and GameNPCs read the authored half as a detached copy while GameState read the values; " +
         "npcVar and npcSet subjects were checked in UI element conditions, nested elements and actions: lists too";
+    });
+
+    await runCheck("8c. A conversation owns the choice list, the command box, and its own ending", async () => {
+      // The static half: every way a conversation can be authored wrong.
+      const bad = validateScenario({
+        npcs: { keeper: {} },
+        instances: { npc: { hall_keeper: { def: "keeper" } } },
+        conversations: {
+          broken: {
+            start: "nowhere",
+            participants: ["player", "ghost"],
+            nodes: {
+              here: {
+                dialogue: [
+                  { speaker: "nobody", text: "..." } as never,
+                  { speker: "hall_keeper", text: "..." } as never,
+                ],
+                options: [
+                  { id: "a", text: "A", next: "nowhere" } as never,
+                  { id: "b", text: "B", talk: "missing" } as never,
+                  { id: "c", text: "C", nxt: "here" } as never,
+                ],
+              },
+            },
+          },
+        },
+      });
+      assert(
+        bad.some((issue) => issue.message === "unknown node 'nowhere'" && issue.path.endsWith(".start")),
+        "a conversation start naming no node passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message.includes("unknown node 'nowhere'") && issue.path.includes("options.0.next")),
+        "an option next naming no node passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message === "unknown conversation 'missing'"),
+        "an option talk naming no conversation passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message.includes("unknown participant 'ghost'")),
+        "a conversation naming an undeclared participant passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message.includes("unknown speaker 'nobody'")),
+        "a dialogue line with an unknown speaker passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message === "unknown dialogue line key 'speker'"),
+        "a misspelled dialogue line key passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message === "unknown conversation option key 'nxt'"),
+        "a misspelled conversation option key passed validation",
+      );
+
+      // A `call:` inside an option is a name that has to resolve at boot. Leaving
+      // conversations out of the collector would make this the one authored place a
+      // typo is never reported.
+      const references = collectReferencedLuaNames({
+        conversations: {
+          hall_talk: {
+            start: "opening",
+            nodes: {
+              opening: { options: [{ id: "a", text: "A", then: { call: "keeper.named" } }] },
+            },
+          },
+        },
+      } as never);
+      assert(
+        references.some((issue) => issue.message === "keeper.named" && issue.path.includes("conversations.hall_talk")),
+        "a call: inside a conversation option was never collected for the boot check",
+      );
+
+      // The live half, against a self-contained fixture.
+      const pack: PackShape = {
+        manifest: {
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "conversation-fixture", title: "Conversation Fixture", version: "1.0.0" },
+          files: ["scenario.yaml", "scripts/main.lua"],
+        },
+        entries: {
+          "scenario.yaml": new TextEncoder().encode(`meta:
+  title: Conversation Fixture
+startLocation: hall
+npcs:
+  keeper:
+    name: The Keeper
+    state:
+      trust: 2
+instances:
+  npc:
+    hall_keeper:
+      def: keeper
+locations:
+  hall:
+    text: "A lamp burns low along the wall."
+    npcs: [hall_keeper]
+    actions:
+      - id: greet
+        label: Greet the keeper
+        then:
+          - talk: hall_talk
+      - id: look_around
+        label: Look around
+        then:
+          - "Dust, and a guttering lamp."
+conversations:
+  hall_talk:
+    participants: [player, hall_keeper]
+    start: opening
+    nodes:
+      opening:
+        dialogue:
+          - speaker: hall_keeper
+            text: "You came down."
+        options:
+          - id: ask_name
+            text: "What is your name?"
+            then:
+              - call: keeper.named
+            next: named
+          - id: walk_away
+            text: "Walk away."
+      named:
+        dialogue:
+          - speaker: hall_keeper
+            text: "A name is a thing you are given."
+        options:
+          - id: press
+            text: "Then give me one."
+            then:
+              - npcSet: { hall_keeper.trust: 4 }
+            next: warm
+      warm:
+        dialogue:
+          - speaker: hall_keeper
+            if: { npcVar: hall_keeper.trust, gte: 4 }
+            text: "Rowan. It is Rowan."
+`),
+          "scripts/main.lua": new TextEncoder().encode(`keeper = {}
+
+function keeper.named(params, context)
+  local trust = GameState.get("npc.hall_keeper.trust") or 0
+  GameOutput.add("The Keeper does not look up. Trust is " .. tostring(trust) .. ".")
+  if context and context.conversation then
+    GameOutput.add("[talking: " .. context.conversation.id .. "/" .. context.conversation.nodeId .. "]")
+  end
+end
+`),
+        },
+      };
+      await importPack(page, pack, "hall_talk", "scenario.yaml");
+      await page.locator('.nav[data-view="play"]').click();
+      await waitForText(page, "#terminal", "A lamp burns low");
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "the command box was hidden before any conversation ran",
+      );
+
+      await page.locator("#heroChoices button", { hasText: "Greet the keeper" }).click();
+      await waitForText(page, "#terminal", "The Keeper: You came down.");
+      // The conversation owns the choice list and the command box while it runs.
+      assert(
+        !(await page.locator("#heroChoices").textContent())?.includes("Look around"),
+        "a location action was offered beside the conversation's options",
+      );
+      assert(
+        !(await page.locator("#heroCommand").isVisible()),
+        "the command box stayed visible during a conversation",
+      );
+      assert(
+        !(await page.locator("#commandForm").isVisible()),
+        "the author run panel's command box stayed visible during a conversation",
+      );
+
+      await page.locator("#heroChoices button", { hasText: "What is your name?" }).click();
+      await waitForText(page, "#terminal", "[talking: hall_talk/opening]");
+      await waitForText(page, "#terminal", "A name is a thing you are given.");
+      // The exchange is a transcript, not a log held by the engine: taking an option
+      // appends, so the opening beat is still on screen with the new one.
+      const afterOption = (await page.locator("#terminal").textContent()) || "";
+      assert(
+        afterOption.includes("You came down.") && afterOption.includes("A name is a thing you are given."),
+        "taking a conversation option replaced the transcript instead of appending to it",
+      );
+
+      await page.locator("#heroChoices button", { hasText: "Then give me one." }).click();
+      // The farewell line is gated on the trust the previous option raised.
+      await waitForText(page, "#terminal", "Rowan. It is Rowan.");
+
+      // `warm` declares no options, so it is a terminal beat: the conversation ends
+      // rather than stranding the player on a node with nothing to answer.
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("Look around"),
+        "a terminal node did not return the player to the room",
+      );
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "the command box did not come back after the conversation ended",
+      );
+      return "a talk: directive entered the start node; options replaced the location's choices and both command " +
+        "boxes hid; a dotted call: inside an option received its conversation context; taking options appended to " +
+        "the transcript; npcSet raised trust and opened a gated line; a node with no options ended the exchange and " +
+        "restored the room; bad start/next/talk/speaker/participant/keys were rejected at load";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {

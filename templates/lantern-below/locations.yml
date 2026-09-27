@@ -25,6 +25,12 @@ passage:
   exits:
     south: entry
   actions:
+    # A conversation is started by an ordinary directive, so it composes with
+    # everything else: this could sit inside an `if`, a `call` handler or a timer.
+    - id: talk_keeper
+      label: Talk to the keeper
+      then:
+        - talk: keeper_greeting
     - id: light_lantern
       label: Light the lantern
       if:

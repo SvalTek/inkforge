@@ -9,6 +9,7 @@ import type {
   Scenario,
 } from "../types/index.ts";
 import { check } from "./conditions.ts";
+import { startConversation } from "./conversation.ts";
 import { markViewDirty, pushEvent } from "./events.ts";
 import {
   addItem,
@@ -76,6 +77,7 @@ export const DIRECTIVE_KEYS = [
   "give",
   "remove",
   "goto",
+  "talk",
   "ui",
   "if",
   "end",
@@ -155,6 +157,14 @@ export async function execute(
     }
     if (x.goto) {
       await move(x.goto, deps, context);
+      continue;
+    }
+    if (x.talk) {
+      // Beside `goto` because both are "the player is somewhere else now": one moves
+      // them through the world, the other into an exchange. Neither awaits anything
+      // itself — a node's lines are output, not directives — so this stays ordered
+      // with the rest of the chain without adding an await that buys nothing.
+      startConversation(x.talk, deps, context);
       continue;
     }
     if (x.ui) {

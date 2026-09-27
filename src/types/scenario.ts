@@ -171,6 +171,14 @@ export interface DirectiveObject {
   give?: string | { id?: string };
   remove?: string | { id?: string };
   goto?: string;
+  /**
+   * Start a conversation, entering its `start` node and offering its options.
+   *
+   * The player is then *in* that conversation: it owns the choice list and the
+   * command box until something ends it. A conversation already in progress is
+   * replaced rather than stacked, so this is a cut, not a push.
+   */
+  talk?: string;
   ui?: UiCommand;
   if?: Condition;
   then?: DirectiveList;
@@ -200,6 +208,53 @@ export type Directive = string | DirectiveObject;
 /** A directive list is a single directive or an array of directives. */
 export type DirectiveList = Directive | Directive[];
 
+/**
+ * One spoken line.
+ *
+ * Not a `Directive`, because `speaker` is not a directive key: the line needs an
+ * author to attribute it, and that attribution is the whole reason a conversation
+ * is not just a directive list. `if` gates the line exactly as it gates a directive.
+ */
+export interface DialogueLine {
+  /** An NPC instance id, or the literal `player`. */
+  speaker: string;
+  text: string;
+  if?: Condition;
+}
+
+/** A choice offered at a node, and what taking it does. */
+export interface ConversationOption {
+  id: string;
+  text: string;
+  if?: Condition;
+  then?: DirectiveList;
+  /** Continue at this node of the same conversation. */
+  next?: string;
+  /** Cut to another conversation now, replacing the current one. */
+  talk?: string;
+}
+
+/** One beat: what is said, and what the player may answer. */
+export interface ConversationNode {
+  dialogue?: DialogueLine[];
+  options?: ConversationOption[];
+}
+
+/**
+ * A conversation: a named set of nodes, entered at `start`.
+ *
+ * Nodes rather than one flat id per branch, because a dialogue tree that flattens
+ * every branch into its own conversation stops being writable past a few exchanges.
+ * What ends a conversation is deliberately explicit — see `docs/authoring/conversations.md`.
+ */
+export interface Conversation {
+  /** NPC instance ids taking part, optionally with `player`. */
+  participants?: string[];
+  /** The node entered when the conversation starts. */
+  start: string;
+  nodes: Record<string, ConversationNode>;
+}
+
 /** The composed scenario document produced by `composeScenario`. */
 export interface Scenario {
   meta?: ScenarioMeta;
@@ -213,5 +268,6 @@ export interface Scenario {
   instances?: Instances;
   npcs?: Record<string, NpcDefinition>;
   locations?: Record<string, Location>;
+  conversations?: Record<string, Conversation>;
   scripts?: ScenarioScripts;
 }

@@ -8,6 +8,7 @@ import type {
   ExitValue,
 } from "../types/index.ts";
 import { check as checkCondition } from "./conditions.ts";
+import { chooseOption, conversationOptions } from "./conversation.ts";
 import type { DirectiveDeps } from "./directives.ts";
 import { execute as executeDirectives, itemName, move as moveTo } from "./directives.ts";
 import { clearTranscript } from "./events.ts";
@@ -35,6 +36,16 @@ export function createEngine(deps: EngineDeps): EngineApi {
   }
 
   function available(): AvailableAction[] {
+    // A conversation owns the choice list while it runs. Offering "North" beside the
+    // answer to a question would let the player walk away mid-exchange, and there
+    // would be no way back to the conversation they were in.
+    if (deps.runtime.conversation) {
+      return conversationOptions(dirDeps).map((option) => ({
+        text: option.text,
+        cmd: "",
+        conversation: { optionId: option.id },
+      }));
+    }
     const scenario = deps.getScenario();
     const loc = scenario?.locations?.[deps.runtime.location] || {};
     const out: AvailableAction[] = [];
@@ -58,6 +69,11 @@ export function createEngine(deps: EngineDeps): EngineApi {
     const cmd = raw.trim();
     const lower = cmd.toLowerCase();
     if (!cmd || deps.runtime.over) return;
+    // A conversation owns the player's attention while it runs, and the command box
+    // is hidden for the duration — so this is a backstop rather than the usual path.
+    // Silent, like the `over` guard above it: there is nothing to tell the player
+    // about a key they cannot press.
+    if (deps.runtime.conversation) return;
     // The turn boundary. Resetting the discard count with the entries is what
     // keeps a fresh turn from inheriting an elision notice it no longer needs.
     clearTranscript(deps.runtime);
@@ -106,5 +122,18 @@ export function createEngine(deps: EngineDeps): EngineApi {
     }
   }
 
-  return { check, move, execute, available, dispatch };
+  /**
+   * Take a conversation option.
+   *
+   * Deliberately does not repaint: the conversation functions mark the view dirty
+   * through the ordinary funnels, and the caller flushes once for the whole
+   * invocation — the same arrangement the inventory inspector uses, so a fast
+   * second click cannot see a half-applied node.
+   */
+  async function chooseConversationOption(optionId: string): Promise<void> {
+    if (!deps.runtime.conversation || deps.runtime.over) return;
+    await chooseOption(optionId, dirDeps);
+  }
+
+  return { check, move, execute, available, dispatch, chooseConversationOption };
 }

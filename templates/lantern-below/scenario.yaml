@@ -10,6 +10,7 @@ ui: !import ui.yml
 definitions: !import definitions.yml
 instances: !import instances.yml
 npcs: !import npcs.yml
+conversations: !import conversations.yml
 locations: !import locations.yml
 scripts:
   main: scripts/main.lua

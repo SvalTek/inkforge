@@ -1,0 +1,53 @@
+# A conversation is a set of nodes, entered at `start`. Nothing is rendered here:
+# `dialogue` is printed to the transcript with the speaker's name in front, and the
+# node's `options` become the choice list while the player is in the conversation.
+keeper_greeting:
+  participants: [player, passage_keeper]
+  start: greeting
+
+  nodes:
+    greeting:
+      dialogue:
+        - speaker: passage_keeper
+          text: "You carry a lantern. Most who come this far leave it burning behind them."
+        - speaker: passage_keeper
+          text: "What brings you down, then?"
+      options:
+        # `next` continues at another node of this same conversation.
+        - id: ask_about_lamps
+          text: I was told the lamps need tending.
+          then:
+            - call: keeper.asked
+          next: lamps
+        # No `next` and no `talk`, so this choice ends the exchange. An option does
+        # not need an `end` key: having nowhere to continue *is* the ending.
+        - id: say_nothing
+          text: Say nothing, and go back up the passage.
+          then:
+            - emit: keeper:snubbed
+
+    lamps:
+      dialogue:
+        - speaker: passage_keeper
+          text: "\"The third one,\" the Keeper says. \"It catches, and then it sulks.\""
+      options:
+        - id: take_the_lamp
+          text: Nod, and take that lamp in your own hand.
+          then:
+            - npcSet: { passage_keeper.trust: 4 }
+            - { set: { knowsBrokenLamp: true } }
+          next: farewell
+        - id: leave_it
+          text: Leave the lamp to the Keeper.
+
+    farewell:
+      # A line may be gated, so the same node reads differently depending on what the
+      # player did to earn it. This one speaks only once trust is high enough.
+      dialogue:
+        - speaker: passage_keeper
+          if: { npcVar: passage_keeper.trust, gte: 4 }
+          text: "Then go carefully. Mind the third one."
+      # No options at all, so this node is a terminal beat: the conversation ends and
+      # the player is back in the passage with its exits and actions. That is the
+      # documented behaviour, and deliberately so — a node with nothing to answer
+      # would otherwise be a soft-lock, since the command box is hidden throughout.

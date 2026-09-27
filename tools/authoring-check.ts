@@ -201,6 +201,31 @@ async function main(): Promise<void> {
       (await page.locator("#heroChoices").textContent())?.includes("broken"),
       "the starter's npcVar-gated action did not open after npcSet raised trust",
     );
+    // The conversation in the same shipped template: options take over the choice
+    // list, the command box disappears, and a node with no options hands the player
+    // back to the room rather than stranding them.
+    await page.locator("#heroChoices button", { hasText: "Talk to the keeper" }).click();
+    await waitFor(page, "#heroTerminal", "What brings you down, then?");
+    assert(
+      !(await page.locator("#heroChoices").textContent())?.includes("Look around"),
+      "the starter offered a location action beside the conversation's options",
+    );
+    assert(
+      !(await page.locator("#heroCommand").isVisible()),
+      "the starter left the command box visible during a conversation",
+    );
+    await page.locator("#heroChoices button", { hasText: "I was told the lamps need tending." }).click();
+    await waitFor(page, "#heroTerminal", "It catches, and then it sulks.");
+    await page.locator("#heroChoices button", { hasText: "Nod, and take that lamp in your own hand." }).click();
+    await waitFor(page, "#heroTerminal", "Mind the third one.");
+    assert(
+      (await page.locator("#heroChoices").textContent())?.includes("Ask the keeper about the lamps"),
+      "a terminal conversation node did not return the player to the passage",
+    );
+    assert(
+      await page.locator("#heroCommand").isVisible(),
+      "the starter left the command box hidden after the conversation ended",
+    );
     await page.locator("#loadBtn").click();
     await page.locator('#projectList [data-project="renderer-stage-showcase"] button:not([disabled])').first().click();
     await waitFor(page, "#storyTitle", "The authored visual stage");

@@ -21,6 +21,13 @@ type OutputEvent = Extract<EngineEvent, { type: "output" }>;
 const terminalFollowTail = new WeakMap<HTMLElement, boolean>();
 const selectedInventoryItem = new WeakMap<AppContext, string>();
 const pendingInventoryAction = new WeakSet<AppContext>();
+/**
+ * The conversation option currently being taken, if any.
+ *
+ * The same reason the inventory has one: an option's `then` may await a Lua call, and
+ * a second click landing inside that await would advance two nodes from one decision.
+ */
+const pendingConversationOption = new WeakSet<AppContext>();
 
 /** Track whether the player is following new output or reading older lines. */
 function shouldFollowTail(terminal: HTMLElement): boolean {
@@ -86,7 +93,11 @@ function elisionEntry(dropped: number): HTMLDivElement {
 function choiceButton(choice: AvailableAction): HTMLButtonElement {
   const button = document.createElement("button");
   button.className = "choice";
-  button.dataset.cmd = choice.cmd;
+  // A conversation option is identified by its option id, not by a command. The
+  // distinction is load-bearing: a `data-cmd` button would be dispatched, and
+  // dispatching clears the transcript, which is the exchange itself.
+  if (choice.conversation) button.dataset.conversationOption = choice.conversation.optionId;
+  else button.dataset.cmd = choice.cmd;
   button.textContent = choice.text;
   return button;
 }
@@ -166,6 +177,17 @@ export function render(app: AppContext): void {
   $all<HTMLElement>("[data-cmd]").forEach((button) => {
     button.onclick = () => void app.engine?.dispatch(button.dataset.cmd ?? "");
   });
+  $all<HTMLElement>("[data-conversation-option]").forEach((button) => {
+    button.onclick = () => void app.runConversationOption(button.dataset.conversationOption ?? "");
+  });
+  // The command box goes away while a conversation runs: the exchange is a
+  // conversation, and typing `north` into the middle of one is not a thing a player
+  // means. The engine refuses those commands too, so this is what the player sees
+  // rather than a silent no-op. Only the boxes hide — the choices stay, and they are
+  // now the conversation's.
+  const talking = Boolean(runtime.conversation);
+  dom.heroCommand.classList.toggle("hidden", talking);
+  dom.commandForm.classList.toggle("hidden", talking);
 }
 
 /** Paint the 12 inventory slots and wire each to its inspector. */
@@ -258,6 +280,25 @@ async function runItemAction(
     app.flushView();
     const selectedSlot = app.runtime?.inventory.indexOf(itemId) ?? -1;
     inspectItem(app, selectedSlot);
+  }
+}
+
+/**
+ * Take a conversation option.
+ *
+ * Serialized against a second click for the whole invocation, and flushed once at
+ * the end rather than per step: a node change is one visible event even though it
+ * may have run a Lua call, emitted an event and written several values on the way.
+ */
+export async function runConversationOption(app: AppContext, optionId: string): Promise<void> {
+  if (!app.runtime || app.runtime.over || pendingConversationOption.has(app)) return;
+  pendingConversationOption.add(app);
+  $all<HTMLButtonElement>("[data-conversation-option]").forEach((button) => button.disabled = true);
+  try {
+    await app.engine?.chooseConversationOption(optionId);
+  } finally {
+    pendingConversationOption.delete(app);
+    app.flushView();
   }
 }
 
