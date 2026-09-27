@@ -92,12 +92,17 @@ export async function execute(
       for (const [path, value] of Object.entries(x.set)) setState(deps.runtime, path, value);
       continue;
     }
-    if (x.itemSet) {
+    if ("itemSet" in x) {
+      const itemSet: unknown = x.itemSet;
+      if (!itemSet || typeof itemSet !== "object" || Array.isArray(itemSet)) {
+        deps.output("itemSet must be a mapping.", "error");
+        continue;
+      }
       if (!context?.item) {
         deps.output("itemSet requires an inventory item action context.", "error");
         continue;
       }
-      for (const [path, value] of Object.entries(x.itemSet)) {
+      for (const [path, value] of Object.entries(itemSet)) {
         setState(deps.runtime, itemStatePath(context, path)!, value);
       }
       continue;

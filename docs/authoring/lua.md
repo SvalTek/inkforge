@@ -279,7 +279,8 @@ end)
 
 The item context has three fields: `id` is the concrete instance, `definitionId` is its shared definition, and
 `actionId` is the invoked definition action. It is transient invocation information, not saved state. Calls and events
-from locations, UI elements and tools omit this second argument.
+from locations, UI elements and tools omit this second argument. Each handler receives a detached context, so changing
+it inside Lua does not alter the item subject retained by the engine or the context given to the next handler.
 
 ### Value interop
 

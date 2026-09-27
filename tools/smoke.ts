@@ -1643,7 +1643,10 @@ end
         definitions: {
           item: {
             lantern: {
-              actions: [{ label: "Broken", thne: [{ text: "Never runs" }] } as never],
+              actions: [
+                { label: "Broken", thne: [{ text: "Never runs" }] } as never,
+                { id: "bad_set", then: { itemSet: "lit" } as never },
+              ],
             },
           },
         },
@@ -1655,6 +1658,10 @@ end
       assert(
         invalidActionIssues.some((issue) => issue.message === "item action id must be a non-empty string"),
         "missing item action id passed validation",
+      );
+      assert(
+        invalidActionIssues.some((issue) => issue.message === "itemSet must be a mapping"),
+        "non-mapping itemSet passed validation",
       );
       const pack: PackShape = {
         manifest: {
@@ -1685,12 +1692,16 @@ definitions:
       actions:
         - id: inspect
           label: Inspect
-          if: { var: inspectEnabled }
+          if:
+            and:
+              - { var: inspectEnabled }
+              - { itemVar: inspected, neq: true }
           then:
             - if: { var: inspectEnabled }
               then:
                 - call: item.inspect
                   params: { marker: called }
+                - itemSet: { inspected: true }
                 - emit: item:inspected
                   data: { marker: emitted }
         - id: light
@@ -1710,6 +1721,11 @@ definitions:
           if: { var: inspectEnabled }
           then:
             - set: { inspectEnabled: false }
+        - id: finish
+          label: End run
+          then:
+            - call: item.finish
+            - end: true
 instances:
   item:
     cellar_lantern: { def: lantern }
@@ -1741,6 +1757,15 @@ function item.inspect(params, context)
     GameOutput.add('missing:nil')
   end
   GameOutput.add('call:' .. params.marker .. ':' .. context.item.id .. ':' .. context.item.definitionId .. ':' .. context.item.actionId)
+  context.item.id = 'redirected_item'
+  context.item.definitionId = 'redirected_definition'
+  context.item.actionId = 'redirected_action'
+end
+
+function item.finish(params, context)
+  local calls = (GameState.get('finishCalls') or 0) + 1
+  GameState.set('finishCalls', calls)
+  GameOutput.add('finish:' .. calls)
 end
 
 Events:On('item:inspected', function(data, context)
@@ -1765,6 +1790,10 @@ end)
       await waitForText(page, "#terminal", "call:called:cellar_lantern:lantern:inspect");
       await waitForText(page, "#terminal", "emit:emitted:cellar_lantern:lantern:inspect");
       assert(
+        await page.locator('[data-item-action="inspect"]').count() === 0,
+        "itemSet did not mark the invoking cellar lantern as inspected",
+      );
+      assert(
         await page.locator('[data-item-action="light"]').count() === 1,
         "unlit cellar lantern has no Light action",
       );
@@ -1785,6 +1814,10 @@ end)
         await page.locator('[data-item-action="extinguish"]').count() === 1,
         "lit gate lantern has no Extinguish action",
       );
+      assert(
+        await page.locator('[data-item-action="inspect"]').count() === 1,
+        "cellar inspection state leaked into the gate lantern",
+      );
       await page.locator('[data-item-action="inspect"]').click();
       await waitForText(page, "#terminal", "call:called:gate_lantern:lantern:inspect");
       await waitForText(page, "#terminal", "emit:emitted:gate_lantern:lantern:inspect");
@@ -1804,10 +1837,23 @@ end)
         await page.locator('[data-item-action="disable"]').count() === 0,
         "item action inspector did not refresh after execution",
       );
+      const finishButton = await page.locator('[data-item-action="finish"]').elementHandle();
+      assert(finishButton, "end action was not available before game over");
+      await finishButton.click();
+      await waitForText(page, "#terminal", "finish:1");
+      assert(
+        await page.locator("[data-item-action]").count() === 0,
+        "inventory actions remained available after game over",
+      );
+      await finishButton.evaluate((button) => (button as HTMLButtonElement).click());
+      assert(
+        !(await page.locator("#terminal").textContent())?.includes("finish:2"),
+        "a stale action ran after game over",
+      );
       await page.locator("#closeInventory").click();
-      return "two instances shared definition actions while itemVar/itemSet kept independent lit state; GameItems " +
-        "resolved arbitrary definition metadata as detached copies; call/emit received distinct item ids plus " +
-        "definition/action ids; malformed actions or context use failed validation";
+      return "two instances shared definition actions while itemVar/itemSet kept independent state; GameItems " +
+        "resolved arbitrary definition metadata as detached copies; Lua could not redirect retained action context; " +
+        "malformed actions, itemSet payloads, and context use failed validation; game over removed and guarded actions";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {

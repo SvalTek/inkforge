@@ -19,6 +19,10 @@ end
 return target(invocation.params, invocation.context)
 `;
 
+function detachContext(context: ExecutionContext): ExecutionContext {
+  return structuredClone(context);
+}
+
 /**
  * Call a named Lua function, optionally with params.
  *
@@ -38,7 +42,7 @@ export async function invokeNamedFunction(
     return;
   }
   try {
-    if (context) await lua.execute(CONTEXTUAL_CALL, { name, params, context });
+    if (context) await lua.execute(CONTEXTUAL_CALL, { name, params, context: detachContext(context) });
     else await lua.call(name, params);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -68,7 +72,7 @@ export function emitNamedEvent(
     report(`Cannot emit '${name}': no Lua runtime is loaded.`, "warning");
     return;
   }
-  const handled = context ? lua.emit(name, data, context) : lua.emit(name, data);
+  const handled = context ? lua.emit(name, data, detachContext(context)) : lua.emit(name, data);
   if (handled === 0) {
     report(`Event '${name}' was emitted but nothing is listening for it.`, "warning");
   }

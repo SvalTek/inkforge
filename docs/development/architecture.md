@@ -106,7 +106,8 @@ is `src/lua/invoke.ts`, and every name is checked — `call:` targets at boot, `
 Inventory actions add transient execution context to this same engine path rather than using a separate dispatcher. The
 inspector supplies the instance id, definition id and action id; `check` and `execute` carry that subject through nested
 directives, and the Lua seam exposes it as the optional second argument to `call` and `emit` handlers. Context describes
-one invocation, so it does not belong in runtime state or save snapshots.
+one invocation, so it does not belong in runtime state or save snapshots. Each Lua crossing clones the context before
+bridging it; a proxied Lua table must not be able to rewrite the engine's retained execution subject.
 
 Contextual item state still uses the ordinary flat runtime store. `itemStatePath` is the single resolver for both
 `itemVar` and `itemSet`, mapping a local name such as `lit` to `item.<instance-id>.lit`. The existing state mutation

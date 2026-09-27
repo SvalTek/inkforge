@@ -236,7 +236,8 @@ end
 ```
 
 An event listener receives the same context after its data argument. Other action sites do not invent an item context,
-so the second argument is absent for an ordinary location, UI or tool action.
+so the second argument is absent for an ordinary location, UI or tool action. Lua receives a detached context for each
+call or event: changing that table locally cannot redirect later directives in the action.
 
 `itemVar` and `itemSet` read and write state for the invoking instance. For `entry_lantern`, `itemVar: lit` and
 `itemSet: { lit: true }` resolve to the ordinary flat state key `item.entry_lantern.lit`. The definition remains shared,

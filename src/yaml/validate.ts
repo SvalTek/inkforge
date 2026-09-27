@@ -95,8 +95,13 @@ function checkDirectives(
         message: `unrecognised directive ${JSON.stringify(Object.keys(directive))} — nothing will happen`,
       });
     }
-    if ("itemSet" in directive && !hasItemContext) {
-      issues.push({ path: itemPath, message: "'itemSet' requires an inventory item action context" });
+    if ("itemSet" in directive) {
+      if (!directive.itemSet || typeof directive.itemSet !== "object" || Array.isArray(directive.itemSet)) {
+        issues.push({ path: `${itemPath}.itemSet`, message: "itemSet must be a mapping" });
+      }
+      if (!hasItemContext) {
+        issues.push({ path: itemPath, message: "'itemSet' requires an inventory item action context" });
+      }
     }
     if (directive.if) checkCondition(directive.if as Condition, `${itemPath}.if`, issues, hasItemContext);
     if (directive.then) checkDirectives(directive.then as DirectiveList, `${itemPath}.then`, issues, hasItemContext);

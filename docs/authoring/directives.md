@@ -110,7 +110,8 @@ Assigns state to the concrete inventory item whose definition action is running:
 For an instance called `cellar_lantern`, those become the flat keys `item.cellar_lantern.lit` and
 `item.cellar_lantern.oil`. The writes use the normal state mutation path, so they repaint immediately and are included in
 saves. `itemSet` is valid only inside `definitions.item.<id>.actions[]` and nested directive lists belonging to those
-actions. Other sites fail validation because they have no current item.
+actions. Its value must be a YAML mapping; scalar and list payloads fail validation. Other sites fail validation because
+they have no current item.
 
 `itemSet` assigns fixed values. There are no `itemInc` or `itemDec` directives yet; use Lua when an item-local number
 must be changed relative to its current value.
@@ -266,4 +267,5 @@ Ends the game. Sets the run to over and emits `game:over`; the remaining choices
 - end: true
 ```
 
-Once `end` has run, further commands are ignored until the run is restarted.
+Once `end` has run, further commands and inventory actions are ignored until the run is restarted. An open inventory
+inspector removes its action buttons when the run ends.

@@ -218,9 +218,11 @@ export function inspectItem(app: AppContext, slot: number): void {
   dom.itemName.textContent = definition.name || id;
   renderBlocks(dom.itemDescription, definition.description || "");
   dom.itemArt.textContent = "◆";
-  const actions = (definition.actions || []).filter((action) =>
-    app.engine?.check(action.if, itemActionContext(id, definitionId, action.id)) ?? true
-  );
+  const actions = app.runtime?.over
+    ? []
+    : (definition.actions || []).filter((action) =>
+      app.engine?.check(action.if, itemActionContext(id, definitionId, action.id)) ?? true
+    );
   dom.itemActions.replaceChildren(...actions.map((action) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -242,6 +244,7 @@ async function runItemAction(
   definitionId: string,
   action: ItemAction,
 ): Promise<void> {
+  if (!app.runtime || app.runtime.over) return;
   const context = itemActionContext(itemId, definitionId, action.id);
   // Conditions may have changed since the inspector was painted.
   if (app.engine?.check(action.if, context) ?? true) await app.engine?.execute(action.then, context);
