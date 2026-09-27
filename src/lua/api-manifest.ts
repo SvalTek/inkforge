@@ -126,6 +126,24 @@ export const LUA_API_MANIFEST: readonly LuaApiNamespace[] = [
     ],
   },
   {
+    name: "GameConversations",
+    call: ".",
+    summary: "Starting and ending a conversation.",
+    members: [
+      {
+        name: "start",
+        args: "(conversationId)",
+        summary: "Enter a conversation at its `start` node. The same call a `talk:` directive makes.",
+      },
+      {
+        name: "finish",
+        args: "()",
+        summary:
+          "End the conversation the player is in, if any. Safe to call when none is. Not named `end`, which is a Lua keyword.",
+      },
+    ],
+  },
+  {
     name: "GameUI",
     call: ".",
     summary: "Creating and changing UI elements.",

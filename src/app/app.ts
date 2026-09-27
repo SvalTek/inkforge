@@ -1,5 +1,6 @@
 import type { AppContext, AppView } from "./context.ts";
 import type {
+  EngineDeps,
   EngineRuntime,
   ProjectData,
   ResolvedUiElement,
@@ -58,6 +59,7 @@ import { exportPack as exportPackImpl, importPack as importPackImpl } from "../i
 import { createToolRegistry } from "../engine/tool-state.ts";
 import { fromSnapshot, hashProjectSources, hashScenario, toSnapshot } from "../engine/save.ts";
 import { npcInstanceDefaults } from "../engine/state.ts";
+import { createDirectiveDeps } from "../engine/directives.ts";
 import { nodeHasAvailableOption } from "../engine/conversation.ts";
 import { deleteSave, getSave, listSaves, parseSaveFile, putSave, serializeSaveFile } from "../project/save-storage.ts";
 import { AssetResolver } from "../project/assets.ts";
@@ -342,7 +344,10 @@ export function createApp(): AppContext {
         dom.diagnostics.textContent = `● ${message}`;
         dom.diagnostics.style.color = severity === "error" ? "#ee7c78" : "#d6a95c";
       };
-      const engine = createEngine({
+      // One `DirectiveDeps`, built once and handed to both the engine and the Lua
+      // boot, so a conversation started from a `call:` handler and one started by a
+      // `talk:` directive are the same call rather than two that could drift.
+      const engineDeps: EngineDeps = {
         getScenario: () => app.scenario,
         runtime,
         output,
@@ -350,7 +355,8 @@ export function createApp(): AppContext {
         render: () => flushView(),
         invokeLua: (name, params, context) => invokeNamedFunction(app.lua, name, params, reportSeam, context),
         emitEvent: (name, data, context) => emitNamedEvent(app.lua, name, data, reportSeam, context),
-      });
+      };
+      const engine = createEngine(engineDeps);
       app.engine = engine;
       await bootRuntime(app, scenario, {
         flushView: () => flushView(),
@@ -358,6 +364,7 @@ export function createApp(): AppContext {
         output,
         onError: reportProblem,
         audio: app.audio,
+        directives: createDirectiveDeps(engineDeps),
       });
       await engine.move(runtime.location);
       // A newer boot has already replaced everything this one built; announcing

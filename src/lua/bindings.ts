@@ -4,6 +4,8 @@ import type { AudioManagerLike } from "../types/audio.ts";
 import type { UiCommand } from "../types/ui.ts";
 import type { Scenario } from "../types/scenario.ts";
 import { registerTool, removeTool, setToolDisabled, setToolHidden } from "../engine/tool-state.ts";
+import type { DirectiveDeps } from "../engine/directives.ts";
+import { endConversation, startConversation } from "../engine/conversation.ts";
 import { setState } from "../engine/state.ts";
 import { markViewDirty } from "../engine/events.ts";
 
@@ -14,6 +16,16 @@ export interface LuaHostBindings {
   applyUi: ApplyUiFn;
   output: OutputFn;
   audio: AudioManagerLike;
+  /**
+   * The seam authored directives run through, for the host operations that are not
+   * plain data — starting and ending a conversation, say.
+   *
+   * Passed in rather than reaching for the engine, per the same rule every other
+   * namespace here follows: the Lua side gets what the host supplies, not a handle on
+   * the app. It is the same object `execute()` uses, so a conversation started from
+   * Lua is indistinguishable from one started by a `talk:`.
+   */
+  directives: DirectiveDeps;
 }
 
 /**
@@ -29,7 +41,7 @@ export interface LuaHostBindings {
  * closures, so it stays Lua (see `facades/canvas.ts`).
  */
 export function createHostNamespaces(host: LuaHostBindings): Record<string, LuaClass> {
-  const { runtime, scenario, applyUi, output, audio } = host;
+  const { runtime, scenario, applyUi, output, audio, directives } = host;
 
   return {
     GameOutput: new LuaClass({ name: "GameOutput" })
@@ -80,6 +92,23 @@ export function createHostNamespaces(host: LuaHostBindings): Record<string, LuaC
       .method("definition", (id: unknown) => {
         const definition = scenario.npcs?.[String(id)];
         return definition === undefined ? undefined : structuredClone(definition);
+      })
+      .readonly(),
+
+    // A wrapper, and the second thing here that is one: these trigger a host
+    // operation rather than reading data. `start` is the same call a `talk:`
+    // directive makes, so a conversation opened from a timer or a canvas callback
+    // is indistinguishable from one an action opened.
+    //
+    // `finish` rather than `end`, because `end` is a Lua keyword: `GameConversations.end()`
+    // is a syntax error, while `GameNPCs["end"]` is not — so the name could pass
+    // every host-side check and only fail once an author wrote the obvious call.
+    GameConversations: new LuaClass({ name: "GameConversations" })
+      .method("start", (id: unknown) => {
+        startConversation(String(id), directives);
+      })
+      .method("finish", () => {
+        endConversation(runtime);
       })
       .readonly(),
 

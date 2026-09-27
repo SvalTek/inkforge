@@ -99,6 +99,7 @@ appears further down the file.
 | `GameState` | Reading and writing state |
 | `GameItems` | Reading item instances and authored definition data |
 | `GameNPCs` | Reading NPC instances and authored NPC data |
+| `GameConversations` | Starting and ending a conversation |
 | `GameUI` | Creating and changing UI elements |
 | `GameTools` | The tool rail |
 | `GameAudio` | Sound |
@@ -166,6 +167,28 @@ the same `npc.<instance-id>.<path>` key that `npcVar` and `npcSet` use. See [NPC
 Definitions include the standard `name`, `description`, `aliases`, and `actions` fields plus any custom YAML fields the
 author added. Returned definitions are detached copies: Lua can reshape a local result, but doing so does not modify the
 composed scenario or a later lookup. Use `GameState` or `itemSet` for data that should change during play.
+
+### `GameConversations`
+
+```lua
+GameConversations.start("keeper_greeting")
+GameConversations.finish()
+```
+
+`start(conversationId)` enters a conversation at its `start` node and offers its options. It is the same call a `talk:`
+directive makes, so a conversation opened from a timer, a canvas callback or a `call:` handler is indistinguishable from
+one an action opened. An unknown id reports `Unknown conversation: <id>` and ends any conversation already running, rather
+than leaving the player inside one they cannot see.
+
+`finish()` ends the conversation the player is in, if any. It is safe to call when none is, so a script does not have to
+check first — which is what you want in a timer or an event handler that might fire after the player has walked away. It
+is not called `end()` because `end` is a Lua keyword: `GameConversations.end()` is a syntax error, and only the obvious
+call an author would write would ever find that out.
+
+Once started, a conversation is *in progress*: it owns the choice list and the command box until it ends, exactly as if a
+`talk:` had started it. See [Conversations](conversations.md), and
+[presence-driven](conversations.md#presence-driven-discoverable) for the `discoverable` opt-in that offers one without
+any code at all.
 
 ### `GameUI`
 

@@ -91,9 +91,9 @@ Starting a conversation while another is running **replaces** it. `talk:` is a c
 which is how a branching IF moves between scenes; there is no stack, so you cannot
 return to the conversation you left by talking again.
 
-From Lua, a conversation is started by emitting a directive or by calling a handler
-that does — see [Lua](lua.md). There is no separate conversation namespace yet; the
-seam is designed so adding one is additive rather than a change to this.
+From Lua, `GameConversations.start(id)` enters a conversation and `GameConversations.finish()` leaves the one you are in
+— see [Lua](lua.md#gameconversations). Both are the same calls `talk:` makes, so a conversation opened from a timer or
+a canvas callback behaves exactly like one an action opened.
 
 ## Presence-driven: `discoverable`
 
@@ -265,9 +265,6 @@ If you want a portrait or a panel, you have everything you need:
 
 ## What is not here yet
 
-- **Starting one from a Lua namespace.** A `call:` handler that runs `talk:` works
-  today; a `GameConversations.start()` does not exist yet. The engine is built so that
-  adding one threads a single type rather than reshaping anything.
 - **Nesting.** A `talk:` cuts; it does not push. There is no "return to the previous
   conversation".
 - **A typed `talk <npc>` command.** `discoverable` covers the obvious case and an

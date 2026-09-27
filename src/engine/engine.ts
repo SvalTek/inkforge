@@ -9,19 +9,11 @@ import type {
 } from "../types/index.ts";
 import { check as checkCondition } from "./conditions.ts";
 import { chooseOption, conversationOptions, discoverableTalks, startConversation } from "./conversation.ts";
-import type { DirectiveDeps } from "./directives.ts";
-import { execute as executeDirectives, itemName, move as moveTo } from "./directives.ts";
+import { createDirectiveDeps, execute as executeDirectives, itemName, move as moveTo } from "./directives.ts";
 import { clearTranscript } from "./events.ts";
 
 export function createEngine(deps: EngineDeps): EngineApi {
-  const dirDeps: DirectiveDeps = {
-    runtime: deps.runtime,
-    getScenario: deps.getScenario,
-    output: deps.output,
-    applyUi: deps.applyUi,
-    invokeLua: deps.invokeLua,
-    emitEvent: deps.emitEvent,
-  };
+  const dirDeps = createDirectiveDeps(deps);
 
   function check(c: Condition | undefined, context?: ExecutionContext): boolean {
     return checkCondition(c, deps.runtime, context);

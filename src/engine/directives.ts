@@ -2,6 +2,7 @@ import type {
   ApplyUiFn,
   Directive,
   DirectiveList,
+  EngineDeps,
   EngineRuntime,
   ExecutionContext,
   IncDecSpec,
@@ -43,6 +44,24 @@ export interface DirectiveDeps {
    * in `execute` keeps its ordering guarantee if that ever stops being true.
    */
   emitEvent(name: string, data: Record<string, unknown>, context?: ExecutionContext): void | Promise<void>;
+}
+
+/**
+ * The directive-facing subset of the engine's dependencies.
+ *
+ * Exported so one object can be built and then handed to everything that needs to run
+ * authored directives — the engine, a contextual feature module, a host binding for
+ * Lua — rather than each rebuilding the mapping and risking the copies drifting.
+ */
+export function createDirectiveDeps(deps: EngineDeps): DirectiveDeps {
+  return {
+    runtime: deps.runtime,
+    getScenario: deps.getScenario,
+    output: deps.output,
+    applyUi: deps.applyUi,
+    invokeLua: deps.invokeLua,
+    emitEvent: deps.emitEvent,
+  };
 }
 
 export function lines(value: DirectiveList | undefined): Directive[] {

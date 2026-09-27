@@ -2383,6 +2383,20 @@ ui:
         - { id: label, type: text, value: "Shut the gate" }
       events:
         activate: { type: instructions, then: [{ set: { gateOpen: false } }] }
+    - id: start_from_lua
+      type: button
+      location: output
+      fields:
+        - { id: label, type: text, value: "Start from Lua" }
+      events:
+        activate: { callback: "start_from_lua" }
+    - id: finish_from_lua
+      type: button
+      location: output
+      fields:
+        - { id: label, type: text, value: "Finish from Lua" }
+      events:
+        activate: { callback: "finish_from_lua" }
 conversations:
   ambient_talk:
     discoverable: true
@@ -2455,6 +2469,14 @@ function keeper.named(params, context)
     GameOutput.add("[talking: " .. context.conversation.id .. "/" .. context.conversation.nodeId .. "]")
   end
 end
+
+function start_from_lua()
+  GameConversations.start("ambient_talk")
+end
+
+function finish_from_lua()
+  GameConversations.finish()
+end
 `),
         },
       };
@@ -2481,6 +2503,27 @@ end
       // Walking away from it is a terminal node, so the room comes back.
       await page.locator("#heroChoices button", { hasText: "Nod." }).click();
       await waitForText(page, "#choices", "Greet the keeper");
+
+      // The same conversation started from Lua through a UI callback. Proves the
+      // namespace reaches the same state machine a `talk:` does rather than a
+      // parallel one that could drift from it.
+      await page.locator('[data-ui="start_from_lua"]').click();
+      await waitForText(page, "#terminal", "Ambient line.");
+      assert(
+        !(await page.locator("#heroCommand").isVisible()),
+        "a conversation started from Lua did not take the command boxes",
+      );
+      // And finished from Lua mid-exchange, which is the case a script needs and no
+      // `talk:` can express: the player is mid-conversation and something else
+      // decides they are not any more. The method is `finish` rather than `end`
+      // because `end` is a Lua keyword and `GameConversations.end()` would not
+      // parse — so calling it here is also the check that the name is usable.
+      await page.locator('[data-ui="finish_from_lua"]').click();
+      await waitForText(page, "#choices", "Greet the keeper");
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "GameConversations.finish() did not hand the player back to the room",
+      );
 
       await page.locator("#heroChoices button", { hasText: "Greet the keeper" }).click();
       await waitForText(page, "#terminal", "The Keeper: You came down.");
@@ -2564,7 +2607,8 @@ end
         "the transcript; a talk: inside an option's then beat that option's own next; npcSet raised trust and " +
         "opened a gated line; a node with no options ended the exchange and restored the room; a gate closing " +
         "mid-exchange also ended it; a discoverable conversation was offered from the NPC's presence alone, once, " +
-        "labelled from its name; bad start/next/talk/speaker/participant/keys and duplicate option ids were " +
+        "labelled from its name; GameConversations.start and .finish drove that same machine from Lua; bad " +
+        "start/next/talk/speaker/participant/keys and duplicate option ids were " +
         "rejected at load; a list authored as a mapping was reported rather than thrown on; two ungated " +
         "discoverable conversations for one NPC were rejected while gated ones were allowed; and NPC defaults are " +
         "cloned per instance";
