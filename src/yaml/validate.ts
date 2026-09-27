@@ -20,6 +20,7 @@ export const CONDITION_KEYS = [
 
 const CONDITION_KEY_SET = new Set<string>(CONDITION_KEYS);
 const DIRECTIVE_KEY_SET = new Set<string>(DIRECTIVE_KEYS);
+const ITEM_ACTION_KEY_SET = new Set(["id", "label", "if", "then"]);
 
 /** One problem found in the composed scenario, with the path to it. */
 export interface ValidationIssue {
@@ -103,6 +104,27 @@ function checkDirectives(
   });
 }
 
+function checkItemAction(action: unknown, path: string, issues: ValidationIssue[]): void {
+  if (!action || typeof action !== "object" || Array.isArray(action)) {
+    issues.push({ path, message: "item action must be an object" });
+    return;
+  }
+  const value = action as Record<string, unknown>;
+  for (const key of Object.keys(value)) {
+    if (!ITEM_ACTION_KEY_SET.has(key)) {
+      issues.push({ path: `${path}.${key}`, message: `unknown item action key '${key}'` });
+    }
+  }
+  if (typeof value.id !== "string" || !value.id.trim()) {
+    issues.push({ path: `${path}.id`, message: "item action id must be a non-empty string" });
+  }
+  if (value.label !== undefined && typeof value.label !== "string") {
+    issues.push({ path: `${path}.label`, message: "item action label must be a string" });
+  }
+  checkCondition(value.if as Condition | undefined, `${path}.if`, issues, true);
+  checkDirectives(value.then as DirectiveList | undefined, `${path}.then`, issues, true);
+}
+
 /**
  * Check a composed scenario for the mistakes that would otherwise fail silently.
  *
@@ -129,11 +151,13 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
   }
 
   for (const [id, definition] of Object.entries(scenario.definitions?.item || {})) {
-    (definition.actions || []).forEach((action, index) => {
-      const path = `definitions.item.${id}.actions.${index}`;
-      checkCondition(action.if, `${path}.if`, issues, true);
-      checkDirectives(action.then, `${path}.then`, issues, true);
-    });
+    if (definition.actions !== undefined && !Array.isArray(definition.actions)) {
+      issues.push({ path: `definitions.item.${id}.actions`, message: "item actions must be a list" });
+      continue;
+    }
+    (definition.actions || []).forEach((action, index) =>
+      checkItemAction(action, `definitions.item.${id}.actions.${index}`, issues)
+    );
   }
 
   (scenario.ui?.elements || []).forEach((element, index) => {

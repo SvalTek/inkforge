@@ -1639,6 +1639,23 @@ end
         invalidContextIssues.some((issue) => issue.message.includes("'itemSet' requires")),
         "itemSet outside an inventory action passed validation",
       );
+      const invalidActionIssues = validateScenario({
+        definitions: {
+          item: {
+            lantern: {
+              actions: [{ label: "Broken", thne: [{ text: "Never runs" }] } as never],
+            },
+          },
+        },
+      });
+      assert(
+        invalidActionIssues.some((issue) => issue.message === "unknown item action key 'thne'"),
+        "misspelled item action key passed validation",
+      );
+      assert(
+        invalidActionIssues.some((issue) => issue.message === "item action id must be a non-empty string"),
+        "missing item action id passed validation",
+      );
       const pack: PackShape = {
         manifest: {
           format: "inkforge-pack",
@@ -1770,7 +1787,7 @@ end)
       );
       await page.locator("#closeInventory").click();
       return "two instances shared definition actions while itemVar/itemSet kept independent lit state, call/emit " +
-        "received distinct item ids plus definition/action ids, and invalid context use failed validation";
+        "received distinct item ids plus definition/action ids, and malformed actions or context use failed validation";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {
