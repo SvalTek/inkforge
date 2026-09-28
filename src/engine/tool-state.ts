@@ -33,13 +33,12 @@ export function normalizeTool(value: unknown): ToolDefinition {
     ...(candidate.action === undefined ? {} : { action: candidate.action }),
     // Picked explicitly like every other field, and that is the point: this function
     // silently drops anything it does not name, so an `allowInConversation` that was
-    // not carried here would leave tools permanently in the rail during a conversation
-    // and nothing would say why. Only a real `false` withdraws, matching the render's
-    // own reading; authored YAML is checked for a proper boolean in `validateScenario`,
-    // and a tool registered from Lua reaches here with whatever the script passed.
-    ...(candidate.allowInConversation === undefined
-      ? {}
-      : { allowInConversation: candidate.allowInConversation !== false }),
+    // not carried here would make Lua-registered tools disagree with authored ones.
+    // Conversation visibility is an explicit permission: only a real `true` survives
+    // the Lua boundary. Authored YAML is checked for a proper boolean in
+    // `validateScenario`; an arbitrary Lua value must not accidentally keep a surface
+    // visible in an exchange.
+    ...(candidate.allowInConversation === true ? { allowInConversation: true } : {}),
   };
 }
 

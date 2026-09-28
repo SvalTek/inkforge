@@ -54,21 +54,16 @@ export interface UiElement {
   /**
    * Whether this element stays on screen while a conversation is running.
    *
-   * Defaults to true, so an existing project changes nothing and no element has to opt
-   * in. Set it to `false` to withdraw an element for the duration of an exchange.
+   * Defaults to false: an exchange owns the player's attention, so an element must opt
+   * in with `true` to stay available during it.
    *
-   * There is deliberately no engine-side guess about which elements *ought* to be
-   * withdrawn. An earlier attempt inferred it from the activation type — hide the ones
-   * that dispatch a command, since those are the ones `dispatch` refuses — and that
-   * answered a different question than the author's. A `callback` button is perfectly
-   * live mid-conversation and can be exactly what should not be there; so can a meter
-   * or a sidebar control. Only the author knows which is which, and the same reasoning
-   * does not extend to elements no engine rule was written for.
+   * There is deliberately no engine-side guess from location or activation type. A
+   * `callback` button is perfectly live mid-conversation and may be the control an
+   * author deliberately permits; so can a meter or a sidebar control.
    *
    * The element is dropped from the render, not hidden, so an `if` condition on it
    * still decides it on every other turn. An author who wants one back for a specific
-   * conversation can `GameUI.show` it from that conversation's directives, which is
-   * why the key does not have to be more expressive than a boolean.
+   * conversation can `GameUI.show` it from that conversation's directives.
    */
   allowInConversation?: boolean;
 }

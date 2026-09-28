@@ -39,7 +39,7 @@ export interface ItemAction {
   then?: DirectiveList;
   /**
    * Whether the action is offered in the inventory inspector while a conversation is
-   * running. Defaults to true; `false` withdraws it for the duration. Display only —
+   * running. Defaults to false; set true to permit it for the duration. Display only —
    * Lua can still run it. See {@link shownDuringConversation}.
    */
   allowInConversation?: boolean;

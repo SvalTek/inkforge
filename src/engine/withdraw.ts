@@ -3,7 +3,7 @@ import { itemActionId, setItemActionHidden } from "./item-action-state.ts";
 import { setToolHidden } from "./tool-state.ts";
 
 /**
- * Withholding the surfaces an author marked `allowInConversation: false`.
+ * Withholding the surfaces an author did not mark `allowInConversation: true`.
  *
  * A conversation hides them when it starts and shows them again when it ends, through
  * each surface's own hidden state. That is the whole design, and it is worth being
@@ -43,26 +43,29 @@ const itemActionKey = (id: string): string => `itemaction:${id}`;
  * author had deliberately withdrawn for an unrelated reason.
  */
 export function withdrawExcludedSurfaces(runtime: EngineRuntime, scenario: Scenario | null): void {
-  if (!scenario) return;
   const taken = new Set<string>();
 
-  for (const element of scenario.ui?.elements || []) {
-    if (element?.allowInConversation !== false) continue;
+  // This is the live list rather than `scenario.ui.elements`: it starts with authored
+  // UI, but `GameUI.create` and the `ui: { create: ... }` directive append here too.
+  // A conversation's rule applies to the surface the player can actually see, not only
+  // to the subset that happened to come from YAML at boot.
+  for (const element of runtime.ui.elements) {
+    if (element?.allowInConversation === true) continue;
     if (runtime.ui.hidden.has(element.id)) continue;
     runtime.ui.hidden.add(element.id);
     taken.add(element.id);
   }
 
   for (const [id, entry] of runtime.tools.entries) {
-    if (entry.definition.allowInConversation !== false) continue;
+    if (entry.definition.allowInConversation === true) continue;
     if (entry.hidden) continue;
     setToolHidden(runtime.tools, id, true);
     taken.add(toolKey(id));
   }
 
-  for (const [definitionId, definition] of Object.entries(scenario.definitions?.item || {})) {
+  for (const [definitionId, definition] of Object.entries(scenario?.definitions?.item || {})) {
     for (const action of definition?.actions || []) {
-      if (action?.allowInConversation !== false) continue;
+      if (action?.allowInConversation === true) continue;
       const key = itemActionKey(itemActionId(definitionId, action.id));
       if (runtime.items.hidden.has(itemActionId(definitionId, action.id))) continue;
       setItemActionHidden(runtime.items, itemActionId(definitionId, action.id), true);

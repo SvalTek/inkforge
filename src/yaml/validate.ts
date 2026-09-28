@@ -193,10 +193,10 @@ function checkDirectives(
 /**
  * `allowInConversation` must be a boolean where it is present.
  *
- * Checked because the render reads it as `!== false`, so anything else — a quoted
- * `"false"`, a number, a typo'd key that happens to land as a string — would quietly
- * mean the opposite of what was written. The failure is invisible in the sense that
- * matters: the element stays on screen and nothing says why.
+ * Checked because the conversation reads it as `=== true`, so anything else — a quoted
+ * `"true"`, a number, a typo'd key that happens to land as a string — would quietly
+ * withdraw a surface the author intended to keep. The failure is invisible in the
+ * sense that matters: the element is absent and nothing says why.
  */
 function checkAllowInConversation(value: unknown, path: string, issues: ValidationIssue[]): void {
   if (value !== undefined && typeof value !== "boolean") {

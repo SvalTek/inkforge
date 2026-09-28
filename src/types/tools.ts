@@ -12,7 +12,7 @@ export interface ToolDefinition {
   action?: string;
   /**
    * Whether the tool stays in the rail while a conversation is running. Defaults to
-   * true; `false` withdraws it for the duration. Display only — Lua can still run it.
+   * false; set true to permit it for the duration. Display only — Lua can still run it.
    * See {@link shownDuringConversation}.
    */
   allowInConversation?: boolean;

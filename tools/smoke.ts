@@ -2611,6 +2611,7 @@ ui:
     - id: open_pack
       type: button
       location: sidebar
+      allowInConversation: true
       fields:
         - { id: label, type: text, value: Inventory }
       events:
@@ -2618,7 +2619,6 @@ ui:
     - id: look_around_again
       type: button
       location: output
-      allowInConversation: false
       fields:
         - { id: label, type: text, value: "Look around again" }
       events:
@@ -2640,6 +2640,7 @@ ui:
     - id: finish_from_lua
       type: button
       location: output
+      allowInConversation: true
       fields:
         - { id: label, type: text, value: "Finish from Lua" }
       events:
@@ -2647,6 +2648,7 @@ ui:
     - id: show_notebook
       type: button
       location: output
+      allowInConversation: true
       fields:
         - { id: label, type: text, value: "Fetch the notebook" }
       events:
@@ -2654,6 +2656,7 @@ ui:
     - id: show_rifle
       type: button
       location: output
+      allowInConversation: true
       fields:
         - { id: label, type: text, value: "Feel for the false bottom" }
       events:
@@ -2743,23 +2746,41 @@ definitions:
       actions:
         - id: rifle
           label: "Check the false bottom"
-          allowInConversation: false
           then:
             - "Something heavy, wrapped in oilcloth."
         - id: tally
           label: "Count the nails"
+          allowInConversation: true
           then:
             - "Eleven. You were sure it was twelve."
 tools:
   - id: notebook
     label: Notebook
-    allowInConversation: false
     action: open_notebook
   - id: compass
     label: Compass
+    allowInConversation: true
     action: open_compass
 `),
           "scripts/main.lua": new TextEncoder().encode(`keeper = {}
+
+-- These are created through the same runtime list as a ui create directive.
+-- directive. The conversation rule must therefore see them too, rather than scanning
+-- only the authored YAML list that seeded the runtime.
+GameUI.create({
+  id = "lua_withdrawn",
+  type = "button",
+  location = "output",
+  fields = {{ id = "label", type = "text", value = "Lua withdrawn" }}
+})
+
+GameUI.create({
+  id = "lua_allowed",
+  type = "button",
+  location = "output",
+  allowInConversation = true,
+  fields = {{ id = "label", type = "text", value = "Lua allowed" }}
+})
 
 function keeper.named(params, context)
   local trust = GameState.get("npc.hall_keeper.trust") or 0
@@ -2880,32 +2901,36 @@ end
         !(await page.locator("#commandForm").isVisible()),
         "the author run panel's command box stayed visible during a conversation",
       );
-      // `allowInConversation: false` withdraws a surface for the duration. It is the
-      // author's call, not a guess from the activation type: an earlier attempt inferred
-      // "hide the ones that dispatch a command", which is a different question, and that
-      // kept a perfectly live `callback` button on screen that had no business there.
-      // The three surfaces a player can click are each checked below, because getting
-      // only one of them right is how the last attempt shipped.
+      // A conversation withdraws a surface unless its author explicitly permits it.
+      // The three player-facing surfaces are each checked below, because getting only
+      // one of them right is how the previous attempt shipped.
       assert(
         (await page.locator('#uiOutput [data-ui="look_around_again"]').count()) === 0,
-        "a UI element marked allowInConversation: false stayed on screen during a conversation",
+        "a UI element with no allowInConversation permission stayed on screen during a conversation",
       );
-      // Absent means shown, so nothing opts in and an existing project is unaffected.
       // `finish_from_lua` is the load-bearing case: it is how a conversation gets ended
-      // from outside it, and an author must not have to special-case their way to it.
+      // from outside it, so it deliberately opts into the exchange.
       assert(
         (await page.locator('#uiOutput [data-ui="finish_from_lua"]').count()) === 1,
-        "a UI element with no allowInConversation key was hidden during a conversation",
+        "a UI element explicitly allowed in a conversation was hidden",
+      );
+      assert(
+        (await page.locator('#uiOutput [data-ui="lua_withdrawn"]').count()) === 0,
+        "a Lua-created UI element with no conversation permission stayed on screen",
+      );
+      assert(
+        (await page.locator('#uiOutput [data-ui="lua_allowed"]').count()) === 1,
+        "a Lua-created UI element explicitly allowed in a conversation was hidden",
       );
       // A tool, which is a separate surface with its own rail and was not covered at all
       // by the first attempt.
       assert(
         (await page.locator('#toolRail [data-tool="notebook"]').count()) === 0,
-        "a tool marked allowInConversation: false stayed in the rail during a conversation",
+        "a tool with no conversation permission stayed in the rail during a conversation",
       );
       assert(
         (await page.locator('#toolRail [data-tool="compass"]').count()) === 1,
-        "a tool with no allowInConversation key was hidden during a conversation",
+        "a tool explicitly allowed in a conversation was hidden",
       );
       // The point of hiding through each surface's own state rather than through a render
       // filter: the rest of the engine can see it and undo it. `GameTools.show` clears the
@@ -2924,11 +2949,11 @@ end
       await page.locator('[data-slot="0"]').click();
       assert(
         (await page.locator('[data-item-action="rifle"]').count()) === 0,
-        "an item action marked allowInConversation: false was still offered during a conversation",
+        "an item action with no conversation permission was still offered during a conversation",
       );
       assert(
         (await page.locator('[data-item-action="tally"]').count()) === 1,
-        "an item action with no allowInConversation key was hidden during a conversation",
+        "an item action explicitly allowed in a conversation was hidden",
       );
       // The same override for the third surface, through the class added for it. The
       // trigger has to be clicked with the overlay closed — it lives in the output strip

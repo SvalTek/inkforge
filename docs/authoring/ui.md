@@ -115,15 +115,15 @@ same dispatcher the command line uses.
 
 ## `allowInConversation`
 
-Whether this element stays on screen while a [conversation](conversations.md) is running. Defaults to `true`, so an
-existing project changes nothing. Set it to `false` to withdraw the element for the duration:
+Whether this element stays on screen while a [conversation](conversations.md) is running. It defaults to `false`: a
+conversation owns the player's attention, so set it to `true` only when the exchange deliberately needs the element:
 
 ```yaml
 elements:
   - id: examine_entry
     type: button
     location: output
-    allowInConversation: false
+    allowInConversation: true
     fields:
       - { id: label, type: text, value: Examine the threshold }
     events:
@@ -133,10 +133,9 @@ elements:
 The same key works on [tools](tools.md#allowinconversation) and on
 [item actions](scenario.md#item-actions).
 
-**The engine does not guess.** There is no rule that infers which elements ought to be withdrawn — not from the region,
-not from the activation type. A `callback` button is perfectly live mid-conversation and can be exactly what should not
-be there; so can a meter. Only you know which is which, and the engine cannot tell a look-around button from one that
-hands somebody a potion.
+**The engine does not guess.** There is no rule that grants permission from the region or activation type. A `callback`
+button is perfectly live mid-conversation and can be exactly what should be there; so can a meter. Only you know which
+is which, so an element without this key steps aside.
 
 **It is the ordinary hide state.** A conversation sets it the same way `GameUI.hide` would, which is the whole point:
 `GameUI.show`, `GameTools.show` and `GameItemActions.show` address the same state, so a script can bring a surface back
@@ -146,8 +145,8 @@ for one exchange if it needs to, and a save records it. Nothing here is a second
 a `call:` or a directive. What changes is what the player is offered. A timer that needs to hand the player a lamp
 should not have to care whether somebody is mid-sentence.
 
-If you withdraw something the player needs in order to finish the conversation, that is a soft-lock in your own
-scenario — the conversation's own options are the only way out, and nothing else is on offer.
+If the player needs something outside the conversation's own options to finish it, mark that control
+`allowInConversation: true`; otherwise the scenario is soft-locked.
 
 ## Modals
 

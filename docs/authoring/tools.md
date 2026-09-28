@@ -91,14 +91,14 @@ so a tool hidden during play comes back.
 
 ## `allowInConversation`
 
-Whether this tool stays in the rail while a [conversation](conversations.md) is running. Defaults to `true`; set it to
-`false` to withdraw the tool for the duration:
+Whether this tool stays in the rail while a [conversation](conversations.md) is running. It defaults to `false`; set it
+to `true` only when the exchange deliberately needs the tool:
 
 ```yaml
 tools:
   - id: notebook
     label: Notebook
-    allowInConversation: false
+    allowInConversation: true
     action: open_notebook
 ```
 
@@ -111,7 +111,7 @@ GameTools.show("notebook")   -- and it stays gone once the conversation ends
 
 `disable` is the other half: it leaves the tool visible and unclickable, where `allowInConversation` takes it out of the
 rail entirely. See [ui.md](ui.md#allowinconversation) for the full rule — it is the same key on all three player-facing
-surfaces, and the engine does not guess which ones ought to be withdrawn.
+surfaces, and only an explicit `true` permits one during an exchange.
 
 ## Ordering
 
