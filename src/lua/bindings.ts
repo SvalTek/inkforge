@@ -1,10 +1,10 @@
 import { LuaClass } from "WebLuaBridge";
-import type { ApplyUiFn, EngineRuntime, OutputFn } from "../types/engine.ts";
+import type { ApplyUiFn, AvailableInventoryAction, EngineRuntime, OutputFn } from "../types/engine.ts";
 import type { AudioManagerLike } from "../types/audio.ts";
 import type { UiCommand } from "../types/ui.ts";
 import type { Scenario } from "../types/scenario.ts";
 import { registerTool, removeTool, setToolDisabled, setToolHidden } from "../engine/tool-state.ts";
-import { setState } from "../engine/state.ts";
+import { addItem, removeItem, setState } from "../engine/state.ts";
 import { markViewDirty } from "../engine/events.ts";
 
 /** Host capabilities the Lua-facing namespaces are built from. */
@@ -14,6 +14,8 @@ export interface LuaHostBindings {
   applyUi: ApplyUiFn;
   output: OutputFn;
   audio: AudioManagerLike;
+  inventoryActions: (itemId: string) => AvailableInventoryAction[];
+  triggerInventoryAction: (itemId: string, actionId: string) => void;
 }
 
 /**
@@ -29,7 +31,15 @@ export interface LuaHostBindings {
  * closures, so it stays Lua (see `facades/canvas.ts`).
  */
 export function createHostNamespaces(host: LuaHostBindings): Record<string, LuaClass> {
-  const { runtime, scenario, applyUi, output, audio } = host;
+  const { runtime, scenario, applyUi, output, audio, inventoryActions, triggerInventoryAction } = host;
+
+  function itemRecord(id: string): { id: string; def: string; definition: unknown } | undefined {
+    const instance = scenario.instances?.item?.[id];
+    const definitionId = instance?.def;
+    const definition = definitionId === undefined ? undefined : scenario.definitions?.item?.[definitionId];
+    if (definitionId === undefined || definition === undefined) return undefined;
+    return { id, def: definitionId, definition: structuredClone(definition) };
+  }
 
   return {
     GameOutput: new LuaClass({ name: "GameOutput" })
@@ -42,22 +52,40 @@ export function createHostNamespaces(host: LuaHostBindings): Record<string, LuaC
       .readonly(),
 
     GameItems: new LuaClass({ name: "GameItems" })
-      .method("get", (id: unknown) => {
-        const itemId = String(id);
-        const instance = scenario.instances?.item?.[itemId];
-        const definitionId = instance?.def;
-        const definition = definitionId === undefined ? undefined : scenario.definitions?.item?.[definitionId];
-        if (definitionId === undefined || definition === undefined) return undefined;
-        return {
-          id: itemId,
-          def: definitionId,
-          definition: structuredClone(definition),
-        };
-      })
+      .method("get", (id: unknown) => itemRecord(String(id)))
       .method("definition", (id: unknown) => {
         const definition = scenario.definitions?.item?.[String(id)];
         return definition === undefined ? undefined : structuredClone(definition);
       })
+      .readonly(),
+
+    GameInventory: new LuaClass({ name: "GameInventory" })
+      .method("list", () => [...runtime.inventory])
+      .method("count", () => runtime.inventory.length)
+      .method("has", (id: unknown) => runtime.inventory.includes(String(id)))
+      .method("get", (id: unknown) => {
+        const itemId = String(id);
+        return runtime.inventory.includes(itemId) ? itemRecord(itemId) : undefined;
+      })
+      .method("give", (id: unknown) => {
+        const itemId = String(id);
+        if (!itemRecord(itemId) || runtime.inventory.includes(itemId)) return false;
+        addItem(runtime, itemId);
+        return true;
+      })
+      .method("remove", (id: unknown) => {
+        const itemId = String(id);
+        if (!runtime.inventory.includes(itemId)) return false;
+        removeItem(runtime, itemId);
+        return true;
+      })
+      .method("actions", (id: unknown) => structuredClone(inventoryActions(String(id))))
+      .method("use", (id: unknown, actionId: unknown) => triggerInventoryAction(String(id), String(actionId)))
+      .method("getState", (id: unknown, path: unknown) => runtime.state[`item.${String(id)}.${String(path)}`])
+      .method(
+        "setState",
+        (id: unknown, path: unknown, value: unknown) => setState(runtime, `item.${String(id)}.${String(path)}`, value),
+      )
       .readonly(),
 
     GameUI: new LuaClass({ name: "GameUI" })

@@ -345,6 +345,8 @@ export function createApp(): AppContext {
         output,
         onError: reportProblem,
         audio: app.audio,
+        inventoryActions: (itemId) => engine.inventoryActions(itemId),
+        triggerInventoryAction: (itemId, actionId) => engine.triggerInventoryAction(itemId, actionId),
       });
       await engine.move(runtime.location);
       // A newer boot has already replaced everything this one built; announcing

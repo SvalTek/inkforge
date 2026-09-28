@@ -1,11 +1,13 @@
 import type {
   AvailableAction,
+  AvailableInventoryAction,
   Condition,
   DirectiveList,
   EngineApi,
   EngineDeps,
   ExecutionContext,
   ExitValue,
+  ItemAction,
 } from "../types/index.ts";
 import { check as checkCondition } from "./conditions.ts";
 import type { DirectiveDeps } from "./directives.ts";
@@ -21,6 +23,9 @@ export function createEngine(deps: EngineDeps): EngineApi {
     invokeLua: deps.invokeLua,
     emitEvent: deps.emitEvent,
   };
+  let inventoryActionRunning = false;
+  const scheduledInventoryActions: { itemId: string; actionId: string }[] = [];
+  let inventoryActionDrainScheduled = false;
 
   function check(c: Condition | undefined, context?: ExecutionContext): boolean {
     return checkCondition(c, deps.runtime, context);
@@ -52,6 +57,70 @@ export function createEngine(deps: EngineDeps): EngineApi {
       }
     }
     return out;
+  }
+
+  function resolveInventoryAction(
+    itemId: string,
+    actionId: string,
+  ): { action: ItemAction; context: ExecutionContext } | null {
+    if (deps.runtime.over || !deps.runtime.inventory.includes(itemId)) return null;
+    const scenario = deps.getScenario();
+    const definitionId = scenario?.instances?.item?.[itemId]?.def;
+    const definition = definitionId === undefined ? undefined : scenario?.definitions?.item?.[definitionId];
+    const action = definition?.actions?.find((candidate) => candidate.id === actionId);
+    if (definitionId === undefined || !definition || !action) return null;
+    const context = { item: { id: itemId, definitionId, actionId } };
+    return check(action.if, context) ? { action, context } : null;
+  }
+
+  function inventoryActions(itemId: string): AvailableInventoryAction[] {
+    if (deps.runtime.over || !deps.runtime.inventory.includes(itemId)) return [];
+    const scenario = deps.getScenario();
+    const definitionId = scenario?.instances?.item?.[itemId]?.def;
+    const definition = definitionId === undefined ? undefined : scenario?.definitions?.item?.[definitionId];
+    if (definitionId === undefined || !definition) return [];
+    return (definition.actions || [])
+      .filter((action) => check(action.if, { item: { id: itemId, definitionId, actionId: action.id } }))
+      .map((action) => ({ id: action.id, label: action.label || action.id }));
+  }
+
+  async function runInventoryAction(itemId: string, actionId: string): Promise<boolean> {
+    if (inventoryActionRunning) return false;
+    const resolved = resolveInventoryAction(itemId, actionId);
+    if (!resolved) return false;
+    inventoryActionRunning = true;
+    try {
+      await execute(resolved.action.then, resolved.context);
+      return true;
+    } finally {
+      inventoryActionRunning = false;
+      deps.render();
+    }
+  }
+
+  function drainScheduledInventoryActions(): void {
+    setTimeout(() => {
+      void (async () => {
+        try {
+          while (scheduledInventoryActions.length) {
+            const next = scheduledInventoryActions.shift()!;
+            await runInventoryAction(next.itemId, next.actionId);
+          }
+        } finally {
+          inventoryActionDrainScheduled = false;
+          if (scheduledInventoryActions.length) drainScheduledInventoryActions();
+        }
+      })();
+    }, 0);
+  }
+
+  function triggerInventoryAction(itemId: string, actionId: string): void {
+    scheduledInventoryActions.push({ itemId, actionId });
+    if (inventoryActionDrainScheduled) return;
+    inventoryActionDrainScheduled = true;
+    // Lua host calls must unwind before an item action can reach a `call:`
+    // directive and enter the bridge again.
+    drainScheduledInventoryActions();
   }
 
   async function dispatch(raw: string): Promise<void> {
@@ -106,5 +175,5 @@ export function createEngine(deps: EngineDeps): EngineApi {
     }
   }
 
-  return { check, move, execute, available, dispatch };
+  return { check, move, execute, available, inventoryActions, runInventoryAction, triggerInventoryAction, dispatch };
 }
