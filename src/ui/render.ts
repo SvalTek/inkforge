@@ -9,7 +9,9 @@ import type {
   UiActivation,
 } from "../types/index.ts";
 import { itemName } from "../engine/directives.ts";
+import { settleConversation } from "../engine/conversation.ts";
 import { uiElement } from "../engine/ui-state.ts";
+import { itemActionId } from "../engine/item-action-state.ts";
 import { $all } from "../app/dom.ts";
 import { renderModals } from "./modals.ts";
 import { renderTools } from "./tools.ts";
@@ -21,6 +23,13 @@ type OutputEvent = Extract<EngineEvent, { type: "output" }>;
 const terminalFollowTail = new WeakMap<HTMLElement, boolean>();
 const selectedInventoryItem = new WeakMap<AppContext, string>();
 const pendingInventoryAction = new WeakSet<AppContext>();
+/**
+ * The conversation option currently being taken, if any.
+ *
+ * The same reason the inventory has one: an option's `then` may await a Lua call, and
+ * a second click landing inside that await would advance two nodes from one decision.
+ */
+const pendingConversationOption = new WeakSet<AppContext>();
 
 /** Track whether the player is following new output or reading older lines. */
 function shouldFollowTail(terminal: HTMLElement): boolean {
@@ -86,7 +95,15 @@ function elisionEntry(dropped: number): HTMLDivElement {
 function choiceButton(choice: AvailableAction): HTMLButtonElement {
   const button = document.createElement("button");
   button.className = "choice";
-  button.dataset.cmd = choice.cmd;
+  // A conversation option is identified by its option id, not by a command. The
+  // distinction is load-bearing: a `data-cmd` button would be dispatched, and
+  // dispatching clears the transcript, which is the exchange itself.
+  if (choice.conversation) button.dataset.conversationOption = choice.conversation.optionId;
+  // A discoverable offer is likewise not a command, for a different reason: dispatching
+  // clears the transcript, and what it would clear is the room description the offer
+  // was made from. The greeting arrives below the room rather than in place of it.
+  else if (choice.talk) button.dataset.talk = choice.talk.conversationId;
+  else button.dataset.cmd = choice.cmd;
   button.textContent = choice.text;
   return button;
 }
@@ -136,6 +153,12 @@ function meterRow(element: ResolvedUiElement): HTMLDivElement {
 export function render(app: AppContext): void {
   const { dom } = app;
   const runtime = app.runtime!;
+  // The player is in a conversation exactly while there is something to answer, and
+  // a timer or a control can close every gate mid-exchange. Settling here rather
+  // than on node entry is what makes that hold: this is the one place guaranteed to
+  // run after a mutation from *any* source, and it converges, because by the next
+  // repaint there is nothing left to settle.
+  settleConversation(runtime, app.scenario);
   const scenario = app.scenario;
   const loc = scenario?.locations?.[runtime.location] || {};
   const outputEvents = runtime.events.filter((e): e is OutputEvent => e.type === "output");
@@ -166,6 +189,23 @@ export function render(app: AppContext): void {
   $all<HTMLElement>("[data-cmd]").forEach((button) => {
     button.onclick = () => void app.engine?.dispatch(button.dataset.cmd ?? "");
   });
+  $all<HTMLElement>("[data-conversation-option]").forEach((button) => {
+    button.onclick = () => void app.runConversationOption(button.dataset.conversationOption ?? "");
+  });
+  $all<HTMLElement>("[data-talk]").forEach((button) => {
+    button.onclick = () => {
+      app.engine?.beginDiscoverableTalk(button.dataset.talk ?? "");
+      app.render();
+    };
+  });
+  // The command box goes away while a conversation runs: the exchange is a
+  // conversation, and typing `north` into the middle of one is not a thing a player
+  // means. The engine refuses those commands too, so this is what the player sees
+  // rather than a silent no-op. Only the boxes hide — the choices stay, and they are
+  // now the conversation's.
+  const talking = Boolean(runtime.conversation);
+  dom.heroCommand.classList.toggle("hidden", talking);
+  dom.commandForm.classList.toggle("hidden", talking);
 }
 
 /** Paint the 12 inventory slots and wire each to its inspector. */
@@ -222,7 +262,8 @@ export function inspectItem(app: AppContext, slot: number): void {
   const actions = app.runtime?.over
     ? []
     : (definition.actions || []).filter((action) =>
-      app.engine?.check(action.if, itemActionContext(id, definitionId, action.id)) ?? true
+      (app.engine?.check(action.if, itemActionContext(id, definitionId, action.id)) ?? true) &&
+      !app.runtime?.items.hidden.has(itemActionId(definitionId, action.id))
     );
   dom.itemActions.replaceChildren(...actions.map((action) => {
     const button = document.createElement("button");
@@ -258,6 +299,25 @@ async function runItemAction(
     app.flushView();
     const selectedSlot = app.runtime?.inventory.indexOf(itemId) ?? -1;
     inspectItem(app, selectedSlot);
+  }
+}
+
+/**
+ * Take a conversation option.
+ *
+ * Serialized against a second click for the whole invocation, and flushed once at
+ * the end rather than per step: a node change is one visible event even though it
+ * may have run a Lua call, emitted an event and written several values on the way.
+ */
+export async function runConversationOption(app: AppContext, optionId: string): Promise<void> {
+  if (!app.runtime || app.runtime.over || pendingConversationOption.has(app)) return;
+  pendingConversationOption.add(app);
+  $all<HTMLButtonElement>("[data-conversation-option]").forEach((button) => button.disabled = true);
+  try {
+    await app.engine?.chooseConversationOption(optionId);
+  } finally {
+    pendingConversationOption.delete(app);
+    app.flushView();
   }
 }
 

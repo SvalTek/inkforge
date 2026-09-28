@@ -4,7 +4,11 @@ import { DIST, TEMPLATES } from "./paths.ts";
 import { serveStatic } from "./server.ts";
 import { unzipSync, zipSync } from "fflate";
 import { join } from "node:path";
-import { readScenarioMeta, validateScenario } from "../src/yaml/compose.ts";
+import { collectReferencedLuaNames, readScenarioMeta, validateScenario } from "../src/yaml/compose.ts";
+import { endRun, npcInstanceDefaults, setLocation } from "../src/engine/state.ts";
+import { flushView, markViewDirty } from "../src/engine/events.ts";
+import { discoverableTalks } from "../src/engine/conversation.ts";
+import type { EngineRuntime } from "../src/types/index.ts";
 import type { EditorHarness } from "../src/editor/harness.ts";
 import type { Browser, BrowserContext, ConsoleMessage, Dialog, Page, Request } from "playwright-core";
 
@@ -273,6 +277,25 @@ async function clickChoice(page: Page, label: string): Promise<void> {
 
 async function choiceLabels(page: Page): Promise<string[]> {
   return await page.locator("#heroChoices .choice").allTextContents();
+}
+
+function engineRuntimeFixture(location: string): EngineRuntime {
+  return {
+    location,
+    state: {},
+    inventory: [],
+    events: [],
+    droppedEvents: 0,
+    over: false,
+    ui: { hidden: new Set(), overrides: {}, elements: [] },
+    modals: { open: null, activePages: {} },
+    items: { hidden: new Set() },
+    tools: { entries: new Map() },
+    conversation: null,
+    lua: null,
+    canvasEngine: null,
+    viewDirty: false,
+  } as EngineRuntime;
 }
 
 function asText(pack: PackShape, path: string): string {
@@ -1871,6 +1894,1201 @@ end)
       return "two instances shared definition actions while itemVar/itemSet kept independent state; GameItems " +
         "resolved arbitrary definition metadata as detached copies; Lua could not redirect retained action context; " +
         "pending actions serialized; malformed payloads failed validation; game over removed and guarded actions";
+    });
+
+    await runCheck("8b. An NPC is authored data; an instance places it; its values are state", async () => {
+      // The static half: every way an NPC can be authored wrong has to be loud.
+      const npcIssues = validateScenario({
+        npcs: {
+          keeper: { portrait: "keeper.webp", state: ["trust"] as never },
+          hollow: { name: 7 as never },
+        },
+        instances: { npc: { passage_keeper: { def: "keeper" }, stray: { def: "nobody" }, nameless: {} as never } },
+        locations: { passage: { npcs: ["passage_keeper", "ghost"] } },
+      });
+      assert(
+        npcIssues.some((issue) => issue.message.includes("npc portrait must be a project asset path")),
+        "an npc portrait outside assets/ passed validation",
+      );
+      assert(
+        npcIssues.some((issue) => issue.message === "npc state must be a mapping of value names to values"),
+        "a non-mapping npc state passed validation",
+      );
+      assert(
+        npcIssues.some((issue) => issue.message === "npc name must be a string"),
+        "a non-string npc name passed validation",
+      );
+      assert(
+        npcIssues.some((issue) => issue.message === "unknown npc definition 'nobody'"),
+        "an npc instance pointing at no definition passed validation",
+      );
+      assert(
+        npcIssues.some((issue) => issue.message === "npc instance must name a definition with 'def'"),
+        "an npc instance with no def passed validation",
+      );
+      assert(
+        npcIssues.some((issue) => issue.message === "unknown npc instance 'ghost'"),
+        "a location listing an undeclared npc instance passed validation",
+      );
+
+      // `npcVar` names its own instance, so it needs no context — but the instance
+      // has to exist, or the gate is silently never open.
+      const subjectIssues = validateScenario({
+        instances: { npc: { passage_keeper: { def: "keeper" } } },
+        locations: {
+          passage: {
+            actions: [
+              { id: "bad_subject", if: { npcVar: "tresh" } as never, then: [] },
+              { id: "unresolvable", if: { npcVar: "ghost.trust", gte: 3 }, then: [] },
+              { id: "valid", if: { npcVar: "passage_keeper.trust", gte: 3 }, then: [] },
+            ],
+          },
+        },
+      });
+      assert(
+        subjectIssues.some((issue) => issue.message.includes("npcVar must be '<npc-instance>.<value>'")),
+        "an npcVar with no path passed validation",
+      );
+      assert(
+        subjectIssues.some((issue) => issue.message === "npcVar names unknown NPC instance 'ghost'"),
+        "an npcVar naming an undeclared instance passed validation",
+      );
+      assert(
+        !subjectIssues.some((issue) => issue.path.includes("actions.2")),
+        "a valid npcVar was reported as a problem",
+      );
+
+      // A misspelled `npcSet` key would write nothing at runtime, so it is caught
+      // here rather than left to the directive's own error line.
+      const setIssues = validateScenario({
+        instances: { npc: { passage_keeper: { def: "keeper" } } },
+        locations: {
+          passage: {
+            actions: [
+              { id: "bad_key", then: { npcSet: { trust: 3 } } as never },
+              { id: "bad_subject", then: { npcSet: { "ghost.trust": 3 } } },
+              { id: "not_a_mapping", then: { npcSet: "trust" } as never },
+            ],
+          },
+        },
+      });
+      assert(
+        setIssues.some((issue) => issue.message === "key must be '<npc-instance>.<value>'"),
+        "an unqualified npcSet key passed validation",
+      );
+      assert(
+        setIssues.some((issue) => issue.message === "unknown NPC instance 'ghost'"),
+        "an npcSet key naming an undeclared instance passed validation",
+      );
+      assert(
+        setIssues.some((issue) => issue.message === "npcSet must be a mapping"),
+        "a non-mapping npcSet passed validation",
+      );
+
+      // `npcVar` and `npcSet` are siblings, not alternatives: combining them is
+      // the same mistake as combining `var` and `itemVar`.
+      const combinedIssues = validateScenario({
+        instances: { npc: { passage_keeper: { def: "keeper" } } },
+        locations: {
+          passage: { actions: [{ id: "two_subjects", if: { var: "a", npcVar: "passage_keeper.trust" }, then: [] }] },
+        },
+      });
+      assert(
+        combinedIssues.some((issue) => issue.message.includes("condition cannot combine")),
+        "a condition combining var and npcVar passed validation",
+      );
+
+      // A UI element's `if` is evaluated on every render, and `actions` is read as
+      // an alternative to `events`, so a validator that only walked top-level
+      // `events` would skip a condition it could have reported.
+      const uiIssues = validateScenario({
+        instances: { npc: { passage_keeper: { def: "keeper" } } },
+        ui: {
+          elements: [
+            { id: "ghosted", type: "button", location: "output", if: { npcVar: "ghost.trust", gte: 3 } },
+            {
+              id: "panel",
+              type: "panel",
+              elements: [
+                { id: "nested", type: "text", location: "output", if: { npcVar: "ghost.trust" } },
+              ],
+              actions: { activate: { then: { npcSet: { "ghost.trust": 1 } } } },
+            },
+          ],
+        },
+      });
+      assert(
+        uiIssues.some((issue) =>
+          issue.path === "ui.elements.0.if.npcVar" && issue.message.includes("unknown NPC instance 'ghost'")
+        ),
+        "a UI element's npcVar naming an undeclared instance passed validation",
+      );
+      assert(
+        uiIssues.some((issue) => issue.path === "ui.elements.1.elements.0.if.npcVar"),
+        "a nested UI element's condition was never validated",
+      );
+      assert(
+        uiIssues.some((issue) =>
+          issue.path === "ui.elements.1.actions.activate.then.0.npcSet.ghost.trust" &&
+          issue.message === "unknown NPC instance 'ghost'"
+        ),
+        "a UI element's actions: directive list was never validated",
+      );
+
+      // The instance id is the left side of `<instance>.<value>`; a dot in it would
+      // make the instance listable and seedable but unreachable by name.
+      const dottedIssues = validateScenario({
+        npcs: { keeper: {} },
+        instances: { npc: { "court.keeper": { def: "keeper" } } },
+      });
+      assert(
+        dottedIssues.some((issue) => issue.message.includes("must not contain '.'")),
+        "an npc instance id containing a dot passed validation",
+      );
+
+      // The live half, against a self-contained fixture. The Keeper's `state:`
+      // block seeds trust, so the gated action is closed until something raises
+      // it. A location action dispatches, so each turn replaces the terminal —
+      // the appending behaviour under test later belongs to conversations.
+      const pack: PackShape = {
+        manifest: {
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "npc-fixture", title: "NPC Fixture", version: "1.0.0" },
+          files: ["scenario.yaml", "scripts/main.lua"],
+        },
+        entries: {
+          "scenario.yaml": new TextEncoder().encode(`meta:
+  title: NPC Fixture
+startLocation: hall
+npcs:
+  keeper:
+    name: The Keeper
+    description: A stooped figure who tends the lamps.
+    # Shape is validated at load; whether the asset is present is the resolver's
+    # report, so a scenario can ship the key before uploading the file.
+    portrait: assets/portraits/keeper.svg
+    role: lampkeeper
+    lamps: 7
+    state:
+      trust: 2
+      lampsLit: 0
+instances:
+  npc:
+    passage_keeper:
+      def: keeper
+locations:
+  hall:
+    text: "A lamp burns low along the wall."
+    npcs: [passage_keeper]
+    actions:
+      - id: ask
+        label: Ask the keeper about the lamps
+        then:
+          - call: keeper.asked
+          - npcSet: { passage_keeper.trust: 3 }
+          - { inc: { var: npc.passage_keeper.lampsLit, by: 1 } }
+      - id: which
+        label: Ask which lamp is broken
+        if:
+          npcVar: passage_keeper.trust
+          gte: 3
+        then:
+          - call: keeper.which
+`),
+          "scripts/main.lua": new TextEncoder().encode(`keeper = {}
+
+function keeper.asked()
+  local npc = GameNPCs.get("passage_keeper")
+  if npc == nil then
+    GameOutput.add("There is nobody here to ask.", "warning")
+    return
+  end
+  GameOutput.add("The Keeper grunts. " .. npc.definition.lamps .. " still burn.")
+  GameOutput.add("Trust is " .. tostring(GameState.get("npc.passage_keeper.trust")) .. ".")
+end
+
+function keeper.which()
+  local npc = GameNPCs.get("passage_keeper")
+  local lit = GameState.get("npc.passage_keeper.lampsLit") or 0
+  GameOutput.add("You have lit " .. lit .. " of " .. npc.definition.lamps .. ".")
+end
+`),
+        },
+      };
+      await importPack(page, pack, "passage_keeper", "scenario.yaml");
+      await page.locator('.nav[data-view="play"]').click();
+      await waitForText(page, "#terminal", "A lamp burns low");
+      assert(
+        !(await page.locator("#heroChoices").textContent())?.includes("broken"),
+        "an npcVar-gated action was offered before its condition was met",
+      );
+      await page.locator("#heroChoices button", { hasText: "Ask the keeper about the lamps" }).click();
+      // The handler reads trust before the action's npcSet raises it, so seeing
+      // the seeded value here proves the default reached runtime state.
+      await waitForText(page, "#terminal", "still burn");
+      await waitForText(page, "#terminal", "Trust is 2");
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("broken"),
+        "raising npc trust did not reveal the npcVar-gated action",
+      );
+      await page.locator("#heroChoices button", { hasText: "Ask which lamp is broken" }).click();
+      await waitForText(page, "#terminal", "lit 1 of 7");
+      return "an NPC definition carried portrait and state defaults; an instance placed it; a dotted id was refused; " +
+        "a location listed the instance; trust seeded from state gated an action, npcSet raised it, inc reached the " +
+        "same store, and GameNPCs read the authored half as a detached copy while GameState read the values; " +
+        "npcVar and npcSet subjects were checked in UI element conditions, nested elements and actions: lists too";
+    });
+
+    await runCheck("8c. A conversation owns the choice list, the command box, and its own ending", async () => {
+      // The static half: every way a conversation can be authored wrong.
+      const bad = validateScenario({
+        npcs: { keeper: {} },
+        instances: { npc: { hall_keeper: { def: "keeper" } } },
+        conversations: {
+          broken: {
+            start: "nowhere",
+            participants: ["player", "ghost"],
+            nodes: {
+              here: {
+                dialogue: [
+                  { speaker: "nobody", text: "..." } as never,
+                  { speker: "hall_keeper", text: "..." } as never,
+                ],
+                options: [
+                  { id: "a", text: "A", next: "nowhere" } as never,
+                  { id: "b", text: "B", talk: "missing" } as never,
+                  { id: "c", text: "C", nxt: "here" } as never,
+                ],
+              },
+            },
+          },
+        },
+      });
+      assert(
+        bad.some((issue) => issue.message === "unknown node 'nowhere'" && issue.path.endsWith(".start")),
+        "a conversation start naming no node passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message.includes("unknown node 'nowhere'") && issue.path.includes("options.0.next")),
+        "an option next naming no node passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message === "unknown conversation 'missing'"),
+        "an option talk naming no conversation passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message.includes("unknown participant 'ghost'")),
+        "a conversation naming an undeclared participant passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message.includes("unknown speaker 'nobody'")),
+        "a dialogue line with an unknown speaker passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message === "unknown dialogue line key 'speker'"),
+        "a misspelled dialogue line key passed validation",
+      );
+      assert(
+        bad.some((issue) => issue.message === "unknown conversation option key 'nxt'"),
+        "a misspelled conversation option key passed validation",
+      );
+      // An option is chosen by its id, so a repeated one makes two buttons that both
+      // run the first option's directives.
+      const duplicate = validateScenario({
+        conversations: {
+          dup: {
+            start: "only",
+            nodes: {
+              only: {
+                options: [
+                  { id: "same", text: "One", then: { text: "one" } },
+                  { id: "same", text: "Two", then: { text: "two" } },
+                ],
+              },
+            },
+          },
+        },
+      } as never);
+      assert(
+        duplicate.some((issue) => issue.message === "duplicate conversation option id 'same' in this node"),
+        "two options sharing an id passed validation",
+      );
+
+      // A list authored as a mapping must be reported, not thrown on: iterating it
+      // would replace a path-specific diagnostic with `forEach is not a function`.
+      for (
+        const [shape, issues] of [
+          [
+            "options",
+            validateScenario({ conversations: { s: { start: "n", nodes: { n: { options: { a: 1 } } } } } } as never),
+          ],
+          [
+            "dialogue",
+            validateScenario({ conversations: { s: { start: "n", nodes: { n: { dialogue: { a: 1 } } } } } } as never),
+          ],
+          [
+            "participants",
+            validateScenario(
+              { conversations: { s: { start: "n", participants: { a: 1 }, nodes: { n: {} } } } } as never,
+            ),
+          ],
+          ["npcs", validateScenario({ locations: { l: { npcs: { a: 1 } } } } as never)],
+        ] as [string, ReturnType<typeof validateScenario>][]
+      ) {
+        assert(
+          issues.some((issue) => issue.message.endsWith("must be a list")),
+          `a ${shape} list authored as a mapping was not reported as a list`,
+        );
+      }
+
+      // A definition's `state:` is materialised once per instance, so a list or
+      // mapping default shared by reference would let a write through one instance
+      // reach another — and keep the authored definition's own object alive inside
+      // mutable state, where `GameNPCs` would go on cloning it.
+      const defaults = npcInstanceDefaults({
+        npcs: { keeper: { state: { trust: 2, ledger: ["one"] } } },
+        instances: { npc: { first: { def: "keeper" }, second: { def: "keeper" } } },
+      } as never);
+      const firstLedger = defaults["npc.first.ledger"] as string[];
+      const secondLedger = defaults["npc.second.ledger"] as string[];
+      assert(firstLedger !== secondLedger, "two instances of one definition share a single default object");
+      firstLedger.push("mutated");
+      assert(secondLedger.length === 1, "mutating one instance's default reached the other");
+      assert(
+        (defaults["npc.first.trust"] as number) === 2 && (defaults["npc.second.trust"] as number) === 2,
+        "primitive defaults are still seeded per instance",
+      );
+
+      // A `call:` inside an option is a name that has to resolve at boot. Leaving
+      // conversations out of the collector would make this the one authored place a
+      // typo is never reported.
+      const references = collectReferencedLuaNames({
+        conversations: {
+          hall_talk: {
+            start: "opening",
+            nodes: {
+              opening: { options: [{ id: "a", text: "A", then: { call: "keeper.named" } }] },
+            },
+          },
+        },
+      } as never);
+      assert(
+        references.some((issue) => issue.message === "keeper.named" && issue.path.includes("conversations.hall_talk")),
+        "a call: inside a conversation option was never collected for the boot check",
+      );
+
+      // Presence-driven: the opt-in, and the two ways it can be authored wrong.
+      const presenceIssues = validateScenario({
+        instances: { npc: { hall_keeper: { def: "keeper" } } },
+        conversations: {
+          no_npc: {
+            discoverable: true,
+            participants: ["player"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+          not_boolean: {
+            discoverable: "yes" as never,
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+        },
+      } as never);
+      assert(
+        presenceIssues.some((issue) => issue.message.includes("needs an npc instance in participants")),
+        "a discoverable conversation with nobody to offer it from passed validation",
+      );
+      assert(
+        presenceIssues.some((issue) => issue.message === "discoverable must be true or false"),
+        "a non-boolean discoverable passed validation",
+      );
+
+      // Two ungated discoverable conversations for one NPC: `Talk to <npc>` cannot mean
+      // two things, and the engine would take the first rather than report the second.
+      const ambiguous = validateScenario({
+        instances: { npc: { hall_keeper: { def: "keeper" } } },
+        conversations: {
+          first: {
+            discoverable: true,
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+          second: {
+            discoverable: true,
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+        },
+      } as never);
+      assert(
+        ambiguous.some((issue) => issue.message.includes("cannot mean two things")),
+        "two ungated discoverable conversations for one NPC passed validation",
+      );
+
+      // A gate is enough to make the overlap deliberate, so this must be allowed:
+      // mutually exclusive conditions are how an author writes two conversations
+      // with the same person.
+      const gatedOverlap = validateScenario({
+        instances: { npc: { hall_keeper: { def: "keeper" } } },
+        conversations: {
+          morning: {
+            discoverable: true,
+            if: { var: "morning", eq: true },
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+          evening: {
+            discoverable: true,
+            if: { var: "morning", eq: false },
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+        },
+      } as never);
+      assert(
+        !gatedOverlap.some((issue) => issue.message.includes("cannot mean two things")),
+        "two gated discoverable conversations for one NPC were rejected; that is the supported way to write them",
+      );
+
+      // A gate is not proof of exclusivity. Two conversations whose conditions can both
+      // hold — `morning` and `questActive` are the obvious pair — are still two things
+      // one `Talk to …` button cannot mean, so the engine takes the first and says so.
+      // The alternative, refusing every gated pair, would take away the ordinary way to
+      // write two conversations with one person.
+      const overlapLines: string[] = [];
+      const overlapScenario = {
+        locations: { hall: { npcs: ["hall_keeper"] } },
+        conversations: {
+          morning_talk: {
+            discoverable: true,
+            if: { var: "gateOpen", eq: true },
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+          evening_talk: {
+            discoverable: true,
+            if: { var: "morning", eq: true },
+            participants: ["player", "hall_keeper"],
+            start: "n",
+            nodes: { n: { options: [{ id: "a", text: "A" }] } },
+          },
+        },
+      } as never;
+      const collect = (text: unknown, kind?: string): void => {
+        overlapLines.push(`${kind}:${text}`);
+      };
+      const overlapRuntime = engineRuntimeFixture("hall");
+      // Both gates true at once — the whole point. An author who wrote these two
+      // expecting them to be exclusive has not, and only the engine can see it.
+      overlapRuntime.state = { gateOpen: true, morning: true };
+      const overlapFirst = discoverableTalks(overlapRuntime, overlapScenario, "hall", collect);
+      assert(
+        overlapFirst.length === 1 && overlapFirst[0].conversationId === "morning_talk",
+        "two simultaneously-live discoverable conversations did not resolve to the first in authored order",
+      );
+      assert(
+        overlapLines.some((line) =>
+          line.startsWith("warning:") && line.includes("morning_talk") && line.includes("evening_talk")
+        ),
+        "two simultaneously-live discoverable conversations were resolved in silence, so the author never learns why the second is unreachable",
+      );
+      // Once per pair, not once per repaint: `available()` runs on every paint, and a
+      // warning that repeated would flood the terminal the moment the author looked.
+      discoverableTalks(overlapRuntime, overlapScenario, "hall", collect);
+      assert(
+        overlapLines.length === 1,
+        "the overlapping-gates warning repeated on the next repaint instead of being reported once",
+      );
+
+      // A location action is dispatched as `@<its id>`, so an id that happens to begin
+      // `talk:` collides with any conversation dispatch keyed the same way. The offer is
+      // now a payload on the choice rather than a smuggled command string, so the action
+      // can keep any id at all.
+      const collidingIssues = validateScenario({
+        instances: { npc: { hall_keeper: { def: "keeper" } } },
+        locations: { hall: { actions: [{ id: "talk:bell", label: "Ring", then: ["A bell."] }] } },
+      } as never);
+      assert(
+        !collidingIssues.some((issue) => issue.path.includes("actions")),
+        `a location action may not be authored as 'talk:bell': ${
+          collidingIssues.filter((i) => i.path.includes("actions")).map((i) => i.message).join("; ")
+        }`,
+      );
+
+      // `npcs: { keeper: }` is null in YAML, and it is a normal half-written state. The
+      // validator has to survive it: reading a field off it throws, which would abort
+      // every other check and surface at boot as a raw exception instead of the one
+      // issue that would have told the author what to finish writing.
+      const nullNpc = validateScenario({ npcs: { keeper: null, broken: [] } } as never);
+      assert(
+        nullNpc.some((issue) => issue.path === "npcs.keeper" && issue.message.includes("mapping")),
+        "a null npc definition was not reported as a mapping",
+      );
+      assert(
+        nullNpc.some((issue) => issue.path === "npcs.broken"),
+        "a non-mapping npc definition was not reported",
+      );
+
+      // A modal's elements are authored content with the same `if` and bindings as
+      // screen elements, and `renderModals` evaluates both. Walking only `ui.elements`
+      // left a whole surface unchecked: a modal element gated on an npcVar naming an
+      // NPC that does not exist booted cleanly and then simply never appeared.
+      const modalIssues = validateScenario({
+        modals: [
+          {
+            id: "notes",
+            elements: [
+              {
+                id: "trust_row",
+                type: "text",
+                if: { npcVar: "ghost.trust" },
+                fields: [{ id: "t", type: "text", value: "—" }],
+              },
+              {
+                id: "press",
+                type: "button",
+                events: { activate: { callback: "notes.press" } },
+              },
+            ],
+          },
+        ],
+      } as never);
+      assert(
+        modalIssues.some((issue) => issue.path.startsWith("modals.0.elements.0") && issue.message.includes("ghost")),
+        "an unknown npc in a modal element condition was not reported at load",
+      );
+      const modalRefs = collectReferencedLuaNames({
+        modals: [
+          {
+            id: "notes",
+            elements: [
+              { id: "press", type: "button", events: { activate: { callback: "notes.press" } } },
+            ],
+          },
+        ],
+      } as never);
+      assert(
+        modalRefs.some((issue) => issue.message === "notes.press" && issue.path.includes("modals.0")),
+        "a Lua callback bound inside a modal was never collected for the boot check",
+      );
+
+      // A conversation is ended by moving away, but not by entering the room you are
+      // already in — and boot's own `move` to the starting location is exactly that, so
+      // clearing unconditionally meant a `GameConversations.start()` in OnInit was wiped
+      // by the next line of boot.
+      const moveRuntime = engineRuntimeFixture("hall");
+      moveRuntime.conversation = { id: "keeper_greeting", nodeId: "opening" };
+      setLocation(moveRuntime, "hall");
+      assert(
+        moveRuntime.conversation?.id === "keeper_greeting",
+        "entering the location you are already in ended a conversation, which is what boot does to every OnInit start",
+      );
+      setLocation(moveRuntime, "cellar");
+      assert(
+        moveRuntime.conversation === null,
+        "moving to a different location did not end the conversation, so a player could not walk out of one",
+      );
+
+      // Ending the run ends the conversation holding it. `available()` reads the
+      // conversation before it reads `over`, so a conversation left set by `end: true`
+      // kept rendering its remaining options as live buttons on a screen the player has
+      // been told is over: they look answerable, accept a click, and do nothing.
+      const overRuntime = engineRuntimeFixture("hall");
+      overRuntime.conversation = { id: "keeper_greeting", nodeId: "opening" };
+      endRun(overRuntime);
+      assert(
+        overRuntime.conversation === null,
+        "ending the run left the conversation in place, so its options stayed on screen as buttons that do nothing",
+      );
+      assert(overRuntime.over, "endRun did not end the run");
+
+      // A paint that settles a conversation must not leave a repaint behind it. The flag
+      // is cleared before the paint so a repaint from inside one is not re-entrant, and
+      // consuming what the paint raises is what makes "one command repaints once" true
+      // on this path too.
+      const flushRuntime = engineRuntimeFixture("hall");
+      let paints = 0;
+      flushRuntime.viewDirty = true;
+      flushView(flushRuntime, () => {
+        paints += 1;
+        // Only the first paint settles; a second one would mean the loop cannot settle.
+        if (paints === 1) markViewDirty(flushRuntime);
+      });
+      assert(paints === 2, `a paint that marked the view dirty was followed by ${paints} paints, expected 2`);
+      assert(
+        !flushRuntime.viewDirty,
+        "a repaint was left scheduled after the paint that caused it, rebuilding a DOM that already showed the result",
+      );
+
+      // `and` and `or` are recursed into by index, so `and: true` has no `.forEach` and
+      // reading it unguarded threw out of the entire validation — the one thing that
+      // turns a typo into a boot crash rather than a line in the diagnostics list.
+      for (const key of ["and", "or"]) {
+        const malformed = validateScenario({
+          locations: { hall: { actions: [{ id: "a", label: "A", if: { [key]: true } }] } },
+        } as never);
+        assert(
+          malformed.some((issue) =>
+            issue.path === `locations.hall.actions.0.if.${key}` && issue.message.includes("list of conditions")
+          ),
+          `a malformed '${key}' condition was not reported against its own path`,
+        );
+      }
+      // `not` recurses through the same guard, so a scalar there is already caught by
+      // the object check rather than by the new list check. Worth pinning: the two
+      // recursion sites have to agree, and only one of them needed a new branch.
+      const badNot = validateScenario({
+        locations: { hall: { actions: [{ id: "a", label: "A", if: { not: "nope" } }] } },
+      } as never);
+      assert(
+        badNot.some((issue) =>
+          issue.path === "locations.hall.actions.0.if.not" && issue.message.includes("must be an object")
+        ),
+        "a scalar 'not' was not reported against its own path",
+      );
+
+      // The live half, against a self-contained fixture.
+      const pack: PackShape = {
+        manifest: {
+          format: "inkforge-pack",
+          packVersion: 2,
+          project: { id: "conversation-fixture", title: "Conversation Fixture", version: "1.0.0" },
+          files: ["scenario.yaml", "scripts/main.lua"],
+        },
+        entries: {
+          "scenario.yaml": new TextEncoder().encode(`meta:
+  title: Conversation Fixture
+startLocation: hall
+state:
+  gateOpen: true
+npcs:
+  keeper:
+    name: The Keeper
+    state:
+      trust: 2
+instances:
+  npc:
+    hall_keeper:
+      def: keeper
+  item:
+    satchel_bag:
+      def: satchel
+locations:
+  hall:
+    text: "A lamp burns low along the wall."
+    npcs: [hall_keeper]
+    items: [satchel_bag]
+    actions:
+      - id: greet
+        label: Greet the keeper
+        then:
+          - talk: hall_talk
+      - id: look_around
+        label: Look around
+        then:
+          - "Dust, and a guttering lamp."
+      - id: talk_gated
+        label: Talk about the gate
+        then:
+          - talk: gated_talk
+      - id: farewell
+        label: Say goodbye
+        then:
+          - talk: farewell_talk
+      - id: "talk:bell"
+        label: Ring the bell
+        then:
+          - "The bell answers once, somewhere below."
+ui:
+  elements:
+    - id: open_pack
+      type: button
+      location: sidebar
+      allowInConversation: true
+      fields:
+        - { id: label, type: text, value: Inventory }
+      events:
+        activate: { type: inventory.open, title: Inventory }
+    - id: look_around_again
+      type: button
+      location: output
+      fields:
+        - { id: label, type: text, value: "Look around again" }
+      events:
+        activate: { type: command, command: look }
+    - id: shut_gate
+      type: button
+      location: output
+      fields:
+        - { id: label, type: text, value: "Shut the gate" }
+      events:
+        activate: { type: instructions, then: [{ set: { gateOpen: false } }] }
+    - id: start_from_lua
+      type: button
+      location: output
+      fields:
+        - { id: label, type: text, value: "Start from Lua" }
+      events:
+        activate: { callback: "start_from_lua" }
+    - id: finish_from_lua
+      type: button
+      location: output
+      allowInConversation: true
+      fields:
+        - { id: label, type: text, value: "Finish from Lua" }
+      events:
+        activate: { callback: "finish_from_lua" }
+    - id: show_notebook
+      type: button
+      location: output
+      allowInConversation: true
+      fields:
+        - { id: label, type: text, value: "Fetch the notebook" }
+      events:
+        activate: { callback: "show_notebook_again" }
+    - id: show_rifle
+      type: button
+      location: output
+      allowInConversation: true
+      fields:
+        - { id: label, type: text, value: "Feel for the false bottom" }
+      events:
+        activate: { callback: "show_rifle_again" }
+conversations:
+  ambient_talk:
+    discoverable: true
+    participants: [player, hall_keeper]
+    start: only
+    nodes:
+      only:
+        dialogue:
+          - speaker: hall_keeper
+            text: "The Keeper looks up. Ambient line."
+        options:
+          - id: nod
+            text: "Nod."
+  gated_talk:
+    start: only
+    nodes:
+      only:
+        dialogue:
+          - speaker: hall_keeper
+            text: "Ask while the lamp burns."
+        options:
+          - id: ask_now
+            text: "What do you know?"
+            if: { var: gateOpen, neq: false }
+            then:
+              - "Nothing you did not already know."
+  farewell_talk:
+    participants: [player, hall_keeper]
+    start: only
+    nodes:
+      only:
+        dialogue:
+          - speaker: hall_keeper
+            text: "Then go, and mind the third lamp."
+        options:
+          - id: go
+            text: Goodnight.
+            then:
+              - end: true
+          - id: not_yet
+            text: Not yet.
+  hall_talk:
+    participants: [player, hall_keeper]
+    start: opening
+    nodes:
+      opening:
+        dialogue:
+          - speaker: hall_keeper
+            text: "You came down."
+        options:
+          - id: ask_name
+            text: "What is your name?"
+            then:
+              - call: keeper.named
+            next: named
+          - id: walk_away
+            text: "Walk away."
+      named:
+        dialogue:
+          - speaker: hall_keeper
+            text: "A name is a thing you are given."
+        options:
+          - id: press
+            text: "Then give me one."
+            then:
+              - npcSet: { hall_keeper.trust: 4 }
+            next: warm
+          - id: ask_again
+            text: "Start over."
+            then:
+              - talk: hall_talk
+            next: warm
+      warm:
+        dialogue:
+          - speaker: hall_keeper
+            if: { npcVar: hall_keeper.trust, gte: 4 }
+            text: "Rowan. It is Rowan."
+definitions:
+  item:
+    satchel:
+      name: Satchel
+      description: "A worn bag with a false bottom."
+      actions:
+        - id: rifle
+          label: "Check the false bottom"
+          then:
+            - "Something heavy, wrapped in oilcloth."
+        - id: tally
+          label: "Count the nails"
+          allowInConversation: true
+          then:
+            - "Eleven. You were sure it was twelve."
+tools:
+  - id: notebook
+    label: Notebook
+    action: open_notebook
+  - id: compass
+    label: Compass
+    allowInConversation: true
+    action: open_compass
+`),
+          "scripts/main.lua": new TextEncoder().encode(`keeper = {}
+
+-- These are created through the same runtime list as a ui create directive.
+-- directive. The conversation rule must therefore see them too, rather than scanning
+-- only the authored YAML list that seeded the runtime.
+GameUI.create({
+  id = "lua_withdrawn",
+  type = "button",
+  location = "output",
+  fields = {{ id = "label", type = "text", value = "Lua withdrawn" }}
+})
+
+GameUI.create({
+  id = "lua_allowed",
+  type = "button",
+  location = "output",
+  allowInConversation = true,
+  fields = {{ id = "label", type = "text", value = "Lua allowed" }}
+})
+
+function keeper.named(params, context)
+  local trust = GameState.get("npc.hall_keeper.trust") or 0
+  GameOutput.add("The Keeper does not look up. Trust is " .. tostring(trust) .. ".")
+  if context and context.conversation then
+    GameOutput.add("[talking: " .. context.conversation.id .. "/" .. context.conversation.nodeId .. "]")
+  end
+end
+
+function start_from_lua()
+  GameConversations.start("ambient_talk")
+end
+
+function finish_from_lua()
+  GameConversations.finish()
+end
+
+function open_notebook()
+  GameOutput.add("The notebook is open. Nothing to be done about that here.")
+end
+
+function open_compass()
+  GameOutput.add("The needle settles on the passage behind you.")
+end
+
+-- A conversation hid these through the same state a script addresses, so a script can
+-- put them back for the exchange that needs them. Nothing here is conversation-aware:
+-- the flag only ever touched a hidden set, which is why \`show\` can undo it.
+function show_notebook_again()
+  GameTools.show("notebook")
+  GameOutput.add("You dig the notebook back out.")
+end
+
+function show_rifle_again()
+  GameItemActions.show("satchel.rifle")
+  GameOutput.add("You take the false bottom in your hands.")
+end
+`),
+        },
+      };
+      await importPack(page, pack, "hall_talk", "scenario.yaml");
+      await page.locator('.nav[data-view="play"]').click();
+      await waitForText(page, "#terminal", "A lamp burns low");
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "the command box was hidden before any conversation ran",
+      );
+
+      // The satchel is here for the item-action surface, which is the third player-facing
+      // place a trigger can come from. Taken now rather than later so its "Take" choice
+      // is gone before any assertion reads the room's list.
+      await page.locator("#heroChoices button", { hasText: "Take Satchel" }).click();
+      await waitForText(page, "#terminal", "Taken: Satchel.");
+
+      // Presence-driven: the offer exists because the NPC is in the room, with no
+      // action written to start it, and its label is built from the NPC's name.
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("Talk to The Keeper"),
+        "a discoverable conversation was not offered for the NPC standing in the room",
+      );
+      assert(
+        (await page.locator("#heroChoices button", { hasText: "Talk to" }).count()) === 1,
+        "more than one talk choice was offered for a single NPC",
+      );
+
+      // A location action is dispatched as `@<its id>`, so an action authored as
+      // `id: "talk:bell"` used to produce `@talk:bell` and be intercepted as a request
+      // to start a conversation called `bell` — its own directives could never run, and
+      // nothing rejected the id. The offer is a payload on the choice now, so the two
+      // namespaces cannot meet.
+      await page.locator("#heroChoices button", { hasText: "Ring the bell" }).click();
+      await waitForText(page, "#terminal", "The bell answers once");
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "a location action whose id begins 'talk:' was taken for a conversation, so its own directives never ran",
+      );
+      // And the offer still works afterwards, from a transcript the room description
+      // shares rather than one it replaced.
+      await page.locator("#heroChoices button", { hasText: "Talk to The Keeper" }).click();
+      await waitForText(page, "#terminal", "Ambient line.");
+      // Walking away from it is a terminal node, so the room comes back.
+      await page.locator("#heroChoices button", { hasText: "Nod." }).click();
+      await waitForText(page, "#choices", "Greet the keeper");
+
+      // The same conversation started from Lua through a UI callback. Proves the
+      // namespace reaches the same state machine a `talk:` does rather than a
+      // parallel one that could drift from it.
+      await page.locator('[data-ui="start_from_lua"]').click();
+      await waitForText(page, "#terminal", "Ambient line.");
+      assert(
+        !(await page.locator("#heroCommand").isVisible()),
+        "a conversation started from Lua did not take the command boxes",
+      );
+      // And finished from Lua mid-exchange, which is the case a script needs and no
+      // `talk:` can express: the player is mid-conversation and something else
+      // decides they are not any more. The method is `finish` rather than `end`
+      // because `end` is a Lua keyword and `GameConversations.end()` would not
+      // parse — so calling it here is also the check that the name is usable.
+      await page.locator('[data-ui="finish_from_lua"]').click();
+      await waitForText(page, "#choices", "Greet the keeper");
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "GameConversations.finish() did not hand the player back to the room",
+      );
+
+      await page.locator("#heroChoices button", { hasText: "Greet the keeper" }).click();
+      await waitForText(page, "#terminal", "The Keeper: You came down.");
+      // The conversation owns the choice list and the command box while it runs.
+      assert(
+        !(await page.locator("#heroChoices").textContent())?.includes("Look around"),
+        "a location action was offered beside the conversation's options",
+      );
+      assert(
+        !(await page.locator("#heroCommand").isVisible()),
+        "the command box stayed visible during a conversation",
+      );
+      assert(
+        !(await page.locator("#commandForm").isVisible()),
+        "the author run panel's command box stayed visible during a conversation",
+      );
+      // A conversation withdraws a surface unless its author explicitly permits it.
+      // The three player-facing surfaces are each checked below, because getting only
+      // one of them right is how the previous attempt shipped.
+      assert(
+        (await page.locator('#uiOutput [data-ui="look_around_again"]').count()) === 0,
+        "a UI element with no allowInConversation permission stayed on screen during a conversation",
+      );
+      // `finish_from_lua` is the load-bearing case: it is how a conversation gets ended
+      // from outside it, so it deliberately opts into the exchange.
+      assert(
+        (await page.locator('#uiOutput [data-ui="finish_from_lua"]').count()) === 1,
+        "a UI element explicitly allowed in a conversation was hidden",
+      );
+      assert(
+        (await page.locator('#uiOutput [data-ui="lua_withdrawn"]').count()) === 0,
+        "a Lua-created UI element with no conversation permission stayed on screen",
+      );
+      assert(
+        (await page.locator('#uiOutput [data-ui="lua_allowed"]').count()) === 1,
+        "a Lua-created UI element explicitly allowed in a conversation was hidden",
+      );
+      // A tool, which is a separate surface with its own rail and was not covered at all
+      // by the first attempt.
+      assert(
+        (await page.locator('#toolRail [data-tool="notebook"]').count()) === 0,
+        "a tool with no conversation permission stayed in the rail during a conversation",
+      );
+      assert(
+        (await page.locator('#toolRail [data-tool="compass"]').count()) === 1,
+        "a tool explicitly allowed in a conversation was hidden",
+      );
+      // The point of hiding through each surface's own state rather than through a render
+      // filter: the rest of the engine can see it and undo it. `GameTools.show` clears the
+      // same flag the conversation set, so a script can bring one back for the exchange
+      // that needs it. A filter would have made this impossible without a second concept
+      // of "shown", which is what the first attempt built.
+      await page.locator('#uiOutput [data-ui="show_notebook"]').click();
+      await waitForText(page, "#terminal", "You dig the notebook back out");
+      assert(
+        (await page.locator('#toolRail [data-tool="notebook"]').count()) === 1,
+        "a script could not bring a withdrawn tool back for the conversation that wants it",
+      );
+      // And the inventory, a third surface with a state of its own, reached through the
+      // inspector rather than the rail.
+      await page.locator('[data-ui="open_pack"]').click();
+      await page.locator('[data-slot="0"]').click();
+      assert(
+        (await page.locator('[data-item-action="rifle"]').count()) === 0,
+        "an item action with no conversation permission was still offered during a conversation",
+      );
+      assert(
+        (await page.locator('[data-item-action="tally"]').count()) === 1,
+        "an item action explicitly allowed in a conversation was hidden",
+      );
+      // The same override for the third surface, through the class added for it. The
+      // trigger has to be clicked with the overlay closed — it lives in the output strip
+      // behind it — so the sequence is close, trigger, reopen, check.
+      await page.locator("#closeInventory").click();
+      await page.locator('[data-ui="show_rifle"]').click();
+      await waitForText(page, "#terminal", "You take the false bottom");
+      await page.locator('[data-ui="open_pack"]').click();
+      await page.locator('[data-slot="0"]').click();
+      assert(
+        (await page.locator('[data-item-action="rifle"]').count()) === 1,
+        "a script could not bring a withdrawn item action back mid-conversation",
+      );
+      await page.locator("#closeInventory").click();
+      await page.locator("#heroChoices button", { hasText: "What is your name?" }).click();
+      await waitForText(page, "#terminal", "[talking: hall_talk/opening]");
+      await waitForText(page, "#terminal", "A name is a thing you are given.");
+      // The exchange is a transcript, not a log held by the engine: taking an option
+      // appends, so the opening beat is still on screen with the new one.
+      const afterOption = (await page.locator("#terminal").textContent()) || "";
+      assert(
+        afterOption.includes("You came down.") && afterOption.includes("A name is a thing you are given."),
+        "taking a conversation option replaced the transcript instead of appending to it",
+      );
+
+      // A `talk:` inside `then` targeting the conversation already running replaces
+      // the state with a *new* object carrying the same id, so a guard comparing ids
+      // alone reads the cut as "nothing changed" and then applies this option's own
+      // `next` on top of the exchange it just restarted.
+      await page.locator("#heroChoices button", { hasText: "Start over." }).click();
+      await waitForText(page, "#terminal", "The Keeper: You came down.");
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("What is your name?"),
+        "a talk: inside an option's then was overwritten by that option's own next",
+      );
+
+      // Back at the opening node, so walk forward again to reach the terminal one.
+      await page.locator("#heroChoices button", { hasText: "What is your name?" }).click();
+      await waitForText(page, "#terminal", "A name is a thing you are given.");
+      await page.locator("#heroChoices button", { hasText: "Then give me one." }).click();
+      await waitForText(page, "#terminal", "Rowan. It is Rowan.");
+
+      // `warm` declares no options, so it is a terminal beat: the conversation ends
+      // rather than stranding the player on a node with nothing to answer.
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("Look around"),
+        "a terminal node did not return the player to the room",
+      );
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "the command box did not come back after the conversation ended",
+      );
+      // Every withdrawn surface comes back with the room, not just the inline one.
+      // Asserted rather than trusted, because the failure mode of a fix like this is not
+      // "they stay hidden" but "they never come back" — quieter, and permanent.
+      assert(
+        (await page.locator('#uiOutput [data-ui="look_around_again"]').count()) === 1,
+        "a withdrawn UI element did not come back after the conversation ended",
+      );
+      assert(
+        (await page.locator('#toolRail [data-tool="notebook"]').count()) === 1,
+        "a withdrawn tool did not come back after the conversation ended",
+      );
+      await page.locator('[data-ui="open_pack"]').click();
+      await page.locator('[data-slot="0"]').click();
+      assert(
+        (await page.locator('[data-item-action="rifle"]').count()) === 1,
+        "a withdrawn item action did not come back after the conversation ended",
+      );
+      await page.locator("#closeInventory").click();
+
+      // Gates closing *mid-exchange*, with no node change at all. Every option on
+      // this node is gated on a state key, and a UI control sets it — so settling on
+      // node entry never runs, and without a settle on availability the choice list
+      // would empty while both command boxes stayed hidden.
+      await page.locator("#heroChoices button", { hasText: "Talk about the gate" }).click();
+      await waitForText(page, "#terminal", "Ask while the lamp burns.");
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("What do you know?"),
+        "the gated conversation did not offer its option while the gate was open",
+      );
+      await page.locator('[data-ui="shut_gate"]').click();
+      // Wait on the room coming back rather than on a timer, then assert both halves
+      // of the state: the conversation ended, and the command box came with it.
+      await waitForText(page, "#choices", "Look around");
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("Look around"),
+        "a conversation whose every gate closed mid-exchange stayed active and emptied the choice list",
+      );
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "a conversation whose every gate closed mid-exchange left the command boxes hidden",
+      );
+
+      // The last thing 8c does, because it ends the run: an option whose `then` ends
+      // the game has to take the conversation down with it. `available()` reads the
+      // conversation before it reads `over`, so a conversation left set by `end: true`
+      // went on rendering its *other* options as live buttons on a finished screen.
+      await page.locator("#heroChoices button", { hasText: "Say goodbye" }).click();
+      await waitForText(page, "#terminal", "mind the third lamp");
+      assert(
+        (await page.locator("#heroChoices").textContent())?.includes("Goodnight."),
+        "the farewell conversation did not offer its options",
+      );
+      await page.locator("#heroChoices button", { hasText: "Goodnight." }).click();
+      assert(
+        !(await page.locator("#heroChoices").textContent())?.includes("Not yet."),
+        "an option that ended the run left the conversation's other options on screen as buttons that do nothing",
+      );
+      assert(
+        await page.locator("#heroCommand").isVisible(),
+        "an option that ended the run left the command boxes hidden, as if a conversation were still running",
+      );
+      // And the surfaces that conversation had withdrawn come back here too. `endRun`
+      // sets `conversation` directly rather than going through `endConversation`, so
+      // nothing else would hand them back — and a run that ended mid-exchange with the
+      // rail permanently emptied is the kind of thing nobody notices until they reload.
+      assert(
+        (await page.locator('#uiOutput [data-ui="look_around_again"]').count()) === 1,
+        "ending the run mid-conversation left a UI element withdrawn with nothing left to restore it",
+      );
+      assert(
+        (await page.locator('#toolRail [data-tool="notebook"]').count()) === 1,
+        "ending the run mid-conversation left a tool withdrawn with nothing left to restore it",
+      );
+      return "a talk: directive entered the start node; options replaced the location's choices and both command " +
+        "boxes hid; a dotted call: inside an option received its conversation context; taking options appended to " +
+        "the transcript; a talk: inside an option's then beat that option's own next; npcSet raised trust and " +
+        "opened a gated line; a node with no options ended the exchange and restored the room; a gate closing " +
+        "mid-exchange also ended it; a discoverable conversation was offered from the NPC's presence alone, once, " +
+        "labelled from its name; GameConversations.start and .finish drove that same machine from Lua; bad " +
+        "start/next/talk/speaker/participant/keys and duplicate option ids were " +
+        "rejected at load; a list authored as a mapping was reported rather than thrown on; two ungated " +
+        "discoverable conversations for one NPC were rejected while gated ones were allowed; and NPC defaults are " +
+        "cloned per instance";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {

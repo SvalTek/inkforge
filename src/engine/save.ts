@@ -1,5 +1,6 @@
 import { normalizeTool } from "./tool-state.ts";
 import type {
+  ConversationState,
   EngineEvent,
   EngineRuntime,
   ModalRuntimeState,
@@ -46,22 +47,21 @@ function asCount(value: unknown): number {
 }
 
 /**
- * Drop anything that cannot survive a save round trip.
+ * Narrow a saved conversation position, or report that there is nothing usable.
  *
- * `conversation` is opaque by design — the engine never reads it, the terminal
- * only renders it — so it cannot be narrowed field by field the way the rest of
- * a snapshot can. What can be checked is whether it is representable: a hand-
- * edited file carrying a cycle or a BigInt would otherwise make the save
- * unwritable, and the player would find their only copy of a run had become
- * unsaveable because of it. Costing the dialogue log is the right trade.
+ * Narrowed field by field like the rest of a snapshot, because a snapshot can arrive
+ * from a hand-edited or older file as well as from this app's own storage. A position
+ * naming a conversation or node that no longer exists is deliberately **kept** here:
+ * this function has no way to report anything, and the boot path checks the position
+ * against the composed scenario where it can both say so and drop it.
  */
-function asJsonSafe(value: unknown): unknown {
-  try {
-    const encoded = JSON.stringify(value);
-    return encoded === undefined ? null : value;
-  } catch {
-    return null;
-  }
+function readConversation(value: unknown): ConversationState | null {
+  const entry = asObject(value);
+  if (!entry) return null;
+  const { id, nodeId } = entry;
+  if (typeof id !== "string" || !id) return null;
+  if (typeof nodeId !== "string" || !nodeId) return null;
+  return { id, nodeId };
 }
 
 /**
@@ -113,6 +113,7 @@ export function toSnapshot(runtime: EngineRuntime): SaveSnapshot {
     },
     tools: [...runtime.tools.entries.values()],
     modals: { open: runtime.modals.open, activePages: { ...runtime.modals.activePages } },
+    items: { hidden: [...runtime.items.hidden] },
     conversation: runtime.conversation,
   };
 }
@@ -288,6 +289,7 @@ export function fromSnapshot(value: unknown): ResumedRuntime | null {
     },
     tools: readTools(source.tools),
     modals: readModals(source.modals),
-    conversation: source.conversation === undefined ? null : asJsonSafe(source.conversation),
+    items: { hidden: new Set(asStringArray(asObject(source.items)?.hidden)) },
+    conversation: readConversation(source.conversation),
   };
 }

@@ -3,6 +3,7 @@ import type { AppContext } from "./context.ts";
 import type { OutputFn, Scenario, UiCommand } from "../types/index.ts";
 import { InkforgeCanvasRuntime } from "../canvas/runtime.ts";
 import { createLuaEngine } from "../lua/bridge.ts";
+import type { DirectiveDeps } from "../engine/directives.ts";
 import { markViewDirty } from "../engine/events.ts";
 import { collectReferencedLuaNames, mainScriptPath, type ValidationIssue } from "../yaml/compose.ts";
 import type { AudioManagerLike } from "../types/audio.ts";
@@ -52,6 +53,14 @@ export interface BootHooks {
   output: OutputFn;
   onError(message: string): void;
   audio: AudioManagerLike;
+  /**
+   * The seam authored directives run through, handed to the Lua bridge so a script
+   * can start a conversation through the same call a `talk:` directive makes.
+   *
+   * Built once by the caller and shared with the engine rather than reconstructed
+   * here, so the two cannot drift.
+   */
+  directives: DirectiveDeps;
 }
 
 /**
@@ -121,6 +130,7 @@ export async function bootRuntime(app: AppContext, scenario: Scenario, hooks: Bo
     canvasHost: canvas,
     applyUi: hooks.applyUi,
     output: hooks.output,
+    directives: hooks.directives,
     audio: hooks.audio,
     onError: hooks.onError,
   });

@@ -23,6 +23,9 @@ elements:
   - id: examine_entry
     type: button
     location: output
+    # Look around is a thing you do in a room, not in the middle of an exchange, so it
+    # steps aside while Rowan is talking. UI is withdrawn by default; set
+    # `allowInConversation: true` only for a control an exchange deliberately needs.
     fields:
       - { id: label, type: text, value: Examine the threshold }
     events:

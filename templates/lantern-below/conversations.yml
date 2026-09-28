@@ -1,0 +1,87 @@
+# A conversation is a set of nodes, entered at `start`. Nothing is rendered here:
+# `dialogue` is printed to the transcript with the speaker's name in front, and the
+# node's `options` become the choice list while the player is in the conversation.
+#
+# The two conversations below are the two kinds on purpose. `discoverable` is for an
+# interaction the player is meant to see without being told; leaving it off is for
+# one they have to notice or try.
+keeper_greeting:
+  # Offered as "Talk to Rowan" for as long as Rowan is in the passage, with no
+  # action written anywhere. This is exactly the `talk:` an action would have run.
+  discoverable: true
+  # Gates the offer, and nothing else — starting a conversation is never conditional.
+  if: { npcVar: passage_keeper.trust, gte: 2 }
+  participants: [player, passage_keeper]
+  start: greeting
+
+  nodes:
+    greeting:
+      dialogue:
+        - speaker: passage_keeper
+          text: "You carry a lantern. Most who come this far leave it burning behind them."
+        - speaker: passage_keeper
+          text: "What brings you down, then?"
+      options:
+        # `next` continues at another node of this same conversation.
+        - id: ask_about_lamps
+          text: I was told the lamps need tending.
+          then:
+            - call: keeper.asked
+          next: lamps
+        # No `next` and no `talk`, so this choice ends the exchange. An option does
+        # not need an `end` key: having nowhere to continue *is* the ending.
+        - id: say_nothing
+          text: Say nothing, and go back up the passage.
+          then:
+            - emit: keeper:snubbed
+
+    lamps:
+      dialogue:
+        - speaker: passage_keeper
+          text: "\"The third one. It catches, and then it sulks.\""
+      options:
+        - id: take_the_lamp
+          text: Nod, and take that lamp in your own hand.
+          then:
+            - npcSet: { passage_keeper.trust: 4 }
+            - { set: { knowsBrokenLamp: true } }
+          next: farewell
+        - id: leave_it
+          text: Leave the lamp to Rowan.
+
+    farewell:
+      # A line may be gated, so the same node reads differently depending on what the
+      # player did to earn it. This one speaks only once trust is high enough.
+      dialogue:
+        - speaker: passage_keeper
+          if: { npcVar: passage_keeper.trust, gte: 4 }
+          text: "Then go carefully. Mind the third one."
+      # No options at all, so this node is a terminal beat: the conversation ends and
+      # the player is back in the passage with its exits and actions. That is the
+      # documented behaviour, and deliberately so — a node with nothing to answer
+      # would otherwise be a soft-lock, since the command box is hidden throughout.
+
+# No `discoverable`, so nothing offers this one and `Talk to Rowan` is the only talk
+# choice in the passage. It is reached by watching Rowan work and then asking about
+# the lamps — an interaction the player has to think of, which is the other half of
+# what presence-driven is for, and the reason the opt-in exists at all rather than
+# every conversation being offered.
+keeper_lamps:
+  participants: [player, passage_keeper]
+  start: ask
+  nodes:
+    ask:
+      dialogue:
+        - speaker: passage_keeper
+          text: "You watched long enough to notice. Most don't."
+      options:
+        - id: which_one
+          text: "Which lamp is it, then?"
+          next: answer
+        - id: leave_it
+          text: Say nothing, and leave the lamps to Rowan.
+    answer:
+      dialogue:
+        - speaker: passage_keeper
+          text: "\"The third one,\" Rowan says. \"It catches, and then it sulks.\""
+      # Terminal beat again, so this ends without the author writing `end: true`.

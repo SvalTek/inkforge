@@ -98,8 +98,11 @@ appears further down the file.
 | `GameOutput` | Writing to the transcript |
 | `GameState` | Reading and writing state |
 | `GameItems` | Reading item instances and authored definition data |
+| `GameNPCs` | Reading NPC instances and authored NPC data |
+| `GameConversations` | Starting and ending a conversation |
 | `GameUI` | Creating and changing UI elements |
 | `GameTools` | The tool rail |
+| `GameItemActions` | Withholding the actions offered on an item |
 | `GameAudio` | Sound |
 | `GameCanvas` | Scenes, nodes, animations |
 | `timers` | `setTimeout`, `setInterval`, `clearAll`, `activeCount` |
@@ -146,9 +149,47 @@ GameOutput.add(lantern.material)
 `definition`. `definition(definitionId)` reads a definition directly. Either method returns `nil` when its id cannot be
 resolved.
 
+### `GameNPCs`
+
+```lua
+local npc = GameNPCs.get("passage_keeper")
+GameOutput.add(npc.definition.name .. " tends " .. npc.definition.lamps .. " lamps.")
+
+local trust = GameState.get("npc.passage_keeper.trust") or 0
+```
+
+The same shape as `GameItems`, for NPCs: `get(instanceId)` resolves an NPC **instance** and returns its `id`, the NPC id
+it points at as `def`, and its authored `definition`; `definition(npcId)` reads an NPC directly. Both return `nil` when
+the id cannot be resolved, and both hand you a detached copy, so changing what you get back cannot alter the scenario.
+
+Only the authored half lives here. An NPC's **current values are state**, not data, so read them with `GameState` using
+the same `npc.<instance-id>.<path>` key that `npcVar` and `npcSet` use. See [NPCs](npcs.md).
+
 Definitions include the standard `name`, `description`, `aliases`, and `actions` fields plus any custom YAML fields the
 author added. Returned definitions are detached copies: Lua can reshape a local result, but doing so does not modify the
 composed scenario or a later lookup. Use `GameState` or `itemSet` for data that should change during play.
+
+### `GameConversations`
+
+```lua
+GameConversations.start("keeper_greeting")
+GameConversations.finish()
+```
+
+`start(conversationId)` enters a conversation at its `start` node and offers its options. It is the same call a `talk:`
+directive makes, so a conversation opened from a timer, a canvas callback or a `call:` handler is indistinguishable from
+one an action opened. An unknown id reports `Unknown conversation: <id>` and ends any conversation already running, rather
+than leaving the player inside one they cannot see.
+
+`finish()` ends the conversation the player is in, if any. It is safe to call when none is, so a script does not have to
+check first — which is what you want in a timer or an event handler that might fire after the player has walked away. It
+is not called `end()` because `end` is a Lua keyword: `GameConversations.end()` is a syntax error, and only the obvious
+call an author would write would ever find that out.
+
+Once started, a conversation is *in progress*: it owns the choice list and the command box until it ends, exactly as if a
+`talk:` had started it. See [Conversations](conversations.md), and
+[presence-driven](conversations.md#presence-driven-discoverable) for the `discoverable` opt-in that offers one without
+any code at all.
 
 ### `GameUI`
 
@@ -184,6 +225,20 @@ GameTools.remove("lua_tool")
 ```
 
 See [Tools](tools.md).
+
+### `GameItemActions`
+
+```lua
+GameItemActions.hide("lantern.pick_up")
+GameItemActions.show("lantern.pick_up")
+```
+
+Withholds the item actions offered in the inventory inspector. The id is `'<definitionId>.<actionId>'`, as authored — the
+action belongs to the kind of thing, not to one copy in the pack, so every instance of `lantern` is affected.
+
+This is the same hidden state a [conversation](conversations.md) uses, so a script can hand a surface back for one
+exchange that needs it. Hiding is not disabling: a hidden action is still reachable from a `call:` or a directive.
+See [ui.md](ui.md#allowinconversation).
 
 ### `GameAudio`
 
@@ -281,6 +336,30 @@ The item context has three fields: `id` is the concrete instance, `definitionId`
 `actionId` is the invoked definition action. It is transient invocation information, not saved state. Calls and events
 from locations, UI elements and tools omit this second argument. Each handler receives a detached context, so changing
 it inside Lua does not alter the item subject retained by the engine or the context given to the next handler.
+
+### Conversation context
+
+A `call:` in a conversation option's `then` receives the exchange as context, in the same second-argument position:
+
+```lua
+function keeper.asked(params, context)
+  GameOutput.add("Trust is " .. tostring(GameState.get("npc.passage_keeper.trust")) .. ".")
+  -- context.conversation.id           == "keeper_greeting"
+  -- context.conversation.nodeId       == the node the choice was taken at
+  -- context.conversation.optionId     == the option's id
+  -- context.conversation.participants == { "player", "passage_keeper" }
+end
+```
+
+`id` and `nodeId` are always present. `optionId` is present while an option's directives run, and absent while a node's
+own dialogue is being entered. `participants` is whatever the conversation declares.
+
+It is transient, like the item context: it says why these directives are running, and is not part of a save. A
+conversation's *position* is saved, but a handler re-runs `OnInit` on resume and re-derives anything it needs. See
+[Conversations](conversations.md).
+
+There is no `GameConversations` namespace yet. A handler that wants to start a conversation runs the directive through a
+`call:` from YAML, or emits an event that one listens for; the engine is built so that adding a namespace is additive.
 
 ### Value interop
 

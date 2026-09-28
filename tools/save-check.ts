@@ -43,12 +43,13 @@ function runtimeFixture(): EngineRuntime {
       elements: [{ id: "meter", type: "meter" }],
     },
     modals: { open: "notes", activePages: { notes: "page_two" } },
+    items: { hidden: new Set(["lantern.pick_up"]) },
     tools: {
       entries: new Map([
         ["lantern", { definition: { id: "lantern", label: "Lantern" }, hidden: true, disabled: false, source: "lua" }],
       ]),
     },
-    conversation: { speaker: "keeper", line: 3 },
+    conversation: { id: "keeper_intro", nodeId: "greeting" },
     lua: null,
     canvasEngine: null,
     viewDirty: false,
@@ -101,8 +102,12 @@ assert(restored.tools.entries.get("lantern")?.hidden === true, "tool state survi
 assert(restored.tools.entries.get("lantern")?.source === "lua", "tool provenance survives");
 assert(restored.modals.open === "notes" && restored.modals.activePages.notes === "page_two", "modal state survives");
 assert(
-  (restored.conversation as { speaker: string }).speaker === "keeper",
-  "conversation survives",
+  restored.items.hidden instanceof Set && restored.items.hidden.has("lantern.pick_up"),
+  "withheld item actions survive the round trip",
+);
+assert(
+  restored.conversation?.id === "keeper_intro" && restored.conversation?.nodeId === "greeting",
+  "a conversation position survives",
 );
 const nested = restored.state.nested as { deep: string };
 assert(nested.deep === "value", "a nested state value survives, not just a flat one");
@@ -137,6 +142,7 @@ assert(malformedEvents[0].type === "output" && malformedEvents[0].kind === "norm
 assert(malformedEvents[1].type === "game:over", "valid payload-free events survive");
 assert(partial.inventory.length === 0, "a missing inventory is empty, not undefined");
 assert(partial.ui.hidden.size === 0, "a missing `hidden` is an empty Set");
+assert(partial.items.hidden.size === 0, "a missing item-action `hidden` is an empty Set");
 assert(partial.ui.overrides !== null, "missing overrides are an object");
 assert(partial.droppedEvents === 0, "a negative or non-numeric drop count is not trusted");
 assert(fromSnapshot({ droppedEvents: -5 })?.droppedEvents === 0, "a negative drop count is not trusted");
@@ -217,16 +223,38 @@ assert([...(tools?.entries.keys() ?? [])].join(",") === "lantern", "a tool that 
 assert(tools?.entries.get("lantern")?.definition.label === "Lantern", "a valid tool definition survives");
 assert(tools?.entries.get("lantern")?.hidden === true, "a dropped tool's state does not leak onto a valid one");
 
-// A save that cannot be written back out is worse than a lossy one, so the one
-// field the engine never reads is checked for representability on the way in.
-const cyclic: Record<string, unknown> = { lines: ["hi"] };
+// A conversation is a position — a conversation id and a node id — and is narrowed
+// field by field like everything else in a snapshot. Narrowing to two strings is
+// also what makes it representable: a payload carrying a cycle or a BigInt cannot
+// reach the save, because neither field is copied.
+const cyclic: Record<string, unknown> = { id: "keeper_intro", nodeId: "greeting", self: null };
 cyclic.self = cyclic;
-assert(fromSnapshot({ conversation: cyclic })?.conversation === null, "a cyclic conversation is dropped, not kept");
-const bigint = { count: 1n } as unknown as Record<string, unknown>;
-assert(fromSnapshot({ conversation: bigint })?.conversation === null, "a BigInt conversation is dropped, not kept");
+const fromCyclic = fromSnapshot({ conversation: cyclic })?.conversation;
 assert(
-  fromSnapshot({ conversation: { lines: ["kept"] } })?.conversation !== null,
-  "an ordinary conversation survives the check",
+  fromCyclic?.id === "keeper_intro" && fromCyclic?.nodeId === "greeting",
+  "a cyclic conversation narrows to its position rather than being dropped",
+);
+assert(
+  JSON.stringify(fromCyclic) === '{"id":"keeper_intro","nodeId":"greeting"}',
+  "nothing beyond the position survives into the save",
+);
+assert(
+  fromSnapshot({ conversation: { count: 1n } })?.conversation === null,
+  "a payload with no conversation position is dropped",
+);
+assert(
+  fromSnapshot({ conversation: { id: "keeper_intro" } })?.conversation === null,
+  "a position with no node is dropped",
+);
+assert(
+  fromSnapshot({ conversation: { id: "", nodeId: "greeting" } })?.conversation === null,
+  "a position with an empty id is dropped",
+);
+// A position naming a node the scenario no longer has is kept here on purpose: this
+// function cannot report, so the boot path checks it and says so where it can.
+assert(
+  fromSnapshot({ conversation: { id: "gone", nodeId: "vanished" } })?.conversation?.nodeId === "vanished",
+  "a position whose node no longer exists is kept for the boot path to check",
 );
 
 // Scenario identity --------------------------------------------------------

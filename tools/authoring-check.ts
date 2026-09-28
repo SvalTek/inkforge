@@ -184,6 +184,59 @@ async function main(): Promise<void> {
     );
     await page.locator('#projectList [data-project="lantern-below"] button').click();
     await waitFor(page, "#storyTitle", "Stone Entry");
+    // The starter is also the NPC showcase, so its NPCs are played here rather
+    // than only described: the gated action stays closed until trust is raised,
+    // which is the whole `npcVar` -> `npcSet` round trip in a shipped template.
+    await page.locator("#heroChoices button", { hasText: "North" }).first().click();
+    // The title carries the location name; the terminal carries the prose it ran.
+    await waitFor(page, "#storyTitle", "Narrow Passage");
+    await waitFor(page, "#heroTerminal", "The passage runs south");
+    // Presence-driven: the passage offers Rowan with no action written anywhere to
+    // do it, and offers exactly one conversation — the other one is unmarked, so it
+    // stays reachable only by choosing to watch Rowan work.
+    assert(
+      (await page.locator("#heroChoices").textContent())?.includes("Talk to Rowan"),
+      "the starter did not offer its discoverable conversation for the NPC in the room",
+    );
+    assert(
+      (await page.locator("#heroChoices button", { hasText: "Talk to" }).count()) === 1,
+      "the starter offered more than one talk choice for a single NPC",
+    );
+    assert(
+      !(await page.locator("#heroChoices").textContent())?.includes("broken"),
+      "the starter offered its npcVar-gated keeper action before trust was raised",
+    );
+    await page.locator("#heroChoices button", { hasText: "Ask the keeper about the lamps" }).click();
+    await waitFor(page, "#heroTerminal", "still burn");
+    assert(
+      (await page.locator("#heroChoices").textContent())?.includes("broken"),
+      "the starter's npcVar-gated action did not open after npcSet raised trust",
+    );
+    // The conversation in the same shipped template: options take over the choice
+    // list, the command box disappears, and a node with no options hands the player
+    // back to the room rather than stranding them.
+    await page.locator("#heroChoices button", { hasText: "Talk to Rowan" }).click();
+    await waitFor(page, "#heroTerminal", "What brings you down, then?");
+    assert(
+      !(await page.locator("#heroChoices").textContent())?.includes("Look around"),
+      "the starter offered a location action beside the conversation's options",
+    );
+    assert(
+      !(await page.locator("#heroCommand").isVisible()),
+      "the starter left the command box visible during a conversation",
+    );
+    await page.locator("#heroChoices button", { hasText: "I was told the lamps need tending." }).click();
+    await waitFor(page, "#heroTerminal", "It catches, and then it sulks.");
+    await page.locator("#heroChoices button", { hasText: "Nod, and take that lamp in your own hand." }).click();
+    await waitFor(page, "#heroTerminal", "Mind the third one.");
+    assert(
+      (await page.locator("#heroChoices").textContent())?.includes("Ask the keeper about the lamps"),
+      "a terminal conversation node did not return the player to the passage",
+    );
+    assert(
+      await page.locator("#heroCommand").isVisible(),
+      "the starter left the command box hidden after the conversation ended",
+    );
     await page.locator("#loadBtn").click();
     await page.locator('#projectList [data-project="renderer-stage-showcase"] button:not([disabled])').first().click();
     await waitFor(page, "#storyTitle", "The authored visual stage");

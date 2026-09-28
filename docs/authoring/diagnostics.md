@@ -107,6 +107,9 @@ worse than an error.
 |---|---|
 | Unknown condition key (`{ vara: x }`) | At load — `unknown condition key 'vara'` |
 | Empty condition | At load — `condition is empty` |
+| `and:` or `or:` that is not a list | At load — `'and' must be a list of conditions` |
+| A condition that is not an object at all | At load — `condition must be an object` |
+| `allowInConversation` written as anything but `true`/`false` | At load — `allowInConversation must be true or false`. Conversation visibility reads it as "explicitly true", so any other value would quietly withdraw the surface |
 | Comparison without a `var` | At load — `comparison needs a 'var' to compare against` |
 | Unknown directive key | At load — `unrecognised directive [...] — nothing will happen` |
 | A directive that is neither a string nor an object | At load |
@@ -119,6 +122,30 @@ worse than an error.
 | A tool definition that is malformed | When registered — `Tool needs a non-empty id.` and friends |
 | A `modal.page` naming a page that is not in the open modal | When activated |
 | Missing configured Lua entry file | At boot — `Script not found: <path>` |
+| An `npcSet` key with no dot, or naming no instance | At load — `key must be '<npc-instance>.<value>'` |
+| An `npcVar` with no dot, or naming no instance | At load — `npcVar must be '<npc-instance>.<value>'` |
+| An `instances.npc` entry with no `def`, or one that resolves to nothing | At load — `unknown npc definition '<id>'` |
+| A location's `npcs:` listing an instance that does not exist | At load — `unknown npc instance '<id>'` |
+| An NPC `portrait` that is not a project asset path | At load — `npc portrait must be a project asset path such as assets/portrait.webp, got '<path>'` |
+| An NPC `state` that is not a mapping | At load — `npc state must be a mapping of value names to values` |
+| An NPC instance id containing a `.` | At load — `npc instance id must not contain '.', which separates it from a value name, got '<id>'` |
+| A UI element's `if:` with a bad key, or one naming an unknown NPC | At load — including nested elements and `actions:` as well as `events:` |
+| A `portrait` path that is well-formed but not uploaded | When something resolves it — `Asset not found: <path>` |
+| A conversation's `start` naming no node | At load — `unknown node '<id>'` |
+| An option's `next` naming no node in the same conversation | At load — `unknown node '<id>' in conversation '<id>'` |
+| An option's `talk` naming no conversation | At load — `unknown conversation '<id>'` |
+| A dialogue line or participant naming neither `player` nor an NPC instance | At load — `unknown speaker '<id>'` / `unknown participant '<id>'` |
+| An unknown key on a dialogue line or a conversation option | At load — `unknown dialogue line key '<k>'` / `unknown conversation option key '<k>'` |
+| Two options in one node sharing an `id` | At load — `duplicate conversation option id '<id>' in this node` |
+| `dialogue`, `options` or `participants` written as a mapping instead of a list | At load — `<path>: ... must be a list`, rather than a `forEach is not a function` crash |
+| A location's `npcs` written as a mapping instead of a list | At load — `locations.<id>.npcs: location npcs must be a list` |
+| A `call:` in a conversation option naming a function that does not exist | At boot — `Missing Lua functions: ...` |
+| `discoverable` written as anything but `true`/`false` | At load — `discoverable must be true or false` |
+| A `discoverable` conversation with no NPC instance in `participants` | At load — `a discoverable conversation needs an npc instance in participants to be offered from` |
+| Two ungated `discoverable` conversations for the same NPC instance | At load — `'Talk to <npc>' cannot mean two things`. Gated ones are allowed; that is how one person gets two conversations |
+| Two *gated* `discoverable` conversations for the same NPC instance, both live at once | At runtime, once — `Two conversations are offered to <npc> at once: ...`. A gate is not proof of exclusivity, so the first is offered and the collision is reported rather than swallowed |
+| An `npcs:` entry with nothing under it | At load — `npc definition must be a mapping`. A half-written definition must not take the rest of the validation down with it |
+| A condition or directive inside a **modal's** elements | Checked at load, same as a screen element. Modal elements are authored content and were silently skipped once |
 
 **Not caught — the ones to watch for:**
 
@@ -128,9 +155,15 @@ worse than an error.
 | A typo in a state key | A `get` returns `nil` and the write creates a new key. Nothing is wrong as far as the engine can tell |
 | An exit whose condition can never pass | The exit is simply never offered |
 | An authored UI element whose type its region does not render | It is absent, with no message — see [UI](ui.md#regions) |
+| A UI element nested inside another that the outer one never renders | Absent, with no message |
 | A canvas node type that is not drawn | It draws nothing, silently. Its children still render |
 | A `text` node with no `fill` | Draws nothing, since `fill` is the text colour |
 | An `emit:` in a directive list that the run never reaches | Nothing at all |
+| Talking to an NPC who is not in `locations.<id>.npcs` | Nothing — presence is authored and never enforced, so a script may talk to anyone |
+| An `npcVar` naming a real instance but a `<value>` that was never seeded or set | `undefined`, so the comparison behaves as it would for any absent value |
+| A conversation node whose options are **all** gated shut, with no options left to answer | The conversation **ends** and the player is returned to the room. Deliberate, and the one place the engine does not fail closed — see [a node with no options ends the conversation](conversations.md#a-node-with-no-options-ends-the-conversation) |
+| Talking to an NPC who is not in the room's `npcs:` list | Nothing — presence is authored and never enforced, so a script may talk to anyone |
+| An NPC standing in the room with no `discoverable` conversation | No `Talk to` button, and no message. There is no conversation to have, so there is nothing to talk *about* |
 
 Every one of the unchecked cases is a thing the shape of the data cannot prove. Where a check is possible it exists; the
 rest are worth knowing about rather than being papered over with a guess.

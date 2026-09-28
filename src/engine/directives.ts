@@ -2,6 +2,7 @@ import type {
   ApplyUiFn,
   Directive,
   DirectiveList,
+  EngineDeps,
   EngineRuntime,
   ExecutionContext,
   IncDecSpec,
@@ -9,8 +10,18 @@ import type {
   Scenario,
 } from "../types/index.ts";
 import { check } from "./conditions.ts";
-import { markViewDirty, pushEvent } from "./events.ts";
-import { addItem, adjustState, itemStatePath, removeItem, setLocation, setState } from "./state.ts";
+import { startConversation } from "./conversation.ts";
+import {
+  addItem,
+  adjustState,
+  endRun,
+  itemStatePath,
+  npcStatePath,
+  parseNpcPath,
+  removeItem,
+  setLocation,
+  setState,
+} from "./state.ts";
 
 export interface DirectiveDeps {
   runtime: EngineRuntime;
@@ -33,6 +44,24 @@ export interface DirectiveDeps {
    * in `execute` keeps its ordering guarantee if that ever stops being true.
    */
   emitEvent(name: string, data: Record<string, unknown>, context?: ExecutionContext): void | Promise<void>;
+}
+
+/**
+ * The directive-facing subset of the engine's dependencies.
+ *
+ * Exported so one object can be built and then handed to everything that needs to run
+ * authored directives — the engine, a contextual feature module, a host binding for
+ * Lua — rather than each rebuilding the mapping and risking the copies drifting.
+ */
+export function createDirectiveDeps(deps: EngineDeps): DirectiveDeps {
+  return {
+    runtime: deps.runtime,
+    getScenario: deps.getScenario,
+    output: deps.output,
+    applyUi: deps.applyUi,
+    invokeLua: deps.invokeLua,
+    emitEvent: deps.emitEvent,
+  };
 }
 
 export function lines(value: DirectiveList | undefined): Directive[] {
@@ -61,11 +90,13 @@ export const DIRECTIVE_KEYS = [
   "text",
   "set",
   "itemSet",
+  "npcSet",
   "inc",
   "dec",
   "give",
   "remove",
   "goto",
+  "talk",
   "ui",
   "if",
   "end",
@@ -107,6 +138,26 @@ export async function execute(
       }
       continue;
     }
+    if ("npcSet" in x) {
+      const npcSet: unknown = x.npcSet;
+      if (!npcSet || typeof npcSet !== "object" || Array.isArray(npcSet)) {
+        deps.output("npcSet must be a mapping.", "error");
+        continue;
+      }
+      // Every key names its own instance, so this needs no context and one
+      // directive can write several NPCs. An unparseable key is reported rather
+      // than skipped: a typo'd subject is a mistake worth seeing, not a value to
+      // drop on the floor.
+      for (const [spec, value] of Object.entries(npcSet)) {
+        const subject = parseNpcPath(spec);
+        if (!subject) {
+          deps.output(`npcSet key must be <npc-instance>.<value>, got: ${spec}`, "error");
+          continue;
+        }
+        setState(deps.runtime, npcStatePath(subject.instanceId, subject.path), value);
+      }
+      continue;
+    }
     if (x.inc || x.dec) {
       const p = (x.inc || x.dec) as IncDecSpec;
       const k = p.var || Object.keys(p)[0];
@@ -127,6 +178,14 @@ export async function execute(
       await move(x.goto, deps, context);
       continue;
     }
+    if (x.talk) {
+      // Beside `goto` because both are "the player is somewhere else now": one moves
+      // them through the world, the other into an exchange. Neither awaits anything
+      // itself — a node's lines are output, not directives — so this stays ordered
+      // with the rest of the chain without adding an await that buys nothing.
+      startConversation(x.talk, deps, context);
+      continue;
+    }
     if (x.ui) {
       deps.applyUi(x.ui);
       continue;
@@ -144,10 +203,10 @@ export async function execute(
       continue;
     }
     if (x.end) {
-      deps.runtime.over = true;
-      pushEvent(deps.runtime, { type: "game:over" });
-      // `over` drops every remaining choice, so the list on screen is stale.
-      markViewDirty(deps.runtime);
+      // Not `runtime.over = true` here: ending the run also ends any conversation
+      // holding it, so that the choices on screen are not a conversation's worth of
+      // buttons that accept a click and do nothing. See `endRun`.
+      endRun(deps.runtime);
     }
   }
 }

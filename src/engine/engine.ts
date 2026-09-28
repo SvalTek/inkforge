@@ -8,20 +8,27 @@ import type {
   ExitValue,
 } from "../types/index.ts";
 import { check as checkCondition } from "./conditions.ts";
-import type { DirectiveDeps } from "./directives.ts";
-import { execute as executeDirectives, itemName, move as moveTo } from "./directives.ts";
+import { chooseOption, conversationOptions, discoverableTalks, startConversation } from "./conversation.ts";
+import {
+  createDirectiveDeps,
+  type DirectiveDeps,
+  execute as executeDirectives,
+  itemName,
+  move as moveTo,
+} from "./directives.ts";
 import { clearTranscript } from "./events.ts";
 
-export function createEngine(deps: EngineDeps): EngineApi {
-  const dirDeps: DirectiveDeps = {
-    runtime: deps.runtime,
-    getScenario: deps.getScenario,
-    output: deps.output,
-    applyUi: deps.applyUi,
-    invokeLua: deps.invokeLua,
-    emitEvent: deps.emitEvent,
-  };
-
+/**
+ * Build the engine API over a set of host dependencies.
+ *
+ * `dirDeps` is accepted rather than only derived so the host that also needs the
+ * directive surface — the Lua bindings, which expose `GameConversations` — can build
+ * it once and hand over the same object. Two views over the same dependencies behave
+ * identically today, because every field is a function or the one runtime, but
+ * "behaves identically" is not the property worth relying on: it is the drift that
+ * the phrase "the same call rather than two that could drift" is actually about.
+ */
+export function createEngine(deps: EngineDeps, dirDeps: DirectiveDeps = createDirectiveDeps(deps)): EngineApi {
   function check(c: Condition | undefined, context?: ExecutionContext): boolean {
     return checkCondition(c, deps.runtime, context);
   }
@@ -35,6 +42,16 @@ export function createEngine(deps: EngineDeps): EngineApi {
   }
 
   function available(): AvailableAction[] {
+    // A conversation owns the choice list while it runs. Offering "North" beside the
+    // answer to a question would let the player walk away mid-exchange, and there
+    // would be no way back to the conversation they were in.
+    if (deps.runtime.conversation) {
+      return conversationOptions(dirDeps).map((option) => ({
+        text: option.text,
+        cmd: "",
+        conversation: { optionId: option.id },
+      }));
+    }
     const scenario = deps.getScenario();
     const loc = scenario?.locations?.[deps.runtime.location] || {};
     const out: AvailableAction[] = [];
@@ -45,6 +62,14 @@ export function createEngine(deps: EngineDeps): EngineApi {
     }
     for (const a of loc.actions || []) {
       if (check(a.if)) out.push({ text: a.label || a.id, cmd: `@${a.id}` });
+    }
+    // Ambient, so after the location's own deliberate actions and before picking
+    // things up: walking into a room should offer the person in it, without that
+    // outranking an exit the author ordered or a "Take" the player did not ask about.
+    // Carried as a payload rather than a dispatched command, so that a location
+    // action whose own id happens to begin `talk:` cannot be mistaken for one.
+    for (const talk of discoverableTalks(deps.runtime, scenario, deps.runtime.location, deps.output)) {
+      out.push({ text: talk.label, cmd: "", talk: { conversationId: talk.conversationId } });
     }
     for (const id of loc.items || []) {
       if (!deps.runtime.inventory.includes(id)) {
@@ -58,6 +83,11 @@ export function createEngine(deps: EngineDeps): EngineApi {
     const cmd = raw.trim();
     const lower = cmd.toLowerCase();
     if (!cmd || deps.runtime.over) return;
+    // A conversation owns the player's attention while it runs, and the command box
+    // is hidden for the duration — so this is a backstop rather than the usual path.
+    // Silent, like the `over` guard above it: there is nothing to tell the player
+    // about a key they cannot press.
+    if (deps.runtime.conversation) return;
     // The turn boundary. Resetting the discard count with the entries is what
     // keeps a fresh turn from inheriting an elision notice it no longer needs.
     clearTranscript(deps.runtime);
@@ -106,5 +136,32 @@ export function createEngine(deps: EngineDeps): EngineApi {
     }
   }
 
-  return { check, move, execute, available, dispatch };
+  /**
+   * Take a conversation option.
+   *
+   * Deliberately does not repaint: the conversation functions mark the view dirty
+   * through the ordinary funnels, and the caller flushes once for the whole
+   * invocation — the same arrangement the inventory inspector uses, so a fast
+   * second click cannot see a half-applied node.
+   */
+  async function chooseConversationOption(optionId: string): Promise<void> {
+    if (!deps.runtime.conversation || deps.runtime.over) return;
+    await chooseOption(optionId, dirDeps);
+  }
+
+  /**
+   * Begin a conversation, the way a discoverable offer does.
+   *
+   * Exposed on the API so the renderer can bind the offer to a closure. It is the
+   * same call a `talk:` directive makes, so a conversation begun from the choice list
+   * and one begun by an action are indistinguishable downstream.
+   *
+   * Like {@link chooseConversationOption} it does not repaint, for the same reason.
+   */
+  function beginDiscoverableTalk(conversationId: string): void {
+    if (deps.runtime.over) return;
+    startConversation(conversationId, dirDeps);
+  }
+
+  return { check, move, execute, available, dispatch, chooseConversationOption, beginDiscoverableTalk };
 }

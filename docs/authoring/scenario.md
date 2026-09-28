@@ -15,6 +15,7 @@ player: !import player.yml
 ui: !import ui.yml
 definitions: !import definitions.yml
 instances: !import instances.yml
+npcs: !import npcs.yml
 locations: !import locations.yml
 
 scripts:
@@ -31,7 +32,9 @@ scripts:
 | `modals` | no | List of modal windows — see [Modals](ui.md#modals) |
 | `tools` | no | Tool rail entries — see [Tools](tools.md) |
 | `definitions` | no | Item definitions |
-| `instances` | no | Placed item instances |
+| `instances` | no | Placed item and NPC instances |
+| `npcs` | no | Who the NPCs are — see [NPCs](npcs.md) |
+| `conversations` | no | Dialogue trees — see [Conversations](conversations.md) |
 | `locations` | no | The locations themselves |
 | `scripts` | no | `{ main: <path> }`, defaulting to `scripts/main.lua` |
 
@@ -94,6 +97,7 @@ entry:
       then: "A pale ring in the dust is all that marks where the lantern stood."
       else: "A brass lantern rests beside the threshold."
   items: [entry_lantern]
+  npcs: [passage_keeper]
   exits:
     north: passage
   actions:
@@ -113,6 +117,7 @@ entry:
 | `title` | Shown in the header and the play view |
 | `text` | Directives run on entry and on `look` |
 | `items` | Items lying here, by instance id |
+| `npcs` | NPCs present here, by instance id — see [NPCs](npcs.md) |
 | `exits` | Movement, keyed by the direction the player types |
 | `actions` | Non-movement things reachable with `@id` |
 
@@ -211,13 +216,33 @@ item:
 A location's `items:` list holds **instance** ids. The engine resolves instance → `def` → definition to find the
 display name, which is why `take entry_lantern` prints `Taken: Brass Lantern.`
 
+`instances.yml` is keyed by kind, so the same file places both kinds:
+
+```yaml
+# instances.yml
+item:
+  entry_lantern:
+    def: lantern
+npc:
+  passage_keeper:
+    def: keeper
+```
+
+A location lists its NPC instances in `npcs:`, exactly as `items:` lists item instances. See [NPCs](npcs.md).
+
 `name` and `description` are what the inventory inspector shows when a slot is clicked. `actions` adds buttons below
-the description. Each action has an `id`, an optional `label`, an optional `if` condition, and a `then` directive list.
-`id` must be a non-empty string, `label` must be a string when present, and unknown action fields are rejected at load.
-The `then` list can use `call` for one named Lua function or `emit` for an event; see [Directives](directives.md#call)
-for when to use each. Conditions use the current runtime state and inventory. Actions belong to the definition, so all
-instances of that definition show the same actions. The inspector disables all item-action buttons while one action is
-running, so an awaited Lua call cannot be triggered twice by a rapid second click.
+the description. Each action has an `id`, an optional `label`, an optional `if` condition, an optional
+`allowInConversation`, and a `then` directive list. `id` must be a non-empty string, `label` must be a string when
+present, and unknown action fields are rejected at load. The `then` list can use `call` for one named Lua function or
+`emit` for an event; see [Directives](directives.md#call) for when to use each. Conditions use the current runtime state
+and inventory. Actions belong to the definition, so all instances of that definition show the same actions. The
+inspector disables all item-action buttons while one action is running, so an awaited Lua call cannot be triggered twice
+by a rapid second click.
+
+Item actions are withheld from the inspector while a [conversation](conversations.md) is running unless they say
+`allowInConversation: true`. Handing an NPC a potion that changes a stat on them can be a legitimate thing to do
+mid-sentence, so opt that action in deliberately. See
+[ui.md](ui.md#allowinconversation) for the rule.
 
 Beyond `name`, `description`, `aliases`, and `actions`, an item definition may contain any author-defined YAML data.
 Use those fields for facts an action needs to read — inspection prose, material, weight, rarity, lore ids, and similar

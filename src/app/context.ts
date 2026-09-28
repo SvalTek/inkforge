@@ -75,6 +75,8 @@ export interface AppContext {
   flushView(): void;
   runUiAction(element: ResolvedUiElement): Promise<void> | void;
   runToolAction(entry: ToolEntry): Promise<void> | void;
+  /** Take a conversation option. Serialized against a second click while one is pending. */
+  runConversationOption(optionId: string): Promise<void>;
   newProject(): Promise<void>;
   openProjectLibrary(): Promise<void>;
   loadProject(id: string): Promise<void>;

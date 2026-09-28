@@ -1,5 +1,6 @@
 import type { AppContext, AppView } from "./context.ts";
 import type {
+  EngineDeps,
   EngineRuntime,
   ProjectData,
   ResolvedUiElement,
@@ -52,11 +53,15 @@ import {
   removeEntry,
 } from "../editor/tree.ts";
 import { installEditorHarness } from "../editor/harness.ts";
-import { render as renderDom } from "../ui/render.ts";
+import { render as renderDom, runConversationOption as runConversationOptionImpl } from "../ui/render.ts";
 import { runToolAction as runToolActionImpl, runUiAction as runUiActionImpl } from "../ui/actions.ts";
 import { exportPack as exportPackImpl, importPack as importPackImpl } from "../import-export/pack.ts";
 import { createToolRegistry } from "../engine/tool-state.ts";
 import { fromSnapshot, hashProjectSources, hashScenario, toSnapshot } from "../engine/save.ts";
+import { npcInstanceDefaults } from "../engine/state.ts";
+import { createDirectiveDeps } from "../engine/directives.ts";
+import { nodeHasAvailableOption } from "../engine/conversation.ts";
+import { withdrawExcludedSurfaces } from "../engine/withdraw.ts";
 import { deleteSave, getSave, listSaves, parseSaveFile, putSave, serializeSaveFile } from "../project/save-storage.ts";
 import { AssetResolver } from "../project/assets.ts";
 import { AudioManager } from "../audio/manager.ts";
@@ -136,6 +141,7 @@ export function createApp(): AppContext {
     flushView,
     runUiAction,
     runToolAction,
+    runConversationOption,
     newProject,
     openProjectLibrary,
     loadProject,
@@ -282,9 +288,19 @@ export function createApp(): AppContext {
       // gets its authored default. Inventory deliberately is not: a starting item
       // the player already consumed is absent from the save, so merging would
       // hand it back on every resume.
+      //
+      // NPC instance defaults sit at the bottom, below the authored `state` and
+      // below the save. They are a starting point rather than a lock: a scenario
+      // that wants one NPC to begin somewhere else says so in `state`, and a save
+      // that has moved a value keeps it.
       const runtime: EngineRuntime = {
         location: resume?.location || scenario.startLocation,
-        state: { ...(scenario.state || {}), ...(scenario.player?.state || {}), ...(resume?.state || {}) },
+        state: {
+          ...npcInstanceDefaults(scenario),
+          ...(scenario.state || {}),
+          ...(scenario.player?.state || {}),
+          ...(resume?.state || {}),
+        },
         inventory: resume ? [...resume.inventory] : [...(scenario.player?.inventory || [])],
         events: resume ? [...resume.events] : [],
         droppedEvents: resume?.droppedEvents ?? 0,
@@ -300,6 +316,7 @@ export function createApp(): AppContext {
           ? { open: resume.modals.open, activePages: { ...resume.modals.activePages } }
           : { open: null, activePages: {} },
         tools: createToolRegistry(scenario.tools || []),
+        items: { hidden: new Set(resume?.items.hidden || []) },
         conversation: resume?.conversation ?? null,
         lua: null,
         canvasEngine: null,
@@ -329,7 +346,10 @@ export function createApp(): AppContext {
         dom.diagnostics.textContent = `● ${message}`;
         dom.diagnostics.style.color = severity === "error" ? "#ee7c78" : "#d6a95c";
       };
-      const engine = createEngine({
+      // One `DirectiveDeps`, built once and handed to both the engine and the Lua
+      // boot, so a conversation started from a `call:` handler and one started by a
+      // `talk:` directive are the same call rather than two that could drift.
+      const engineDeps: EngineDeps = {
         getScenario: () => app.scenario,
         runtime,
         output,
@@ -337,7 +357,9 @@ export function createApp(): AppContext {
         render: () => flushView(),
         invokeLua: (name, params, context) => invokeNamedFunction(app.lua, name, params, reportSeam, context),
         emitEvent: (name, data, context) => emitNamedEvent(app.lua, name, data, reportSeam, context),
-      });
+      };
+      const directives = createDirectiveDeps(engineDeps);
+      const engine = createEngine(engineDeps, directives);
       app.engine = engine;
       await bootRuntime(app, scenario, {
         flushView: () => flushView(),
@@ -345,6 +367,7 @@ export function createApp(): AppContext {
         output,
         onError: reportProblem,
         audio: app.audio,
+        directives,
       });
       await engine.move(runtime.location);
       // A newer boot has already replaced everything this one built; announcing
@@ -372,6 +395,36 @@ export function createApp(): AppContext {
         runtime.droppedEvents = resume.droppedEvents;
         runtime.over = resume.over;
         runtime.conversation = resume.conversation;
+        // Settled here, after the restoration above and not when the runtime was
+        // first built: `runtime.conversation = resume.conversation` a line up
+        // overwrites anything decided earlier, so a check placed before it is not a
+        // check at all. The symptom that hid this was a live conversation whose node
+        // no longer existed — no options to offer, and the command boxes already
+        // hidden, which is a soft-lock with no way out.
+        if (runtime.conversation) {
+          const { id, nodeId } = runtime.conversation;
+          if (!scenario.conversations?.[id]?.nodes?.[nodeId]) {
+            runtime.conversation = null;
+            output(
+              `Conversation '${id}' no longer has node '${nodeId}' in this scenario; the run resumes outside it.`,
+              "warning",
+            );
+          } else if (!nodeHasAvailableOption(runtime, scenario, runtime.conversation)) {
+            // The same soft-lock the terminal-node rule exists to prevent, reached a
+            // different way: the node is still there but every option on it is gated
+            // shut by state the run no longer satisfies.
+            runtime.conversation = null;
+            output(
+              `Conversation '${id}' has no answerable option at node '${nodeId}'; the run resumes outside it.`,
+              "warning",
+            );
+          }
+        }
+        // A resumed conversation is a live one. The saved position has just been
+        // settled, and if it survived, the surfaces it would have withdrawn never were —
+        // withdrawal happens when a conversation *starts*, and a resumed one did not
+        // start here. Without this the resumed run is the single case that shows them.
+        if (runtime.conversation) withdrawExcludedSurfaces(runtime, scenario);
         runtime.viewDirty = true;
       }
       if (problems === 0) {
@@ -701,6 +754,10 @@ export function createApp(): AppContext {
 
   function runToolAction(entry: ToolEntry): Promise<void> | void {
     return runToolActionImpl(app, entry);
+  }
+
+  function runConversationOption(optionId: string): Promise<void> {
+    return runConversationOptionImpl(app, optionId);
   }
 
   async function openProjectLibrary(): Promise<void> {

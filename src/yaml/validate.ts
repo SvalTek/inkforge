@@ -1,5 +1,7 @@
-import type { Condition, Directive, DirectiveList, Scenario } from "../types/index.ts";
+import type { Condition, Directive, DirectiveList, Scenario, UiElement } from "../types/index.ts";
 import { DIRECTIVE_KEYS } from "../engine/directives.ts";
+import { parseNpcPath } from "../engine/state.ts";
+import { isAssetPath } from "../project/assets.ts";
 
 /** The recognised condition keys. Anything else is a typo, not a pass. */
 export const CONDITION_KEYS = [
@@ -9,6 +11,7 @@ export const CONDITION_KEYS = [
   "hasItem",
   "var",
   "itemVar",
+  "npcVar",
   "eq",
   "ne",
   "neq",
@@ -20,7 +23,9 @@ export const CONDITION_KEYS = [
 
 const CONDITION_KEY_SET = new Set<string>(CONDITION_KEYS);
 const DIRECTIVE_KEY_SET = new Set<string>(DIRECTIVE_KEYS);
-const ITEM_ACTION_KEY_SET = new Set(["id", "label", "if", "then"]);
+const ITEM_ACTION_KEY_SET = new Set(["id", "label", "if", "then", "allowInConversation"]);
+const DIALOGUE_LINE_KEY_SET = new Set(["speaker", "text", "if"]);
+const CONVERSATION_OPTION_KEY_SET = new Set(["id", "text", "if", "then", "next", "talk"]);
 
 /** One problem found in the composed scenario, with the path to it. */
 export interface ValidationIssue {
@@ -28,10 +33,36 @@ export interface ValidationIssue {
   message: string;
 }
 
+/**
+ * What a condition or directive list needs to know about the composed scenario
+ * to be checked properly.
+ *
+ * Threaded rather than read from a module global so a check always sees the
+ * scenario it was handed, and so `validateScenario` is the only place that
+ * decides what "declared" means.
+ */
+export interface ValidationScope {
+  /** Every declared `instances.npc` id, so an `npcVar` subject can be resolved. */
+  npcInstances: Set<string>;
+  /** Every conversation id mapped to the node ids inside it. */
+  conversations: Map<string, Set<string>>;
+}
+
+/** A value that is a list, or nothing at all. */
+function asList(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+/** A speaker or participant is the player, or an NPC instance placed in the world. */
+function isKnownSpeaker(name: string, scope: ValidationScope): boolean {
+  return name === "player" || scope.npcInstances.has(name);
+}
+
 function checkCondition(
   condition: Condition | undefined,
   path: string,
   issues: ValidationIssue[],
+  scope: ValidationScope,
   hasItemContext = false,
 ): void {
   if (condition === undefined || condition === null) return;
@@ -49,31 +80,55 @@ function checkCondition(
       issues.push({ path, message: `unknown condition key '${key}'` });
     }
   }
-  const stateKeys = ["var", "itemVar"].filter((key) => key in condition);
+  const stateKeys = ["var", "itemVar", "npcVar"].filter((key) => key in condition);
   if (stateKeys.length > 1) {
-    issues.push({ path, message: "condition cannot combine 'var' and 'itemVar'" });
+    issues.push({ path, message: "condition cannot combine 'var', 'itemVar' and 'npcVar'" });
   }
   if ("itemVar" in condition && !hasItemContext) {
     issues.push({ path, message: "'itemVar' requires an inventory item action context" });
   }
+  // An `npcVar` names its instance, so it needs no context — but the instance has
+  // to exist. At runtime an unknown subject reads an absent state key and simply
+  // compares false, which is exactly the silent gate this check exists to stop.
+  if ("npcVar" in condition) {
+    const spec = condition.npcVar;
+    if (typeof spec !== "string" || !spec.trim()) {
+      issues.push({ path: `${path}.npcVar`, message: "npcVar must be a non-empty string" });
+    } else {
+      const subject = parseNpcPath(spec);
+      if (!subject) {
+        issues.push({ path: `${path}.npcVar`, message: `npcVar must be '<npc-instance>.<value>', got '${spec}'` });
+      } else if (!scope.npcInstances.has(subject.instanceId)) {
+        issues.push({ path: `${path}.npcVar`, message: `npcVar names unknown NPC instance '${subject.instanceId}'` });
+      }
+    }
+  }
   // Comparison keys only mean something alongside one state-reading key.
   const comparisons = ["eq", "ne", "neq", "gt", "gte", "lt", "lte"];
   if (comparisons.some((key) => key in condition) && stateKeys.length === 0) {
-    issues.push({ path, message: "comparison needs a 'var' or 'itemVar' to compare against" });
+    issues.push({ path, message: "comparison needs a 'var', 'itemVar' or 'npcVar' to compare against" });
   }
-  if (condition.and) {
-    condition.and.forEach((item, index) => checkCondition(item, `${path}.and.${index}`, issues, hasItemContext));
+  // `and`/`or` are recursed into by index, so the array shape is load-bearing rather
+  // than cosmetic: `and: true` has no `.forEach`, and reading it unguarded threw out of
+  // the whole validation, which is the one thing that turns a typo into a boot crash
+  // instead of a line in the diagnostics list.
+  for (const key of ["and", "or"] as const) {
+    const branch = condition[key];
+    if (branch === undefined) continue;
+    if (!Array.isArray(branch)) {
+      issues.push({ path: `${path}.${key}`, message: `'${key}' must be a list of conditions` });
+      continue;
+    }
+    branch.forEach((item, index) => checkCondition(item, `${path}.${key}.${index}`, issues, scope, hasItemContext));
   }
-  if (condition.or) {
-    condition.or.forEach((item, index) => checkCondition(item, `${path}.or.${index}`, issues, hasItemContext));
-  }
-  if (condition.not) checkCondition(condition.not, `${path}.not`, issues, hasItemContext);
+  if (condition.not) checkCondition(condition.not, `${path}.not`, issues, scope, hasItemContext);
 }
 
 function checkDirectives(
   list: DirectiveList | undefined,
   path: string,
   issues: ValidationIssue[],
+  scope: ValidationScope,
   hasItemContext = false,
 ): void {
   if (list === undefined || list === null) return;
@@ -103,13 +158,58 @@ function checkDirectives(
         issues.push({ path: itemPath, message: "'itemSet' requires an inventory item action context" });
       }
     }
-    if (directive.if) checkCondition(directive.if as Condition, `${itemPath}.if`, issues, hasItemContext);
-    if (directive.then) checkDirectives(directive.then as DirectiveList, `${itemPath}.then`, issues, hasItemContext);
-    if (directive.else) checkDirectives(directive.else as DirectiveList, `${itemPath}.else`, issues, hasItemContext);
+    // `npcSet` keys are `<instance>.<value>`, so the mapping check is not enough:
+    // a key that does not parse would be reported by the directive and write
+    // nothing, which is worth catching here too. No context gate, because every
+    // key names its own instance.
+    if ("npcSet" in directive) {
+      const npcSet = directive.npcSet;
+      if (!npcSet || typeof npcSet !== "object" || Array.isArray(npcSet)) {
+        issues.push({ path: `${itemPath}.npcSet`, message: "npcSet must be a mapping" });
+      } else {
+        for (const spec of Object.keys(npcSet as Record<string, unknown>)) {
+          const subject = parseNpcPath(spec);
+          if (!subject) {
+            issues.push({ path: `${itemPath}.npcSet.${spec}`, message: "key must be '<npc-instance>.<value>'" });
+          } else if (!scope.npcInstances.has(subject.instanceId)) {
+            issues.push({
+              path: `${itemPath}.npcSet.${spec}`,
+              message: `unknown NPC instance '${subject.instanceId}'`,
+            });
+          }
+        }
+      }
+    }
+    if (directive.if) checkCondition(directive.if as Condition, `${itemPath}.if`, issues, scope, hasItemContext);
+    if (directive.then) {
+      checkDirectives(directive.then as DirectiveList, `${itemPath}.then`, issues, scope, hasItemContext);
+    }
+    if (directive.else) {
+      checkDirectives(directive.else as DirectiveList, `${itemPath}.else`, issues, scope, hasItemContext);
+    }
   });
 }
 
-function checkItemAction(action: unknown, path: string, issues: ValidationIssue[]): void {
+/**
+ * `allowInConversation` must be a boolean where it is present.
+ *
+ * Checked because the conversation reads it as `=== true`, so anything else — a quoted
+ * `"true"`, a number, a typo'd key that happens to land as a string — would quietly
+ * withdraw a surface the author intended to keep. The failure is invisible in the
+ * sense that matters: the element is absent and nothing says why.
+ */
+function checkAllowInConversation(value: unknown, path: string, issues: ValidationIssue[]): void {
+  if (value !== undefined && typeof value !== "boolean") {
+    issues.push({ path, message: "allowInConversation must be true or false" });
+  }
+}
+
+function checkItemAction(
+  action: unknown,
+  path: string,
+  issues: ValidationIssue[],
+  scope: ValidationScope,
+): void {
   if (!action || typeof action !== "object" || Array.isArray(action)) {
     issues.push({ path, message: "item action must be an object" });
     return;
@@ -126,8 +226,132 @@ function checkItemAction(action: unknown, path: string, issues: ValidationIssue[
   if (value.label !== undefined && typeof value.label !== "string") {
     issues.push({ path: `${path}.label`, message: "item action label must be a string" });
   }
-  checkCondition(value.if as Condition | undefined, `${path}.if`, issues, true);
-  checkDirectives(value.then as DirectiveList | undefined, `${path}.then`, issues, true);
+  checkAllowInConversation(value.allowInConversation, `${path}.allowInConversation`, issues);
+  checkCondition(value.if as Condition | undefined, `${path}.if`, issues, scope, true);
+  checkDirectives(value.then as DirectiveList | undefined, `${path}.then`, issues, scope, true);
+}
+
+function checkDialogueLine(
+  line: unknown,
+  path: string,
+  issues: ValidationIssue[],
+  scope: ValidationScope,
+): void {
+  if (!line || typeof line !== "object" || Array.isArray(line)) {
+    issues.push({ path, message: "dialogue line must be a mapping" });
+    return;
+  }
+  const value = line as Record<string, unknown>;
+  for (const key of Object.keys(value)) {
+    if (!DIALOGUE_LINE_KEY_SET.has(key)) {
+      issues.push({ path: `${path}.${key}`, message: `unknown dialogue line key '${key}'` });
+    }
+  }
+  if (typeof value.speaker !== "string" || !value.speaker.trim()) {
+    issues.push({ path: `${path}.speaker`, message: "dialogue line speaker must be a non-empty string" });
+  } else if (!isKnownSpeaker(value.speaker, scope)) {
+    // A line attributed to nobody is dropped silently at play, and a conversation
+    // whose opening beat is dropped is a very confusing way to lose a turn.
+    issues.push({
+      path: `${path}.speaker`,
+      message: `unknown speaker '${value.speaker}' — expected 'player' or an npc instance`,
+    });
+  }
+  if (typeof value.text !== "string" || !value.text.trim()) {
+    issues.push({ path: `${path}.text`, message: "dialogue line text must be a non-empty string" });
+  }
+  checkCondition(value.if as Condition | undefined, `${path}.if`, issues, scope);
+}
+
+function checkConversationOption(
+  option: unknown,
+  path: string,
+  issues: ValidationIssue[],
+  scope: ValidationScope,
+  conversationId: string,
+): void {
+  if (!option || typeof option !== "object" || Array.isArray(option)) {
+    issues.push({ path, message: "conversation option must be a mapping" });
+    return;
+  }
+  const value = option as Record<string, unknown>;
+  for (const key of Object.keys(value)) {
+    if (!CONVERSATION_OPTION_KEY_SET.has(key)) {
+      issues.push({ path: `${path}.${key}`, message: `unknown conversation option key '${key}'` });
+    }
+  }
+  if (typeof value.id !== "string" || !value.id.trim()) {
+    issues.push({ path: `${path}.id`, message: "conversation option id must be a non-empty string" });
+  }
+  if (typeof value.text !== "string" || !value.text.trim()) {
+    issues.push({ path: `${path}.text`, message: "conversation option text must be a non-empty string" });
+  }
+  // Both continuations are checked against what is actually declared. A `next` that
+  // names nothing ends the conversation one beat early — quietly, since the player
+  // simply gets their turn back — and a `talk` that names nothing reports and stops.
+  // Both are worth naming now rather than discovering in play.
+  if (value.next !== undefined) {
+    if (typeof value.next !== "string" || !value.next.trim()) {
+      issues.push({ path: `${path}.next`, message: "conversation option next must be a non-empty string" });
+    } else if (!scope.conversations.get(conversationId)?.has(value.next)) {
+      issues.push({
+        path: `${path}.next`,
+        message: `unknown node '${value.next}' in conversation '${conversationId}'`,
+      });
+    }
+  }
+  if (value.talk !== undefined) {
+    if (typeof value.talk !== "string" || !value.talk.trim()) {
+      issues.push({ path: `${path}.talk`, message: "conversation option talk must be a non-empty string" });
+    } else if (!scope.conversations.has(value.talk)) {
+      issues.push({ path: `${path}.talk`, message: `unknown conversation '${value.talk}'` });
+    }
+  }
+  checkCondition(value.if as Condition | undefined, `${path}.if`, issues, scope);
+  checkDirectives(value.then as DirectiveList | undefined, `${path}.then`, issues, scope);
+}
+
+/**
+ * Visit every authored UI element, including nested ones, with its validation path.
+ *
+ * An element carries more than its `events`: `if` is evaluated on every render
+ * (`renderUi`, `renderModals`) and `actions` is read as an alternative to `events`
+ * (`runUiAction`), so a validator that only walks top-level `events` skips a
+ * condition it could have reported and a directive list it could have checked. One
+ * walker serves both validation and Lua-name collection, so the two cannot disagree
+ * about how deep they reach.
+ */
+function walkUiElements(
+  elements: UiElement[] | undefined,
+  visit: (element: UiElement, path: string) => void,
+  path = "ui.elements",
+): void {
+  for (const [index, element] of (elements || []).entries()) {
+    const elementPath = `${path}.${index}`;
+    visit(element, elementPath);
+    walkUiElements(element.elements, visit, `${elementPath}.elements`);
+  }
+}
+
+/**
+ * Walk every authored UI element tree in a scenario: the screen's own elements, and
+ * each modal's.
+ *
+ * A modal's elements are authored content with the same `if` conditions and the same
+ * `events`/`actions` bindings as screen elements, and `renderModals` evaluates both.
+ * Validating only `ui.elements` therefore left a whole surface unchecked: a modal
+ * element gated on an `npcVar` naming an NPC that does not exist would boot cleanly
+ * and then simply never appear, which is the quietest possible failure for a typo.
+ *
+ * Both the issue walker and the Lua-name collector go through here, so adding a third
+ * authored element surface later is a one-line change rather than a second blind spot
+ * to remember.
+ */
+function walkAllUiElements(scenario: Scenario, visit: (element: UiElement, path: string) => void): void {
+  walkUiElements(scenario.ui?.elements, visit, "ui.elements");
+  for (const [index, modal] of (scenario.modals || []).entries()) {
+    walkUiElements(modal?.elements, visit, `modals.${index}.elements`);
+  }
 }
 
 /**
@@ -141,16 +365,199 @@ function checkItemAction(action: unknown, path: string, issues: ValidationIssue[
  */
 export function validateScenario(scenario: Scenario): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
+  const scope: ValidationScope = {
+    npcInstances: new Set(Object.keys(scenario.instances?.npc || {})),
+    conversations: new Map(
+      Object.entries(scenario.conversations || {}).map(([id, conversation]) => [
+        id,
+        new Set(Object.keys(conversation?.nodes || {})),
+      ]),
+    ),
+  };
+
+  // NPCs first: the locations and directives below resolve against them, and an
+  // issue list reads better when the cause precedes the symptom it causes.
+  for (const [id, npc] of Object.entries(scenario.npcs || {})) {
+    if (!id.trim()) {
+      issues.push({ path: "npcs", message: "npc id must be a non-empty string" });
+    }
+    // An entry with nothing under it is `npcs: { keeper: }`, which YAML reads as null.
+    // That is a normal intermediate state while an author is still writing the
+    // definition, and it is the one shape a validator must survive: reading a field
+    // off it throws, which would abort the whole check and surface as a raw exception
+    // at boot instead of the one issue that would have told the author what to fix.
+    if (typeof npc !== "object" || npc === null || Array.isArray(npc)) {
+      issues.push({ path: `npcs.${id}`, message: "npc definition must be a mapping" });
+      continue;
+    }
+    if (npc.name !== undefined && typeof npc.name !== "string") {
+      issues.push({ path: `npcs.${id}.name`, message: "npc name must be a string" });
+    }
+    if (npc.description !== undefined && typeof npc.description !== "string") {
+      issues.push({ path: `npcs.${id}.description`, message: "npc description must be a string" });
+    }
+    if (npc.portrait !== undefined) {
+      if (typeof npc.portrait !== "string") {
+        issues.push({ path: `npcs.${id}.portrait`, message: "npc portrait must be a string" });
+      } else if (!isAssetPath(npc.portrait)) {
+        // Shape only. Whether the asset is actually there is the resolver's
+        // report, so a scenario that ships a portrait before uploading it is a
+        // work in progress rather than a broken file.
+        issues.push({
+          path: `npcs.${id}.portrait`,
+          message: `npc portrait must be a project asset path such as assets/portrait.webp, got '${npc.portrait}'`,
+        });
+      }
+    }
+    if (
+      npc.state !== undefined &&
+      (typeof npc.state !== "object" || npc.state === null || Array.isArray(npc.state))
+    ) {
+      issues.push({ path: `npcs.${id}.state`, message: "npc state must be a mapping of value names to values" });
+    }
+  }
+
+  for (const [id, instance] of Object.entries(scenario.instances?.npc || {})) {
+    const def = instance?.def;
+    if (typeof def !== "string" || !def.trim()) {
+      issues.push({ path: `instances.npc.${id}`, message: "npc instance must name a definition with 'def'" });
+    } else if (!scenario.npcs?.[def]) {
+      issues.push({ path: `instances.npc.${id}.def`, message: `unknown npc definition '${def}'` });
+    }
+    // The instance id is the left side of `<instance>.<value>`, and the dot is the
+    // only thing separating them. An id carrying one would seed, resolve and be
+    // listed by a location, yet be unreachable from `npcVar` and `npcSet` — which
+    // split on the first dot and would read `court.keeper.trust` as the instance
+    // `court`. Refusing the character is louder than a subject that silently never
+    // matches. NPC *definition* ids are exempt: they are only ever exact lookups.
+    if (id.includes(".")) {
+      issues.push({
+        path: `instances.npc.${id}`,
+        message: `npc instance id must not contain '.', which separates it from a value name, got '${id}'`,
+      });
+    }
+  }
+
+  // Conversations before locations, so a node that names nothing is reported before
+  // the room that starts it.
+  for (const [id, conversation] of Object.entries(scenario.conversations || {})) {
+    const nodeIds = scope.conversations.get(id) || new Set<string>();
+    if (typeof conversation?.start !== "string" || !conversation.start.trim()) {
+      issues.push({ path: `conversations.${id}.start`, message: "conversation start must be a non-empty string" });
+    } else if (!nodeIds.has(conversation.start)) {
+      issues.push({ path: `conversations.${id}.start`, message: `unknown node '${conversation.start}'` });
+    }
+    if (conversation?.participants !== undefined && !Array.isArray(conversation.participants)) {
+      issues.push({ path: `conversations.${id}.participants`, message: "participants must be a list" });
+    }
+    if (conversation?.discoverable !== undefined && typeof conversation.discoverable !== "boolean") {
+      issues.push({ path: `conversations.${id}.discoverable`, message: "discoverable must be true or false" });
+    }
+    checkCondition(conversation?.if, `conversations.${id}.if`, issues, scope);
+    // Only iterate what is actually a list. Reporting the wrong shape and then
+    // calling `.forEach` on it anyway turns a path-specific diagnostic into a
+    // `forEach is not a function` crash, which tells the author nothing about
+    // which of their keys was wrong.
+    for (const participant of asList(conversation?.participants)) {
+      if (typeof participant !== "string" || !isKnownSpeaker(participant, scope)) {
+        issues.push({
+          path: `conversations.${id}.participants`,
+          message: `unknown participant '${participant}' — expected 'player' or an npc instance`,
+        });
+      }
+    }
+    // `discoverable` is offered from whoever is standing in the room, so a
+    // conversation with no NPC participant could never be offered by anything. It
+    // would simply never appear, which is the one failure an author cannot diagnose
+    // from what they can see.
+    if (
+      conversation?.discoverable === true &&
+      !asList(conversation?.participants).some((participant) =>
+        typeof participant === "string" && scope.npcInstances.has(participant)
+      )
+    ) {
+      issues.push({
+        path: `conversations.${id}.discoverable`,
+        message: "a discoverable conversation needs an npc instance in participants to be offered from",
+      });
+    }
+    for (const [nodeId, node] of Object.entries(conversation?.nodes || {})) {
+      const nodePath = `conversations.${id}.nodes.${nodeId}`;
+      if (node?.dialogue !== undefined && !Array.isArray(node.dialogue)) {
+        issues.push({ path: `${nodePath}.dialogue`, message: "dialogue must be a list" });
+      }
+      asList(node?.dialogue).forEach((line, index) =>
+        checkDialogueLine(line, `${nodePath}.dialogue.${index}`, issues, scope)
+      );
+      if (node?.options !== undefined && !Array.isArray(node.options)) {
+        issues.push({ path: `${nodePath}.options`, message: "conversation options must be a list" });
+      }
+      const options = asList(node?.options);
+      // An option is chosen by its id, so two options sharing one are
+      // indistinguishable: both buttons would be drawn, and picking the second
+      // would run the first one's directives. Refused rather than silently
+      // resolved, because which one an author meant is not guessable.
+      const seenOptionIds = new Set<string>();
+      options.forEach((option, index) => {
+        const optionId = (option as { id?: unknown } | undefined)?.id;
+        if (typeof optionId === "string" && optionId.trim()) {
+          if (seenOptionIds.has(optionId)) {
+            issues.push({
+              path: `${nodePath}.options.${index}.id`,
+              message: `duplicate conversation option id '${optionId}' in this node`,
+            });
+          }
+          seenOptionIds.add(optionId);
+        }
+        checkConversationOption(option, `${nodePath}.options.${index}`, issues, scope, id);
+      });
+    }
+  }
+
+  // Two `discoverable` conversations for the same NPC, with nothing to choose between
+  // them. `Talk to the Keeper` would mean two different things at once, and the engine
+  // can only take the first in authored order — which would silently hide the second
+  // conversation rather than report it.
+  //
+  // A gate is enough to make the overlap intentional: the author has then said which
+  // one is live, so this only refuses the case where nothing *could* ever separate
+  // them. Mutually exclusive `if` conditions are the supported way to author two
+  // conversations with one person.
+  const ungatedTalks = new Map<string, string>();
+  for (const [id, conversation] of Object.entries(scenario.conversations || {})) {
+    if (conversation?.discoverable !== true || conversation?.if !== undefined) continue;
+    for (const participant of asList(conversation?.participants)) {
+      if (typeof participant !== "string" || !scope.npcInstances.has(participant)) continue;
+      const existing = ungatedTalks.get(participant);
+      if (existing !== undefined) {
+        issues.push({
+          path: `conversations.${id}.discoverable`,
+          message: `npc instance '${participant}' is offered by both '${existing}' and '${id}', and neither has an ` +
+            `if to choose between them — 'Talk to <npc>' cannot mean two things`,
+        });
+      } else {
+        ungatedTalks.set(participant, id);
+      }
+    }
+  }
 
   for (const [id, location] of Object.entries(scenario.locations || {})) {
-    checkDirectives(location.text, `locations.${id}.text`, issues);
+    checkDirectives(location.text, `locations.${id}.text`, issues, scope);
     (location.actions || []).forEach((action, index) => {
-      checkCondition(action.if, `locations.${id}.actions.${index}.if`, issues);
-      checkDirectives(action.then, `locations.${id}.actions.${index}.then`, issues);
+      checkCondition(action.if, `locations.${id}.actions.${index}.if`, issues, scope);
+      checkDirectives(action.then, `locations.${id}.actions.${index}.then`, issues, scope);
     });
     for (const [direction, exit] of Object.entries(location.exits || {})) {
       if (exit && typeof exit === "object") {
-        checkCondition(exit.if, `locations.${id}.exits.${direction}.if`, issues);
+        checkCondition(exit.if, `locations.${id}.exits.${direction}.if`, issues, scope);
+      }
+    }
+    if (location.npcs !== undefined && !Array.isArray(location.npcs)) {
+      issues.push({ path: `locations.${id}.npcs`, message: "location npcs must be a list" });
+    }
+    for (const npcId of asList(location.npcs)) {
+      if (typeof npcId !== "string" || !scope.npcInstances.has(npcId)) {
+        issues.push({ path: `locations.${id}.npcs`, message: `unknown npc instance '${npcId}'` });
       }
     }
   }
@@ -161,14 +568,25 @@ export function validateScenario(scenario: Scenario): ValidationIssue[] {
       continue;
     }
     (definition.actions || []).forEach((action, index) =>
-      checkItemAction(action, `definitions.item.${id}.actions.${index}`, issues)
+      checkItemAction(action, `definitions.item.${id}.actions.${index}`, issues, scope)
     );
   }
 
-  (scenario.ui?.elements || []).forEach((element, index) => {
-    for (const [slot, binding] of Object.entries(element.events || {})) {
-      if (binding?.then) checkDirectives(binding.then, `ui.elements.${index}.events.${slot}.then`, issues);
+  walkAllUiElements(scenario, (element, path) => {
+    checkCondition(element.if, `${path}.if`, issues, scope);
+    checkAllowInConversation(element.allowInConversation, `${path}.allowInConversation`, issues);
+    for (const [source, bindings] of [["events", element.events], ["actions", element.actions]] as const) {
+      for (const [slot, binding] of Object.entries(bindings || {})) {
+        checkDirectives(binding?.then, `${path}.${source}.${slot}.then`, issues, scope);
+      }
     }
+  });
+
+  // Tools are otherwise unvalidated, which is a gap of its own and not one to open
+  // here. This is here because the key was just added and the read is a strict
+  // comparison — the one place a typo would be invisible.
+  (scenario.tools || []).forEach((tool, index) => {
+    checkAllowInConversation(tool?.allowInConversation, `tools.${index}.allowInConversation`, issues);
   });
 
   return issues;
@@ -203,12 +621,28 @@ export function collectReferencedLuaNames(scenario: Scenario): ValidationIssue[]
       fromDirective(action.then, `definitions.item.${id}.actions.${index}.then`);
     });
   }
-  (scenario.ui?.elements || []).forEach((element, index) => {
-    for (const [slot, binding] of Object.entries(element.events || {})) {
-      if (typeof binding?.callback === "string") {
-        references.push({ path: `ui.elements.${index}.events.${slot}.callback`, message: binding.callback });
+  // An option's `then` is a directive list like any other, so a `call:` in one is a
+  // name that has to resolve. Leaving this walk out would mean a typo inside a
+  // conversation is the one authored place never checked at boot — and it would
+  // surface as a failed call in play rather than as the boot diagnostic.
+  for (const [id, conversation] of Object.entries(scenario.conversations || {})) {
+    for (const [nodeId, node] of Object.entries(conversation?.nodes || {})) {
+      asList(node?.options).forEach((option, index) => {
+        fromDirective(
+          (option as { then?: DirectiveList } | undefined)?.then,
+          `conversations.${id}.nodes.${nodeId}.options.${index}.then`,
+        );
+      });
+    }
+  }
+  walkAllUiElements(scenario, (element, path) => {
+    for (const [source, bindings] of [["events", element.events], ["actions", element.actions]] as const) {
+      for (const [slot, binding] of Object.entries(bindings || {})) {
+        if (typeof binding?.callback === "string") {
+          references.push({ path: `${path}.${source}.${slot}.callback`, message: binding.callback });
+        }
+        fromDirective(binding?.then, `${path}.${source}.${slot}.then`);
       }
-      fromDirective(binding?.then, `ui.elements.${index}.events.${slot}.then`);
     }
   });
   (scenario.tools || []).forEach((tool, index) => {

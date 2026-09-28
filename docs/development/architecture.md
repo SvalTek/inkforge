@@ -103,6 +103,12 @@ Authored content names a function (`call:`) or an event (`emit:`). It never cont
 is `src/lua/invoke.ts`, and every name is checked — `call:` targets at boot, `emit:` targets on first emit, because
 `Events:On` cannot be enumerated.
 
+A `call:` name is a dot-delimited path into Lua globals, and it is resolved **one segment at a time by the engine's own
+envelope**, never by the bridge's direct named-call path — that path resolves a bare global only. This has to be the same
+rule the boot check uses, because `collectUnresolvedLuaNames` walks the segments: if the two disagreed, a name boot
+accepted could still fail at the moment it was reached, which is exactly the silent half of a name that looks fine in
+every diagnostic. The envelope also carries execution context, so the two reasons to stage it are the same mechanism.
+
 Inventory actions add transient execution context to this same engine path rather than using a separate dispatcher. The
 inspector supplies the instance id, definition id and action id; `check` and `execute` carry that subject through nested
 directives, and the Lua seam exposes it as the optional second argument to `call` and `emit` handlers. Context describes
@@ -116,6 +122,38 @@ repainting. An awaited Lua call therefore cannot turn a rapid double click into 
 Contextual item state still uses the ordinary flat runtime store. `itemStatePath` is the single resolver for both
 `itemVar` and `itemSet`, mapping a local name such as `lit` to `item.<instance-id>.lit`. The existing state mutation
 funnel and save projection therefore apply without a second entity-state system.
+
+NPC state follows that same shape one level along. `npcStatePath` maps `<instance-id>.<path>` to
+`npc.<instance-id>.<path>`, and `npcInstanceDefaults` flattens every `npcs.<id>.state` block into state keys once at
+boot. Those defaults are the **bottom** layer of the boot merge, below authored `state`, below `player.state`, and below a
+resumed save, so a default is a starting point rather than a lock and needs no merge logic of its own.
+
+`npcVar` and `npcSet` are deliberately *not* context-bound, unlike `itemVar` and `itemSet`. Each names its own instance,
+so it needs no `ExecutionContext` member, is valid anywhere a condition or directive list runs, and lets one `npcSet`
+write several NPCs. The cost is that a bad subject cannot be caught at runtime, so `validateScenario` resolves every
+subject against the declared `instances.npc` ids instead — the same "validate at load, fail closed" rule as everything
+else, applied one layer earlier.
+
+A conversation is the second contextual authoring feature, and it is built on the first one's seam rather than beside it.
+`src/engine/conversation.ts` takes `DirectiveDeps` — **not** `EngineApi` — which is the load-bearing decision: `execute()`
+already holds a `DirectiveDeps`, so the `talk:` directive calls straight in, and a Lua entry point later needs one type
+threaded through the bindings instead of the engine reshaped around a new dependency.
+
+It is position, not transcript: `runtime.conversation` holds a conversation id and a node id, and spoken lines go out
+through `output`. That is what makes an exchange capped, saveable and renderable by machinery that already handles prose,
+and it is why a save resumes mid-conversation with the transcript intact. The three things a running conversation owns —
+the choice list, the command box, and `dispatch` being refused — are all consequences of "the player is in a
+conversation", not separate features.
+
+Two decisions there are deliberate exceptions to house rules, and both are documented for authors rather than left to be
+discovered. A node with **no visible options ends the conversation** rather than failing closed, because the command box
+is hidden for the duration and a node with nothing to answer is a soft-lock. And a resumed position whose node has since
+been deleted is kept by `fromSnapshot` — which cannot report — and then cleared and reported by the boot path, where it
+can.
+
+`conversation.ts` and `directives.ts` import each other: `execute` needs the `talk:` key, and an option's `then` needs
+`execute`. That cycle is safe because both sides export hoisted function declarations and neither calls the other while
+its module body runs. It is called out in the module so a later reader does not "fix" it into something broken.
 
 Item definition metadata crosses a separate read-only seam. `GameItems.get` resolves an instance against the composed
 scenario and `GameItems.definition` performs a direct definition lookup. Both return detached definition copies, so

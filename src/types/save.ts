@@ -1,6 +1,7 @@
 import type { EngineEvent } from "./events.ts";
+import type { ConversationState } from "./engine.ts";
 import type { ModalRuntimeState, ToolEntry, ToolRegistry } from "./tools.ts";
-import type { UiElement, UiOverrideMap, UiRuntimeState } from "./ui.ts";
+import type { ItemActionRuntimeState, UiElement, UiOverrideMap, UiRuntimeState } from "./ui.ts";
 
 /** Discriminator and version for an exported save file, mirroring the pack envelope. */
 export const SAVE_FORMAT = "inkforge-save" as const;
@@ -41,9 +42,10 @@ export interface SaveSnapshot {
   droppedEvents: number;
   over: boolean;
   ui: { hidden: string[]; overrides: UiOverrideMap; elements: UiElement[] };
+  items: { hidden: string[] };
   tools: ToolEntry[];
   modals: ModalRuntimeState;
-  conversation: unknown;
+  conversation: ConversationState | null;
 }
 
 /**
@@ -61,9 +63,10 @@ export interface ResumedRuntime {
   droppedEvents: number;
   over: boolean;
   ui: UiRuntimeState;
+  items: ItemActionRuntimeState;
   tools: ToolRegistry;
   modals: ModalRuntimeState;
-  conversation: unknown;
+  conversation: ConversationState | null;
 }
 
 /** One stored save. The library holds at most one of these per project and slot. */

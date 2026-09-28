@@ -109,6 +109,41 @@ export const LUA_API_MANIFEST: readonly LuaApiNamespace[] = [
     ],
   },
   {
+    name: "GameNPCs",
+    call: ".",
+    summary: "Reading NPC instances and their authored definition data.",
+    members: [
+      {
+        name: "get",
+        args: "(instanceId)",
+        summary: "Resolve an NPC instance to its id, definition id, and a detached copy of its definition.",
+      },
+      {
+        name: "definition",
+        args: "(npcId)",
+        summary: "Read a detached copy of an NPC by npc id.",
+      },
+    ],
+  },
+  {
+    name: "GameConversations",
+    call: ".",
+    summary: "Starting and ending a conversation.",
+    members: [
+      {
+        name: "start",
+        args: "(conversationId)",
+        summary: "Enter a conversation at its `start` node. The same call a `talk:` directive makes.",
+      },
+      {
+        name: "finish",
+        args: "()",
+        summary:
+          "End the conversation the player is in, if any. Safe to call when none is. Not named `end`, which is a Lua keyword.",
+      },
+    ],
+  },
+  {
     name: "GameUI",
     call: ".",
     summary: "Creating and changing UI elements.",
@@ -147,6 +182,20 @@ export const LUA_API_MANIFEST: readonly LuaApiNamespace[] = [
       { name: "hide", args: "(id)", summary: "Hide a tool without unregistering it." },
       { name: "enable", args: "(id)", summary: "Enable a tool that was disabled." },
       { name: "disable", args: "(id)", summary: "Disable a tool, greying it out." },
+    ],
+  },
+  {
+    name: "GameItemActions",
+    call: ".",
+    summary: "Withholding the actions offered on an item in the inventory inspector.",
+    members: [
+      {
+        name: "hide",
+        args: "(id)",
+        summary: "Hide an item action. The id is `'<definitionId>.<actionId>'`, as authored.",
+        template: '("${1:lantern.pick_up}", ',
+      },
+      { name: "show", args: "(id)", summary: "Show an item action that was hidden." },
     ],
   },
   {

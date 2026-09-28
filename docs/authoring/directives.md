@@ -25,11 +25,13 @@ text:
 | `text` | Print a line to the transcript |
 | `set` | Assign one or more state paths |
 | `itemSet` | Assign state belonging to the current inventory item instance |
+| `npcSet` | Assign state belonging to NPC instances, keyed `<instance-id>.<path>` |
 | `inc` | Add to a numeric state path |
 | `dec` | Subtract from a numeric state path |
 | `give` | Put an item into the inventory |
 | `remove` | Take an item out of the inventory |
 | `goto` | Move to a location and run its text |
+| `talk` | Start a conversation, and offer its options |
 | `ui` | Apply a UI command (create/set/show/hide/remove) |
 | `if` | Run `then` or `else` depending on a condition |
 | `call` | Call a named Lua function |
@@ -44,7 +46,7 @@ because the alternative — a typo'd key that is quietly ignored — is the hard
 A mapping directive is tested **key by key, in a fixed order**, and the first match wins:
 
 ```
-text → set → itemSet → inc/dec → give → remove → goto → ui → call → emit → if → end
+text → set → itemSet → npcSet → inc/dec → give → remove → goto → talk → ui → call → emit → if → end
 ```
 
 The consequence that catches people out: **`if` is only consulted if none of the earlier keys are present.** So this
@@ -116,6 +118,35 @@ they have no current item.
 `itemSet` assigns fixed values. There are no `itemInc` or `itemDec` directives yet; use Lua when an item-local number
 must be changed relative to its current value.
 
+## `npcSet`
+
+Assigns state to one or more NPC instances, with each key written `<instance-id>.<value>`:
+
+```yaml
+- npcSet:
+    passage_keeper.trust: 3
+    passage_keeper.lampsLit: 0
+```
+
+Those become the flat keys `npc.passage_keeper.trust` and `npc.passage_keeper.lampsLit` — the same store `set:` writes
+to, and the same one `npcVar` reads. Values seeded from an NPC definition's `state:` block are already there unless
+something overwrote them; see [NPCs](npcs.md).
+
+Unlike `itemSet`, this needs no current item, because every key names its own instance. It is therefore valid anywhere a
+directive list runs, and one directive can write several NPCs at once.
+
+The value must be a YAML mapping, and **every key is qualified** — a bare `lampsLit: 0` is an error, not a shorthand,
+because there is no NPC for it to belong to. A key with no dot in it, or one naming an instance that does not exist, is
+rejected at load; a key that somehow reaches the engine anyway reports
+`npcSet key must be <npc-instance>.<value>, got: <key>` rather than writing nothing.
+
+There is no `npcInc`/`npcDec`. `inc` already takes a full path, so a value that moves by an amount needs no new
+directive:
+
+```yaml
+- inc: { var: npc.passage_keeper.lampsLit, by: 1 }
+```
+
 ## `inc` / `dec`
 
 Adds to or subtracts from a numeric state path. An absent path counts as `0`, so `inc` on a fresh variable starts it at
@@ -157,6 +188,31 @@ entering a location by any route produces the same prose.
 ```
 
 An unknown location prints `Unknown location: <id>` as an error and moves nowhere.
+
+## `talk`
+
+Starts a conversation, entering its `start` node and offering that node's options.
+
+```yaml
+- talk: keeper_greeting
+```
+
+The player is then in the conversation: it owns the choice list, and the command box is
+hidden until the exchange ends. An unknown conversation prints `Unknown conversation: <id>`
+as an error and ends any conversation already running, rather than leaving the player
+inside one they cannot see.
+
+Because this is an ordinary directive it composes like any other — inside a conditional
+arm, a UI element's `then:`, or a Lua handler:
+
+```yaml
+- if: { npcVar: passage_keeper.trust, gte: 2 }
+  then:
+    - talk: keeper_greeting
+```
+
+Starting one while another is running replaces it; `talk:` is a cut, not a push. See
+[Conversations](conversations.md).
 
 ## `ui`
 

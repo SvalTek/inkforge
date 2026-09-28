@@ -2,6 +2,7 @@ import type LuaBridge from "WebLuaBridge";
 import { createLuaBridge, globalBindings, jsonBindings, regexBindings, timersBindings } from "WebLuaBridge";
 import { INKFORGE_LUA_API } from "./lua-api.ts";
 import { createHostNamespaces } from "./bindings.ts";
+import type { DirectiveDeps } from "../engine/directives.ts";
 import type { CanvasCommand, CanvasHost } from "../types/canvas.ts";
 import type { ApplyUiFn, EngineRuntime, OutputFn } from "../types/engine.ts";
 import type { Vfs } from "../types/vfs.ts";
@@ -27,6 +28,12 @@ export interface LuaEngineOptions {
   applyUi: ApplyUiFn;
   output: OutputFn;
   audio: AudioManagerLike;
+  /**
+   * The seam authored directives run through, for host operations that are not plain
+   * data. The same object the engine holds, so `GameConversations.start` and a `talk:`
+   * directive are one call rather than two.
+   */
+  directives: DirectiveDeps;
   /** Report a Lua failure that is not a thrown boot error (e.g. a tick error). */
   onError: (message: string) => void;
 }
@@ -51,7 +58,7 @@ export interface LuaEngineOptions {
  * before any work.
  */
 export async function createLuaEngine(options: LuaEngineOptions): Promise<LuaBridge> {
-  const { runtime, scenario, vfs, scriptPath, canvasHost, applyUi, output, audio, onError } = options;
+  const { runtime, scenario, vfs, scriptPath, canvasHost, applyUi, output, audio, directives, onError } = options;
 
   if (vfs[scriptPath] === undefined) throw new Error(`Script not found: ${scriptPath}`);
 
@@ -66,7 +73,7 @@ export async function createLuaEngine(options: LuaEngineOptions): Promise<LuaBri
   // `injectObjects`/`enableProxy` are the bridge defaults; stated explicitly so
   // the dependency on direct object bridging is visible where it matters.
   const bridge = await createLuaBridge({
-    ...createHostNamespaces({ runtime, scenario, applyUi, output, audio }),
+    ...createHostNamespaces({ runtime, scenario, applyUi, output, audio, directives }),
     // Internal transport for the Lua-side `GameCanvas` handles. Double
     // underscore marks it as plumbing rather than authored API.
     __canvas_command: (payload: unknown) => canvasHost.command(payload as CanvasCommand),

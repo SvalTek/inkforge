@@ -113,6 +113,41 @@ with an unrecognised `type` and a `callback` runs the callback. An unrecognised 
 `command` is the useful one for simple cases — `look`, a direction, or `@action` all work, because it goes through the
 same dispatcher the command line uses.
 
+## `allowInConversation`
+
+Whether this element stays on screen while a [conversation](conversations.md) is running. It defaults to `false`: a
+conversation owns the player's attention, so set it to `true` only when the exchange deliberately needs the element:
+
+```yaml
+elements:
+  - id: examine_entry
+    type: button
+    location: output
+    allowInConversation: true
+    fields:
+      - { id: label, type: text, value: Examine the threshold }
+    events:
+      activate: { type: command, command: look }
+```
+
+The same key works on [tools](tools.md#allowinconversation) and on
+[item actions](scenario.md#item-actions).
+
+**The engine does not guess.** There is no rule that grants permission from the region or activation type. A `callback`
+button is perfectly live mid-conversation and can be exactly what should be there; so can a meter. Only you know which
+is which, so an element without this key steps aside.
+
+**It is the ordinary hide state.** A conversation sets it the same way `GameUI.hide` would, which is the whole point:
+`GameUI.show`, `GameTools.show` and `GameItemActions.show` address the same state, so a script can bring a surface back
+for one exchange if it needs to, and a save records it. Nothing here is a second, parallel notion of "shown".
+
+**Withdrawing is not disabling.** A hidden element is still there, still has its directives, and can still be driven by
+a `call:` or a directive. What changes is what the player is offered. A timer that needs to hand the player a lamp
+should not have to care whether somebody is mid-sentence.
+
+If the player needs something outside the conversation's own options to finish it, mark that control
+`allowInConversation: true`; otherwise the scenario is soft-locked.
+
 ## Modals
 
 A modal is a titled window with its own recursive element tree. Modals are declared under `modals:` in `scenario.yaml`

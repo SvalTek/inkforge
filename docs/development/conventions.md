@@ -69,6 +69,13 @@ tool `action:` is resolved against the loaded globals and any miss is reported a
 `collectReferencedLuaNames` in `src/yaml/validate.ts` — otherwise it will not be checked, and it will not appear in that
 message.
 
+**The boot check and the runtime call must resolve a name the same way.** Boot walks a dot-delimited name one segment at
+a time, so the call has to as well; the bridge's direct named-call path resolves a bare global only, and using it for
+anything dotted means a name boot accepted still fails when it is reached. This happened: a dotted `call:` from a
+contextless site — a location action, a UI `then:` — was checked with the segment-walking rule and called with the other
+one, so the diagnostic said the name was fine and the terminal reported the failure instead. Anything that changes how a
+name is looked up has to change both halves in the same edit.
+
 `emit:` cannot be checked this way, because `Events:On` exposes no listener enumeration. The fallback is that an event
 with no handler is reported the first time it fires.
 
@@ -130,8 +137,20 @@ takes the **first** match, so a new key's position is a behavioural decision, no
 itself is a set used for validation and is not in execution order — the two lists are separate and both need updating.
 
 **Add a condition key.** `CONDITION_KEYS` in `src/yaml/validate.ts` and `check()` in `src/engine/conditions.ts`. A
-state-reading key also participates in the comparison-subject rules in `checkCondition`; `var` and `itemVar` share the
-same comparison implementation. Contextual keys must be validated only at sites that can actually supply their subject.
+state-reading key also participates in the comparison-subject rules in `checkCondition`; `var`, `itemVar` and `npcVar`
+share the same comparison implementation. Contextual keys must be validated only at sites that can actually supply their
+subject.
+
+**A subject that names itself is validated by resolution, not by context.** `itemVar` reads the *current* item, so the
+validator can ask whether the site can supply one. `npcVar` names its own instance instead, which is what lets it be valid
+everywhere — and it means the check is "does this subject resolve against the declared instances", not "is there a
+current one". Put that in the same block that builds the ids it resolves against; the ids are gathered once into the
+`ValidationScope` passed down the walk, rather than re-derived per site.
+
+**A state resolver is shared by the runtime and the validator.** `npcStatePath` and `parseNpcPath` in
+`src/engine/state.ts` are used by `check()`, by `execute()` and by `validateScenario` alike. If the validator grew its
+own copy of the parsing rule, a key the engine accepts and the validator rejects — or the reverse — would be a silent
+split, and the only symptom would be a boot error naming a key that looks obviously fine.
 
 **Add a Lua namespace.** Add it to `createHostNamespaces` in `src/lua/bindings.ts` as a `readonly` `LuaClass`. It is
 installed by being present in the globals map passed to `createLuaBridge` — there is no registration step. If it needs
@@ -144,6 +163,27 @@ mutates something drawn, mark the view dirty; if it starts an animation, the fra
 **Add a smoke assertion.** Assertions live in `tools/smoke.ts` and run against a real browser with the app booted. Wait
 on `document.body.dataset.projectReady` rather than a timeout, and state the assertion as the behaviour, not the
 implementation — the names are what a failure report shows.
+
+**Add an authored place that runs directives.** Directives and conditions are only
+checked where the validator walks them, so a new site — a conversation option, a tool
+action, a modal binding — has to be added to the walks as well as to the data shape.
+`validateScenario` for what it may get wrong, and `collectReferencedLuaNames` for the
+`call:` targets inside it. Missing the second is the quieter failure: a `call:` that
+nothing resolves still runs, and reports at the moment it is reached rather than in
+the boot diagnostics.
+
+**A contextual feature takes `DirectiveDeps`, not `EngineApi`.** A new kind of authored
+subject — an item action, a conversation — gets its own module that takes
+`DirectiveDeps`, so it can be reached from `execute()` without the engine knowing
+about it and so a Lua entry point later needs one type threaded rather than a
+reshaped dependency. Reaching for `EngineApi` instead couples the feature to the whole
+command surface for no gain, and is the thing that makes a later binding expensive.
+
+**A module may own state that has to survive a save.** Everything else in a snapshot
+is narrowed field by field in `save.ts`; a reserved `unknown` field is a place where
+that was skipped. Narrow it, and if the value can go stale against the scenario — a
+position naming content that no longer exists — decide explicitly which layer reports
+it, because the one that narrows usually cannot.
 
 **Update the docs.** Both trees document the current surface. A change to an authored key, a Lua method or a failure
 message is a change to `docs/authoring/`; a change to a module boundary, a build step or an invariant is a change to
