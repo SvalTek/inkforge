@@ -98,6 +98,7 @@ appears further down the file.
 | `GameOutput` | Writing to the transcript |
 | `GameState` | Reading and writing state |
 | `GameItems` | Reading item instances and authored definition data |
+| `GameInventory` | Reading and changing held item instances |
 | `GameUI` | Creating and changing UI elements |
 | `GameTools` | The tool rail |
 | `GameAudio` | Sound |
@@ -149,6 +150,30 @@ resolved.
 Definitions include the standard `name`, `description`, `aliases`, and `actions` fields plus any custom YAML fields the
 author added. Returned definitions are detached copies: Lua can reshape a local result, but doing so does not modify the
 composed scenario or a later lookup. Use `GameState` or `itemSet` for data that should change during play.
+
+### `GameInventory`
+
+```lua
+for _, id in ipairs(GameInventory.list()) do
+  local item = GameInventory.get(id)
+  GameOutput.add(item.definition.name)
+end
+
+GameInventory.give("entry_lantern")
+GameInventory.use("entry_lantern", "light")
+```
+
+This namespace works with concrete item **instance** ids, not definition ids. `list()`, `count()`, and `has(instanceId)`
+describe the held inventory. `get(instanceId)` has the same detached `{ id, def, definition }` shape as `GameItems.get`,
+but returns `nil` unless that instance is currently held.
+
+`give(instanceId)` adds a declared instance if it is not already held, and `remove(instanceId)` removes a held instance.
+Both return whether they changed the inventory. `actions(instanceId)` returns the id and label of each action currently
+available to that held instance. `use(instanceId, actionId)` triggers one of those actions after the current Lua call
+finishes; use it as a trigger and let the action's own YAML or Lua logic handle its follow-up flow.
+
+`getState(instanceId, path)` and `setState(instanceId, path, value)` read and write state local to an item instance.
+They address the same per-instance state that an item's `itemSet:` directive changes.
 
 ### `GameUI`
 

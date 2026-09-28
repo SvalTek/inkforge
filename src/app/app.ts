@@ -192,6 +192,11 @@ export function createApp(): AppContext {
   let bootChain: Promise<void> = Promise.resolve();
 
   function start(resume?: ResumedRuntime | null): Promise<void> {
+    // A new boot invalidates every deferred operation owned by the old engine
+    // before composition starts. The old Lua bridge remains alive until the
+    // queued boot tears it down, so waiting until then would leave a window for
+    // a timer callback to schedule work against stale runtime state.
+    app.engine?.shutdown();
     const generation = ++app.bootGeneration;
     // Captured per call rather than read from a shared field when the boot
     // finally runs: `bootChain` serializes boots, so a resume requested now
@@ -345,6 +350,8 @@ export function createApp(): AppContext {
         output,
         onError: reportProblem,
         audio: app.audio,
+        inventoryActions: (itemId) => engine.inventoryActions(itemId),
+        triggerInventoryAction: (itemId, actionId) => engine.triggerInventoryAction(itemId, actionId),
       });
       await engine.move(runtime.location);
       // A newer boot has already replaced everything this one built; announcing

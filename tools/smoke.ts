@@ -1679,7 +1679,7 @@ state:
   item.cellar_lantern.lit: false
   item.gate_lantern.lit: true
 player:
-  inventory: [cellar_lantern, gate_lantern]
+  inventory: [cellar_lantern, gate_lantern, api_lantern]
 definitions:
   item:
     lantern:
@@ -1721,6 +1721,10 @@ definitions:
           if: { var: inspectEnabled }
           then:
             - set: { inspectEnabled: false }
+        - id: lua
+          label: Lua callback
+          then:
+            - call: item.api
         - id: finish
           label: End run
           then:
@@ -1730,10 +1734,20 @@ instances:
   item:
     cellar_lantern: { def: lantern }
     gate_lantern: { def: lantern }
+    api_lantern: { def: lantern }
 locations:
   entry:
     title: Context Room
     text: Two lanterns share one definition.
+    actions:
+      - id: inventory_api
+        label: Exercise inventory Lua API
+        then:
+          - call: inventory_api
+      - id: inventory_cancel
+        label: Cancel deferred inventory action
+        then:
+          - call: inventory_cancel
 ui:
   elements:
     - id: context_inventory
@@ -1771,14 +1785,57 @@ function item.finish(params, context)
   GameOutput.add('finish:' .. calls)
 end
 
+function item.api(params, context)
+  GameOutput.add('api-call:' .. context.item.id .. ':' .. context.item.definitionId .. ':' .. context.item.actionId)
+end
+
 Events:On('item:inspected', function(data, context)
   GameOutput.add('emit:' .. data.marker .. ':' .. context.item.id .. ':' .. context.item.definitionId .. ':' .. context.item.actionId)
 end)
+
+function item.inventory_api(params, context)
+  local items = GameInventory.list()
+  local held = GameInventory.get('api_lantern')
+  held.definition.material = 'dull'
+  local actions = GameInventory.actions('api_lantern')
+  GameOutput.add('inventory:list:' .. #items .. ':' .. items[1] .. ':' .. GameInventory.count() .. ':' .. tostring(GameInventory.has('api_lantern')))
+  GameOutput.add('inventory:get:' .. held.id .. ':' .. held.def .. ':' .. held.definition.material .. ':' .. GameInventory.get('api_lantern').definition.material)
+  GameOutput.add('inventory:mutate:' .. tostring(GameInventory.give('api_lantern')) .. ':' .. tostring(GameInventory.give('missing')) .. ':' .. tostring(GameInventory.remove('missing')))
+  GameInventory.setState('api_lantern', 'checked', 'yes')
+  GameOutput.add('inventory:state:' .. GameInventory.getState('api_lantern', 'checked'))
+  GameOutput.add('inventory:actions:' .. #actions .. ':' .. actions[1].id .. ':' .. actions[1].label)
+  if GameInventory.use('api_lantern', 'lua') == nil then GameOutput.add('inventory:trigger') end
+end
+
+function inventory_api(params)
+  item.inventory_api(params)
+end
+
+function inventory_cancel(params)
+  GameInventory.use('api_lantern', 'lua')
+end
 `),
         },
       };
       await importPack(page, pack, "item-action-context-fixture", "scripts/main.lua");
       await page.locator('.nav[data-view="play"]').click();
+      await page.locator('[data-cmd="@inventory_cancel"]').first().evaluate((button) => {
+        (button as HTMLElement).click();
+        document.querySelector<HTMLButtonElement>("#restartHero")?.click();
+      });
+      await page.waitForFunction(() => document.body.dataset.projectReady === "true");
+      assert(
+        !(await page.locator("#terminal").textContent())?.includes("api-call:api_lantern:lantern:lua"),
+        "a deferred inventory action survived a restart",
+      );
+      await page.locator('[data-cmd="@inventory_api"]').first().click();
+      await waitForText(page, "#terminal", "inventory:list:3:cellar_lantern:3:true");
+      await waitForText(page, "#terminal", "inventory:get:api_lantern:lantern:dull:brass");
+      await waitForText(page, "#terminal", "inventory:mutate:false:false:false");
+      await waitForText(page, "#terminal", "inventory:state:yes");
+      await waitForText(page, "#terminal", "inventory:actions:5:inspect:Inspect");
+      await waitForText(page, "#terminal", "inventory:trigger");
+      await waitForText(page, "#terminal", "api-call:api_lantern:lantern:lua");
       await page.locator('[data-ui="context_inventory"]').click();
 
       await page.locator('[data-slot="0"]').click();
@@ -1868,9 +1925,11 @@ end)
         "a stale action ran after game over",
       );
       await page.locator("#closeInventory").click();
-      return "two instances shared definition actions while itemVar/itemSet kept independent state; GameItems " +
-        "resolved arbitrary definition metadata as detached copies; Lua could not redirect retained action context; " +
-        "pending actions serialized; malformed payloads failed validation; game over removed and guarded actions";
+      return "GameInventory exposed held instances, safe detached copies, inventory changes, per-instance state, deferred " +
+        "action triggers and restart cancellation; two instances shared definition actions while itemVar/itemSet kept " +
+        "independent state; GameItems resolved arbitrary definition metadata as detached copies; Lua could not redirect " +
+        "retained action context; pending actions serialized; malformed payloads failed validation; game over removed and " +
+        "guarded actions";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {

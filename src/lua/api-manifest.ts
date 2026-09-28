@@ -109,6 +109,44 @@ export const LUA_API_MANIFEST: readonly LuaApiNamespace[] = [
     ],
   },
   {
+    name: "GameInventory",
+    call: ".",
+    summary: "Reading and changing the held item instances.",
+    members: [
+      { name: "list", args: "()", summary: "Return held instance ids in inventory order." },
+      { name: "count", args: "()", summary: "Return the number of held item instances." },
+      { name: "has", args: "(instanceId)", summary: "Whether an item instance is held." },
+      {
+        name: "get",
+        args: "(instanceId)",
+        summary:
+          "Resolve a held item instance to its id, definition id, and a detached definition copy; `nil` when unheld.",
+      },
+      {
+        name: "give",
+        args: "(instanceId)",
+        summary: "Give a declared item instance; returns whether it was newly added.",
+      },
+      { name: "remove", args: "(instanceId)", summary: "Remove a held item instance; returns whether it was removed." },
+      {
+        name: "actions",
+        args: "(instanceId)",
+        summary: "Return the currently available action ids and labels for a held item instance.",
+      },
+      {
+        name: "use",
+        args: "(instanceId, actionId)",
+        summary: "Trigger a currently available item action after the current Lua call completes.",
+      },
+      { name: "getState", args: "(instanceId, path)", summary: "Read runtime state local to an item instance." },
+      {
+        name: "setState",
+        args: "(instanceId, path, value)",
+        summary: "Write runtime state local to an item instance.",
+      },
+    ],
+  },
+  {
     name: "GameUI",
     call: ".",
     summary: "Creating and changing UI elements.",
