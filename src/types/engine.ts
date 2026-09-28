@@ -83,6 +83,7 @@ export interface EngineApi {
   inventoryActions(itemId: string): AvailableInventoryAction[];
   runInventoryAction(itemId: string, actionId: string): Promise<boolean>;
   triggerInventoryAction(itemId: string, actionId: string): void;
+  shutdown(): void;
   dispatch(raw: string): Promise<void>;
 }
 

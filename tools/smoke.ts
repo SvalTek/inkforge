@@ -1744,6 +1744,10 @@ locations:
         label: Exercise inventory Lua API
         then:
           - call: inventory_api
+      - id: inventory_cancel
+        label: Cancel deferred inventory action
+        then:
+          - call: inventory_cancel
 ui:
   elements:
     - id: context_inventory
@@ -1806,11 +1810,24 @@ end
 function inventory_api(params)
   item.inventory_api(params)
 end
+
+function inventory_cancel(params)
+  GameInventory.use('api_lantern', 'lua')
+end
 `),
         },
       };
       await importPack(page, pack, "item-action-context-fixture", "scripts/main.lua");
       await page.locator('.nav[data-view="play"]').click();
+      await page.locator('[data-cmd="@inventory_cancel"]').first().evaluate((button) => {
+        (button as HTMLElement).click();
+        document.querySelector<HTMLButtonElement>("#restartHero")?.click();
+      });
+      await page.waitForFunction(() => document.body.dataset.projectReady === "true");
+      assert(
+        !(await page.locator("#terminal").textContent())?.includes("api-call:api_lantern:lantern:lua"),
+        "a deferred inventory action survived a restart",
+      );
       await page.locator('[data-cmd="@inventory_api"]').first().click();
       await waitForText(page, "#terminal", "inventory:list:3:cellar_lantern:3:true");
       await waitForText(page, "#terminal", "inventory:get:api_lantern:lantern:dull:brass");
@@ -1908,10 +1925,11 @@ end
         "a stale action ran after game over",
       );
       await page.locator("#closeInventory").click();
-      return "GameInventory exposed held instances, safe detached copies, inventory changes, per-instance state and " +
-        "deferred action triggers; two instances shared definition actions while itemVar/itemSet kept independent state; " +
-        "GameItems resolved arbitrary definition metadata as detached copies; Lua could not redirect retained action " +
-        "context; pending actions serialized; malformed payloads failed validation; game over removed and guarded actions";
+      return "GameInventory exposed held instances, safe detached copies, inventory changes, per-instance state, deferred " +
+        "action triggers and restart cancellation; two instances shared definition actions while itemVar/itemSet kept " +
+        "independent state; GameItems resolved arbitrary definition metadata as detached copies; Lua could not redirect " +
+        "retained action context; pending actions serialized; malformed payloads failed validation; game over removed and " +
+        "guarded actions";
     });
 
     await runCheck("9. Save, restart, and resume a per-scenario slot", async () => {

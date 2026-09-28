@@ -26,6 +26,8 @@ export function createEngine(deps: EngineDeps): EngineApi {
   let inventoryActionRunning = false;
   const scheduledInventoryActions: { itemId: string; actionId: string }[] = [];
   let inventoryActionDrainScheduled = false;
+  let inventoryActionTimer: number | undefined;
+  let isShutdown = false;
 
   function check(c: Condition | undefined, context?: ExecutionContext): boolean {
     return checkCondition(c, deps.runtime, context);
@@ -85,7 +87,7 @@ export function createEngine(deps: EngineDeps): EngineApi {
   }
 
   async function runInventoryAction(itemId: string, actionId: string): Promise<boolean> {
-    if (inventoryActionRunning) return false;
+    if (isShutdown || inventoryActionRunning) return false;
     const resolved = resolveInventoryAction(itemId, actionId);
     if (!resolved) return false;
     inventoryActionRunning = true;
@@ -99,28 +101,37 @@ export function createEngine(deps: EngineDeps): EngineApi {
   }
 
   function drainScheduledInventoryActions(): void {
-    setTimeout(() => {
+    inventoryActionTimer = setTimeout(() => {
+      inventoryActionTimer = undefined;
       void (async () => {
         try {
-          while (scheduledInventoryActions.length) {
+          while (!isShutdown && scheduledInventoryActions.length) {
             const next = scheduledInventoryActions.shift()!;
             await runInventoryAction(next.itemId, next.actionId);
           }
         } finally {
           inventoryActionDrainScheduled = false;
-          if (scheduledInventoryActions.length) drainScheduledInventoryActions();
+          if (!isShutdown && scheduledInventoryActions.length) drainScheduledInventoryActions();
         }
       })();
     }, 0);
   }
 
   function triggerInventoryAction(itemId: string, actionId: string): void {
+    if (isShutdown) return;
     scheduledInventoryActions.push({ itemId, actionId });
     if (inventoryActionDrainScheduled) return;
     inventoryActionDrainScheduled = true;
     // Lua host calls must unwind before an item action can reach a `call:`
     // directive and enter the bridge again.
     drainScheduledInventoryActions();
+  }
+
+  function shutdown(): void {
+    isShutdown = true;
+    scheduledInventoryActions.length = 0;
+    if (inventoryActionTimer !== undefined) clearTimeout(inventoryActionTimer);
+    inventoryActionTimer = undefined;
   }
 
   async function dispatch(raw: string): Promise<void> {
@@ -175,5 +186,15 @@ export function createEngine(deps: EngineDeps): EngineApi {
     }
   }
 
-  return { check, move, execute, available, inventoryActions, runInventoryAction, triggerInventoryAction, dispatch };
+  return {
+    check,
+    move,
+    execute,
+    available,
+    inventoryActions,
+    runInventoryAction,
+    triggerInventoryAction,
+    shutdown,
+    dispatch,
+  };
 }
