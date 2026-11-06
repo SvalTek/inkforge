@@ -5,8 +5,41 @@ import type { EditorHarness } from "../src/editor/harness.ts";
 import { removeEntry } from "../src/editor/tree.ts";
 import type { Browser, BrowserContext, Page } from "playwright-core";
 import { strToU8, zipSync } from "fflate";
+import { join } from "node:path";
 
-const CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+/**
+ * The system browsers worth trying before the bundled Playwright Chromium.
+ *
+ * The old harness only knew a Windows Chrome path, so on Linux and macOS the
+ * first launch attempt was guaranteed to fail and every check paid for it. A
+ * candidate list per platform keeps the system browser an accelerator where it
+ * exists, and leaves the bundled Chromium to do the work where it does not.
+ */
+const SYSTEM_CHROME_PATHS: readonly string[] = (() => {
+  if (Deno.build.os === "windows") {
+    return [
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    ];
+  }
+  if (Deno.build.os === "darwin") {
+    return ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"];
+  }
+  return ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
+})();
+
+/** The first system browser that actually exists, or `undefined` for bundled Chromium. */
+async function existingSystemChrome(): Promise<string | undefined> {
+  for (const candidate of SYSTEM_CHROME_PATHS) {
+    try {
+      if ((await Deno.stat(candidate)).isFile) return candidate;
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+  }
+  return undefined;
+}
+
 const TIMEOUT = 30_000;
 
 interface ChromiumModule {
@@ -40,13 +73,18 @@ function silentWav(): Uint8Array {
 }
 
 async function launch(): Promise<Browser> {
-  try {
-    const module = await import("playwright-core") as unknown as ChromiumModule;
-    return await module.chromium.launch({ executablePath: CHROME_PATH, headless: true });
-  } catch {
-    const module = await import("playwright") as unknown as ChromiumModule;
-    return await module.chromium.launch({ headless: true });
+  const systemChrome = await existingSystemChrome();
+  if (systemChrome) {
+    try {
+      const module = await import("playwright-core") as unknown as ChromiumModule;
+      return await module.chromium.launch({ executablePath: systemChrome, headless: true });
+    } catch {
+      // A system browser that will not launch must not fail the check: the
+      // bundled Chromium is the fallback everywhere.
+    }
   }
+  const module = await import("playwright") as unknown as ChromiumModule;
+  return await module.chromium.launch({ headless: true });
 }
 
 async function waitFor(page: Page, selector: string, text: string): Promise<void> {
@@ -121,7 +159,7 @@ async function main(): Promise<void> {
       project: { id: "reserved-marker-test", version: "1.0.0" },
       files: ["scenario.yaml", "scripts/main.lua", reservedPath],
     };
-    const invalidPackPath = `${temp}\\reserved-marker.inkforge`;
+    const invalidPackPath = join(temp, "reserved-marker.inkforge");
     await Deno.writeFile(
       invalidPackPath,
       zipSync({
@@ -210,7 +248,7 @@ async function main(): Promise<void> {
     await page.locator('.file[data-file="assets/map.svg"]').click();
     assert(await page.locator("#assetPreview img").count() === 1, "image asset preview missing");
     const tempAssetDir = await Deno.makeTempDir({ prefix: "inkforge-authoring-asset-" });
-    const wavPath = `${tempAssetDir}\\click.wav`;
+    const wavPath = join(tempAssetDir, "click.wav");
     await Deno.writeFile(wavPath, silentWav());
     await page.locator("#addFile").click();
     await page.locator("#assetInput").setInputFiles(wavPath);
@@ -543,10 +581,10 @@ async function main(): Promise<void> {
     // A scenario can name a Lua entry outside scripts/main.lua. Import must
     // accept that pack, and the editor must protect the configured file and
     // every ancestor folder without inventing a missing default-script tab.
-    const customPackPath = `${temp}\\custom-entry.inkforge`;
+    const customPackPath = join(temp, "custom-entry.inkforge");
     const customScenario =
       "meta:\n  title: Custom Entry\nstartLocation: gate\nscripts:\n  main: chapter/entry.lua\nlocations:\n  gate:\n    title: Gate\n    text: Hello\n";
-    const missingEntryPath = `${temp}\\missing-custom-entry.inkforge`;
+    const missingEntryPath = join(temp, "missing-custom-entry.inkforge");
     await Deno.writeFile(
       missingEntryPath,
       zipSync({
