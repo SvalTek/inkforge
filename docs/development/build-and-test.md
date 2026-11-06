@@ -135,6 +135,11 @@ The browser suites need a served build; `smoke` does the build and serve itself.
 asserting on **observable state that a user could see** — a terminal line, a meter's text, a frame count — rather than
 on internals, because that is what makes a failure legible.
 
+The browser suites resolve a browser per platform: `tools/smoke.ts` and `tools/authoring-check.ts` try the system
+Chrome/Chromium paths that exist for the current OS, then fall back to the Playwright-bundled Chromium. That order keeps
+a system browser an accelerator where it exists without making the checks Windows-only, which is what a single hardcoded
+`C:\Program Files\\…` path did.
+
 Two traps worth knowing:
 
 - **Timing.** Asserting on the first paint of something driven by a timer is flaky, because boot often takes longer

@@ -16,7 +16,38 @@ import type { Browser, BrowserContext, ConsoleMessage, Dialog, Page, Request } f
  * Exits non-zero when any assertion fails.
  */
 
-const CHROME_PATH = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+/**
+ * The system browsers worth trying before the bundled Playwright Chromium.
+ *
+ * The old harness only knew a Windows Chrome path, so on Linux and macOS the
+ * first launch attempt was guaranteed to fail and every check paid for it. A
+ * candidate list per platform keeps the system browser an accelerator where it
+ * exists, and leaves the bundled Chromium to do the work where it does not.
+ */
+const SYSTEM_CHROME_PATHS: readonly string[] = (() => {
+  if (Deno.build.os === "windows") {
+    return [
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    ];
+  }
+  if (Deno.build.os === "darwin") {
+    return ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"];
+  }
+  return ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
+})();
+
+/** The first system browser that actually exists, or `undefined` for bundled Chromium. */
+async function existingSystemChrome(): Promise<string | undefined> {
+  for (const candidate of SYSTEM_CHROME_PATHS) {
+    try {
+      if ((await Deno.stat(candidate)).isFile) return candidate;
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+  }
+  return undefined;
+}
 const PRIMARY_PORT = 4173;
 const VIEWPORT = { width: 1440, height: 900 };
 const BOOT_TIMEOUT = 30_000;
@@ -371,7 +402,7 @@ async function importPack(
   options: { expectReady?: boolean } = {},
 ): Promise<void> {
   const dir = await Deno.makeTempDir({ prefix: "inkforge-smoke-" });
-  const filePath = `${dir}\\pack.inkforge`;
+  const filePath = join(dir, "pack.inkforge");
   const entries = {
     ...pack.entries,
     "manifest.json": new TextEncoder().encode(`${JSON.stringify(pack.manifest, null, 2)}\n`),
@@ -434,19 +465,24 @@ async function waitForStoredText(page: Page, marker: string, path: string): Prom
 }
 
 async function launchBrowser(): Promise<{ browser: Browser; approach: string }> {
-  try {
-    const module = (await import("playwright-core")) as unknown as PlaywrightModule;
-    const browser = await module.chromium.launch({ executablePath: CHROME_PATH, headless: true });
-    return { browser, approach: `playwright-core@1.58.2 + system Chrome (${browser.version()})` };
-  } catch (coreError) {
-    console.log(
-      `playwright-core unavailable (${coreError instanceof Error ? coreError.message : String(coreError)}); ` +
-        "falling back to playwright",
-    );
-    const module = (await import("playwright")) as unknown as PlaywrightModule;
-    const browser = await module.chromium.launch({ headless: true });
-    return { browser, approach: `playwright@1.58.2 + bundled Chromium (${browser.version()})` };
+  const systemChrome = await existingSystemChrome();
+  if (systemChrome) {
+    try {
+      const module = (await import("playwright-core")) as unknown as PlaywrightModule;
+      const browser = await module.chromium.launch({ executablePath: systemChrome, headless: true });
+      return { browser, approach: `playwright-core@1.58.2 + system Chrome at ${systemChrome} (${browser.version()})` };
+    } catch (error) {
+      console.log(
+        `system Chrome at ${systemChrome} would not launch (${
+          error instanceof Error ? error.message : String(error)
+        }); ` +
+          "falling back to bundled Chromium",
+      );
+    }
   }
+  const module = (await import("playwright")) as unknown as PlaywrightModule;
+  const browser = await module.chromium.launch({ headless: true });
+  return { browser, approach: `playwright@1.58.2 + bundled Chromium (${browser.version()})` };
 }
 
 function startServer(): { port: number; shutdown: () => Promise<void> } {
@@ -1168,7 +1204,7 @@ add('audio_stop_all', 'Stop all', 'audio_stop_all')
       assert(originalPack, "original pack was not captured");
       const oldPack = structuredClone(originalPack);
       const temp = await Deno.makeTempDir({ prefix: "inkforge-smoke-older-" });
-      const path = `${temp}\\older.inkforge`;
+      const path = join(temp, "older.inkforge");
       const entries = {
         ...oldPack.entries,
         "manifest.json": new TextEncoder().encode(`${JSON.stringify(oldPack.manifest, null, 2)}\n`),
@@ -1293,7 +1329,7 @@ ui:
         },
       };
       const dir = await Deno.makeTempDir({ prefix: "inkforge-smoke-xss-" });
-      const filePath = `${dir}\\pack.inkforge`;
+      const filePath = join(dir, "pack.inkforge");
       await Deno.writeFile(
         filePath,
         zipSync({
