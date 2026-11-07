@@ -46,6 +46,12 @@ export interface AvailableAction {
   cmd: string;
 }
 
+/** An item action currently available to a held item instance. */
+export interface AvailableInventoryAction {
+  id: string;
+  label: string;
+}
+
 /** The concrete inventory item that caused an authored action to run. */
 export interface ItemExecutionContext {
   id: string;
@@ -74,6 +80,10 @@ export interface EngineApi {
   move(id: string, context?: ExecutionContext): Promise<void>;
   execute(list: DirectiveList | undefined, context?: ExecutionContext): Promise<void>;
   available(): AvailableAction[];
+  inventoryActions(itemId: string): AvailableInventoryAction[];
+  runInventoryAction(itemId: string, actionId: string): Promise<boolean>;
+  triggerInventoryAction(itemId: string, actionId: string): void;
+  shutdown(): void;
   dispatch(raw: string): Promise<void>;
 }
 

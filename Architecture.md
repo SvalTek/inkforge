@@ -10,7 +10,7 @@ Inkforge is a client-side browser application. `index.html` provides the shell, 
 | [`src/project/`](src/project/) | Normalizes projects, loads the bundled starter, stores projects and run saves in IndexedDB, and resolves media assets. |
 | [`src/editor/`](src/editor/) | Renders the nested file tree and tabs, keeps the current CodeMirror buffer in sync with the project, and handles file creation and deletion. |
 | [`src/yaml/`](src/yaml/) and [`src/vfs/`](src/vfs/) | Resolve project paths, compose `!import` and `!mixin` documents, and validate the resulting scenario. |
-| [`src/engine/`](src/engine/) | Dispatches commands, checks conditions, applies directives, tracks state and inventory, and creates or restores run snapshots. |
+| [`src/engine/`](src/engine/) | Dispatches commands and inventory item actions, checks conditions, applies directives, tracks state and inventory, and creates or restores run snapshots. |
 | [`src/lua/`](src/lua/) | Boots Wasmoon, exposes the host APIs, and invokes Lua functions named by authored YAML. |
 | [`src/ui/`](src/ui/), [`src/canvas/`](src/canvas/), [`src/audio/`](src/audio/) | Render the text and authored UI, draw and hit-test interactive scenes, and play project audio. |
 | [`src/import-export/`](src/import-export/) | Imports and exports `.inkforge` project packs. |
@@ -40,7 +40,7 @@ The start path is:
 
 The engine accepts commands and authored actions through [`src/engine/engine.ts`](src/engine/engine.ts). State changes, output, tools, and UI changes mark the view dirty; the render gate repaints when those changes need to become visible. Lua timers and canvas events use the same runtime state, so they can update the view without a typed command. Authored YAML calls Lua by function or event name through [`src/lua/invoke.ts`](src/lua/invoke.ts); it does not embed Lua source for evaluation.
 
-The canvas runtime keeps its own scenes, hit testing, animation, and pointer routing. The DOM renderer owns text, controls, inventory, inventory item actions, and authored modals. Item actions are serialized while an invocation is pending and run their authored directive lists through the engine with transient context identifying the invoking instance, definition, and action. Lua can resolve that instance through the read-only `GameItems` namespace, which returns detached copies of authored definition data. The two surfaces share scenario state but have different render paths.
+The canvas runtime keeps its own scenes, hit testing, animation, and pointer routing. The DOM renderer owns text, controls, inventory presentation, and authored modals. The engine owns item-action resolution, serialization, and execution with transient context identifying the invoking instance, definition, and action; both the inventory inspector and Lua's `GameInventory` use that path. Lua-triggered actions are deferred until the originating Lua call returns, and a new boot invalidates pending work from the previous engine. Lua can resolve an instance through the read-only `GameItems` namespace, which returns detached copies of authored definition data. The two surfaces share scenario state but have different render paths.
 
 ## Browser and build boundary
 

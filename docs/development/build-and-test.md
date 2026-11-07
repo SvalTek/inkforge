@@ -87,7 +87,7 @@ Builds, serves, and drives Chrome. Captures console messages, page errors and di
 | 6h | Markdown renders, and authored links are gated behind a confirmation dialog |
 | 7 | New project restores the starter |
 | 8 | A Lua timer repaints a bound meter with no command |
-| 8a | Inventory definition actions validate payloads, isolate per-instance state, serialize pending calls, protect context from Lua mutation, expose detached metadata, and stop after game over |
+| 8a | Inventory definition actions validate payloads, isolate per-instance state, serialize pending calls, protect context from Lua mutation, expose detached metadata, stop after game over, and verify `GameInventory` reads, mutation, state, and deferred Lua-triggered actions |
 | 9 | Save a run, restart without overwriting it, and resume its state and inventory |
 | 9a | Export a save as JSON, delete it, import it, and resume it |
 | 9b | Importing over the active project's own save asks first, even after a boot that failed |

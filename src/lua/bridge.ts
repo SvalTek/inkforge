@@ -3,7 +3,7 @@ import { createLuaBridge, globalBindings, jsonBindings, regexBindings, timersBin
 import { INKFORGE_LUA_API } from "./lua-api.ts";
 import { createHostNamespaces } from "./bindings.ts";
 import type { CanvasCommand, CanvasHost } from "../types/canvas.ts";
-import type { ApplyUiFn, EngineRuntime, OutputFn } from "../types/engine.ts";
+import type { ApplyUiFn, EngineApi, EngineRuntime, OutputFn } from "../types/engine.ts";
 import type { Vfs } from "../types/vfs.ts";
 import type { AudioManagerLike } from "../types/audio.ts";
 import type { Scenario } from "../types/scenario.ts";
@@ -27,6 +27,8 @@ export interface LuaEngineOptions {
   applyUi: ApplyUiFn;
   output: OutputFn;
   audio: AudioManagerLike;
+  inventoryActions: EngineApi["inventoryActions"];
+  triggerInventoryAction: EngineApi["triggerInventoryAction"];
   /** Report a Lua failure that is not a thrown boot error (e.g. a tick error). */
   onError: (message: string) => void;
 }
@@ -51,7 +53,19 @@ export interface LuaEngineOptions {
  * before any work.
  */
 export async function createLuaEngine(options: LuaEngineOptions): Promise<LuaBridge> {
-  const { runtime, scenario, vfs, scriptPath, canvasHost, applyUi, output, audio, onError } = options;
+  const {
+    runtime,
+    scenario,
+    vfs,
+    scriptPath,
+    canvasHost,
+    applyUi,
+    output,
+    audio,
+    inventoryActions,
+    triggerInventoryAction,
+    onError,
+  } = options;
 
   if (vfs[scriptPath] === undefined) throw new Error(`Script not found: ${scriptPath}`);
 
@@ -66,7 +80,7 @@ export async function createLuaEngine(options: LuaEngineOptions): Promise<LuaBri
   // `injectObjects`/`enableProxy` are the bridge defaults; stated explicitly so
   // the dependency on direct object bridging is visible where it matters.
   const bridge = await createLuaBridge({
-    ...createHostNamespaces({ runtime, scenario, applyUi, output, audio }),
+    ...createHostNamespaces({ runtime, scenario, applyUi, output, audio, inventoryActions, triggerInventoryAction }),
     // Internal transport for the Lua-side `GameCanvas` handles. Double
     // underscore marks it as plumbing rather than authored API.
     __canvas_command: (payload: unknown) => canvasHost.command(payload as CanvasCommand),

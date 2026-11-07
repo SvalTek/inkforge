@@ -1,13 +1,5 @@
 import type { AppContext } from "../app/context.ts";
-import type {
-  AvailableAction,
-  EngineEvent,
-  ExecutionContext,
-  ItemAction,
-  ResolvedUiElement,
-  Scenario,
-  UiActivation,
-} from "../types/index.ts";
+import type { AvailableAction, EngineEvent, ResolvedUiElement, Scenario, UiActivation } from "../types/index.ts";
 import { itemName } from "../engine/directives.ts";
 import { uiElement } from "../engine/ui-state.ts";
 import { $all } from "../app/dom.ts";
@@ -219,11 +211,8 @@ export function inspectItem(app: AppContext, slot: number): void {
   dom.itemName.textContent = definition.name || id;
   renderBlocks(dom.itemDescription, definition.description || "");
   dom.itemArt.textContent = "◆";
-  const actions = app.runtime?.over
-    ? []
-    : (definition.actions || []).filter((action) =>
-      app.engine?.check(action.if, itemActionContext(id, definitionId, action.id)) ?? true
-    );
+  const availableActions = new Set(app.engine?.inventoryActions(id).map((action) => action.id) || []);
+  const actions = (definition.actions || []).filter((action) => availableActions.has(action.id));
   dom.itemActions.replaceChildren(...actions.map((action) => {
     const button = document.createElement("button");
     button.type = "button";
@@ -231,28 +220,21 @@ export function inspectItem(app: AppContext, slot: number): void {
     button.dataset.itemAction = action.id;
     button.textContent = action.label || action.id;
     button.disabled = pendingInventoryAction.has(app);
-    button.onclick = () => void runItemAction(app, id, definitionId, action);
+    button.onclick = () => void runItemAction(app, id, action.id);
     return button;
   }));
-}
-
-function itemActionContext(itemId: string, definitionId: string, actionId: string): ExecutionContext {
-  return { item: { id: itemId, definitionId, actionId } };
 }
 
 async function runItemAction(
   app: AppContext,
   itemId: string,
-  definitionId: string,
-  action: ItemAction,
+  actionId: string,
 ): Promise<void> {
   if (!app.runtime || app.runtime.over || pendingInventoryAction.has(app)) return;
   pendingInventoryAction.add(app);
   app.dom.itemActions.querySelectorAll<HTMLButtonElement>("button").forEach((button) => button.disabled = true);
   try {
-    const context = itemActionContext(itemId, definitionId, action.id);
-    // Conditions may have changed since the inspector was painted.
-    if (app.engine?.check(action.if, context) ?? true) await app.engine?.execute(action.then, context);
+    await app.engine?.runInventoryAction(itemId, actionId);
   } finally {
     pendingInventoryAction.delete(app);
     app.flushView();

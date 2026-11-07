@@ -1,6 +1,6 @@
 import type LuaBridge from "WebLuaBridge";
 import type { AppContext } from "./context.ts";
-import type { OutputFn, Scenario, UiCommand } from "../types/index.ts";
+import type { AvailableInventoryAction, OutputFn, Scenario, UiCommand } from "../types/index.ts";
 import { InkforgeCanvasRuntime } from "../canvas/runtime.ts";
 import { createLuaEngine } from "../lua/bridge.ts";
 import { markViewDirty } from "../engine/events.ts";
@@ -52,6 +52,8 @@ export interface BootHooks {
   output: OutputFn;
   onError(message: string): void;
   audio: AudioManagerLike;
+  inventoryActions(itemId: string): AvailableInventoryAction[];
+  triggerInventoryAction(itemId: string, actionId: string): void;
 }
 
 /**
@@ -122,6 +124,8 @@ export async function bootRuntime(app: AppContext, scenario: Scenario, hooks: Bo
     applyUi: hooks.applyUi,
     output: hooks.output,
     audio: hooks.audio,
+    inventoryActions: hooks.inventoryActions,
+    triggerInventoryAction: hooks.triggerInventoryAction,
     onError: hooks.onError,
   });
   app.lua = lua;

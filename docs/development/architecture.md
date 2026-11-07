@@ -17,11 +17,11 @@ Two views, one runtime:
 |---|---|---|
 | Shell | `src/main.ts`, `src/app/app.ts`, `src/app/context.ts`, `src/app/dom.ts`, `src/app/events.ts` | App context, DOM references, event wiring, the `start()` pipeline |
 | Boot | `src/app/boot.ts` | Composes the runtime: canvas host, Lua engine, boot-time name validation |
-| Engine | `src/engine/engine.ts`, `directives.ts`, `conditions.ts`, `state.ts`, `events.ts`, `ui-state.ts`, `tool-state.ts` | Command dispatch, directive execution, conditions, the mutation funnels |
+| Engine | `src/engine/engine.ts`, `directives.ts`, `conditions.ts`, `state.ts`, `events.ts`, `ui-state.ts`, `tool-state.ts` | Command and inventory-action dispatch, directive execution, conditions, the mutation funnels |
 | YAML | `src/yaml/compose.ts`, `loader.ts`, `validate.ts` | `!import`/`!mixin` composition, static validation, Lua-name collection |
 | Lua | `src/lua/bridge.ts`, `bindings.ts`, `lua-api.ts`, `facades/*.ts`, `invoke.ts`, `boundary.ts` | Bridge construction, host namespaces, the Lua-side canvas API, the seam |
 | Canvas | `src/canvas/runtime.ts`, `projection.ts`, `math.ts`, `easings.ts` | Scene/node model, hit-testing, drawing, animations, the frame loop |
-| UI | `src/ui/render.ts`, `actions.ts`, `modals.ts`, `tools.ts` | DOM painting, inventory item actions, activation handling, modals, the tool rail |
+| UI | `src/ui/render.ts`, `actions.ts`, `modals.ts`, `tools.ts` | DOM painting, inventory presentation, activation handling, modals, the tool rail |
 | Project | `src/project/project.ts`, `storage.ts`, `save-storage.ts`, `db.ts`, `assets.ts`, `starter.ts` | Project and run-save records in IndexedDB, asset resolution, the starter |
 | Pack | `src/import-export/pack.ts` | `.inkforge` export and import, version precedence |
 | Editor | `src/editor/editor.ts`, `tree.ts`, `codemirror.ts` | Nested file tree, creation and guarded deletion, tabs, buffer sync and language-aware editing |
@@ -104,23 +104,26 @@ is `src/lua/invoke.ts`, and every name is checked — `call:` targets at boot, `
 `Events:On` cannot be enumerated.
 
 Inventory actions add transient execution context to this same engine path rather than using a separate dispatcher. The
-inspector supplies the instance id, definition id and action id; `check` and `execute` carry that subject through nested
-directives, and the Lua seam exposes it as the optional second argument to `call` and `emit` handlers. Context describes
-one invocation, so it does not belong in runtime state or save snapshots. Each Lua crossing clones the context before
-bridging it; a proxied Lua table must not be able to rewrite the engine's retained execution subject.
+engine resolves the held instance and its available action, constructs the instance id, definition id and action id, then
+uses `check` and `execute` to carry that subject through nested directives. Both the inspector and `GameInventory` call
+that engine path; the inspector only disables its controls while a click is pending. The Lua seam exposes context as the
+optional second argument to `call` and `emit` handlers. Context describes one invocation, so it does not belong in runtime
+state or save snapshots. Each Lua crossing clones the context before bridging it; a proxied Lua table must not be able to
+rewrite the engine's retained execution subject.
 
-The inventory renderer holds a per-app action lock across the complete async directive execution. It disables every
-inspector action before the first await, rejects duplicate or stale handlers, and releases the lock in `finally` before
-repainting. An awaited Lua call therefore cannot turn a rapid double click into two one-shot effects.
+`GameInventory.use` is a trigger, not an awaitable public contract. It queues work until the current Lua call unwinds, so
+an item's YAML action can safely call Lua again. The queue belongs to the engine and is invalidated as soon as a new boot
+starts; the old bridge can still be alive while the next scenario composes, but it cannot schedule an action into the new
+run.
 
 Contextual item state still uses the ordinary flat runtime store. `itemStatePath` is the single resolver for both
 `itemVar` and `itemSet`, mapping a local name such as `lit` to `item.<instance-id>.lit`. The existing state mutation
 funnel and save projection therefore apply without a second entity-state system.
 
 Item definition metadata crosses a separate read-only seam. `GameItems.get` resolves an instance against the composed
-scenario and `GameItems.definition` performs a direct definition lookup. Both return detached definition copies, so
-Lua cannot mutate the scenario object that the renderer and engine share. This remains an item-specific API rather than
-exposing a generic path into the whole scenario.
+scenario and `GameItems.definition` performs a direct definition lookup. Both return detached definition copies, so Lua
+cannot mutate the scenario object that the renderer and engine share. `GameInventory` adds held-instance reads, inventory
+mutation, action discovery and triggering, and per-instance state; it does not expose generic scenario mutation.
 
 ## Canvas
 
